@@ -160,31 +160,32 @@ app.post('/api/moodle/login', async (req, res) => {
 
     // Verify session
     const verifyUrl = `${base}/my/`;
-    const verifyRes = await fetch(verifyUrl, {
-      headers: {
-        'User-Agent': UA,
-        'Cookie': cookieString
+    try {
+      const verifyHtml = await fetchMoodleHtml(verifyUrl, cookieString);
+
+      const isConnected = verifyHtml.includes('Área personal') || 
+                          verifyHtml.includes('Dashboard') || 
+                          verifyHtml.includes('course/view.php') ||
+                          verifyHtml.includes('nav-link') ||
+                          !verifyHtml.includes('username');
+
+      if (isConnected) {
+        return res.json({
+          success: true,
+          moodleSession: cookieString,
+          server,
+          base
+        });
+      } else {
+        return res.json({
+          success: false,
+          error: 'Las credenciales ingresadas no son válidas o Moodle rechazó el acceso.'
+        });
       }
-    });
-    const verifyHtml = await verifyRes.text();
-
-    const isConnected = verifyHtml.includes('Área personal') || 
-                        verifyHtml.includes('Dashboard') || 
-                        verifyHtml.includes('course/view.php') ||
-                        verifyHtml.includes('nav-link') ||
-                        !verifyHtml.includes('username');
-
-    if (isConnected) {
-      return res.json({
-        success: true,
-        moodleSession: cookieString,
-        server,
-        base
-      });
-    } else {
+    } catch (err: any) {
       return res.json({
         success: false,
-        error: 'Las credenciales ingresadas no son válidas o Moodle rechazó el acceso.'
+        error: `Las credenciales ingresadas no son válidas o la sesión no se pudo establecer. (${err.message})`
       });
     }
 
@@ -194,20 +195,50 @@ app.post('/api/moodle/login', async (req, res) => {
   }
 });
 
-// Helper for fetching with Moodle cookies
-async function fetchMoodleHtml(url: string, cookieString: string) {
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': UA,
-      'Cookie': cookieString,
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-      'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+// Helper for fetching with Moodle cookies, manually managing redirects to prevent infinite loops
+async function fetchMoodleHtml(url: string, cookieString: string, maxRedirects = 5): Promise<string> {
+  let currentUrl = url;
+  let redirects = 0;
+
+  while (redirects <= maxRedirects) {
+    const response = await fetch(currentUrl, {
+      headers: {
+        'User-Agent': UA,
+        'Cookie': cookieString,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+      },
+      redirect: 'manual'
+    });
+
+    const status = response.status;
+    const isRedirect = status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+
+    if (isRedirect) {
+      const location = response.headers.get('location');
+      if (!location) {
+        throw new Error('Redirección sin encabezado de ubicación');
+      }
+
+      // If redirected to the login page, the session is expired or invalid
+      if (location.includes('/login/index.php')) {
+        throw new Error('La sesión de Moodle ha expirado o es inválida. Por favor, vuelva a iniciar sesión.');
+      }
+
+      // Resolve relative redirect URL
+      currentUrl = location.startsWith('http') ? location : new URL(location, currentUrl).toString();
+      redirects++;
+      continue;
     }
-  });
-  if (!response.ok) {
-    throw new Error(`Error HTTP: ${response.status}`);
+
+    if (!response.ok) {
+      throw new Error(`Error HTTP: ${status}`);
+    }
+
+    return await response.text();
   }
-  return await response.text();
+
+  throw new Error('Se excedió el límite de redirecciones al acceder a Moodle.');
 }
 
 // 2. API: Find Courses
