@@ -1,0 +1,6 @@
+{
+  "name": "Planificador Agenda UNEMI",
+  "description": "Sincronizador de tareas y actividades del Aula Virtual UNEMI ordenadas cronológicamente por su fecha de cierre.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
