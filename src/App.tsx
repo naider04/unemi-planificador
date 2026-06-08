@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Calendar, Layers, Lock, BookOpen, Award, CheckCircle2, 
-  Sparkles, Clock, AlertCircle, Bookmark, CheckSquare 
+  Sparkles, Clock, AlertCircle, Bookmark, CheckSquare, Eye, RefreshCw, Download 
 } from 'lucide-react';
 
 import { MoodleSession, TodoTask, Course } from './types';
@@ -20,6 +20,34 @@ export default function App() {
   const [moodleNavigation, setMoodleNavigation] = useState<{ courseId: string; activityUrl: string } | null>(null);
   const [agendaNavigation, setAgendaNavigation] = useState<string | null>(null);
   const [prefillLogin, setPrefillLogin] = useState<{ username: string; server: 'a' | 'b'; errorMsg: string } | null>(null);
+
+  // Global Sync State
+  const [globalSync, setGlobalSync] = useState<{
+    status: 'idle' | 'syncing' | 'paused' | 'interrupted' | 'completed' | 'failed';
+    currentCourse: string;
+    currentActivity: string;
+    processedCount: number;
+    totalCount: number;
+    queue: {
+      sessionIndex: number;
+      username: string;
+      server: 'a' | 'b';
+      courseId: string;
+      courseName: string;
+      activityUrl: string;
+      type: 'TAREA' | 'CUESTIONARIO';
+      activityName: string;
+    }[];
+  }>({
+    status: 'idle',
+    currentCourse: '',
+    currentActivity: '',
+    processedCount: 0,
+    totalCount: 0,
+    queue: []
+  });
+
+  const [syncingTaskId, setSyncingTaskId] = useState<string | null>(null);
 
   const session = sessions[activeSessionIndex] || null;
 
@@ -60,23 +88,16 @@ export default function App() {
             }
             return updated;
           });
-          localStorage.setItem('unemi_tasks', JSON.stringify(loadedTasks));
           localStorage.setItem('unemi_tz_migrated_v3', 'true');
         }
 
+        // Defensive: clear false activity and update
+        loadedTasks = loadedTasks.filter(t => t.id !== 'welcome-1');
+        localStorage.setItem('unemi_tasks', JSON.stringify(loadedTasks));
         setTasks(loadedTasks);
       } else {
         // Welcoming introductory tasks
         setTasks([
-          {
-            id: 'welcome-1',
-            title: '¡Conecta tu Aula Virtual UNEMI!',
-            type: 'MANUAL',
-            description: 'Dirígete a la pestaña "Explorar Moodle" o "Conectar Moodle" para ingresar tus credenciales y poder descargar todas tus tareas ordenadas automáticamente.',
-            closureDate: new Date(Date.now() + 86400000 * 2).toISOString(), // 2 days in future
-            completed: false,
-            createdAt: new Date().toISOString()
-          },
           {
             id: 'welcome-2',
             title: 'O agrega tareas manuales',
@@ -87,6 +108,22 @@ export default function App() {
             createdAt: new Date().toISOString()
           }
         ]);
+      }
+
+      // Restore Global Sync State
+      const cachedSync = localStorage.getItem('unemi_global_sync_state');
+      if (cachedSync) {
+        try {
+          const parsed = JSON.parse(cachedSync);
+          if (parsed.status === 'syncing') {
+            // An active sync was interrupted by page reload
+            parsed.status = 'interrupted';
+            localStorage.setItem('unemi_global_sync_state', JSON.stringify(parsed));
+          }
+          setGlobalSync(parsed);
+        } catch (e) {
+          console.error('Error recovering global sync state cache:', e);
+        }
       }
     } catch (err) {
       console.error('Error loading localStorage keys:', err);
@@ -242,6 +279,574 @@ export default function App() {
     localStorage.setItem('unemi_tasks', JSON.stringify(updated));
   };
 
+  // Global Sync Engine Implementation (Resumeable Background Handler)
+  const startGlobalSync = async (resumeQueue?: typeof globalSync.queue) => {
+    if (sessions.length === 0) {
+      alert('Por favor conecta al menos una cuenta de Moodle para poder sincronizar.');
+      return;
+    }
+
+    let workingQueue: typeof globalSync.queue = [];
+    let initialCount = 0;
+    let initialProcessed = 0;
+
+    if (resumeQueue && resumeQueue.length > 0) {
+      workingQueue = [...resumeQueue];
+      initialCount = globalSync.totalCount || resumeQueue.length;
+      initialProcessed = globalSync.processedCount || 0;
+      setGlobalSync(prev => {
+        const nextState = { ...prev, status: 'syncing' as const };
+        localStorage.setItem('unemi_global_sync_state', JSON.stringify(nextState));
+        return nextState;
+      });
+    } else {
+      setGlobalSync({
+        status: 'syncing',
+        currentCourse: 'Mapeando materias...',
+        currentActivity: 'Buscando actividades...',
+        processedCount: 0,
+        totalCount: 0,
+        queue: []
+      });
+
+      const coursesBySession: { sessIdx: number; courses: Course[] }[] = [];
+      for (let sIdx = 0; sIdx < sessions.length; sIdx++) {
+        const sess = sessions[sIdx];
+        try {
+          const apiBase = import.meta.env.VITE_API_URL || '';
+          const res = await fetch(`${apiBase}/api/moodle/courses`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              moodleSession: sess.cookies,
+              server: sess.server
+            })
+          });
+          const data = await res.json();
+          if (res.ok && data.courses) {
+            coursesBySession.push({ sessIdx: sIdx, courses: data.courses });
+          }
+        } catch (e) {
+          console.error(`Failed courses fetch for ${sess.username} during global sync:`, e);
+        }
+      }
+
+      for (const coursesObj of coursesBySession) {
+        const sess = sessions[coursesObj.sessIdx];
+        for (const course of coursesObj.courses) {
+          setGlobalSync(prev => ({
+            ...prev,
+            currentCourse: `${sess.username}: ${course.text}`,
+            currentActivity: 'Escaneando tareas/cuestionarios...'
+          }));
+          try {
+            const apiBase = import.meta.env.VITE_API_URL || '';
+            const res = await fetch(`${apiBase}/api/moodle/course-activities`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                moodleSession: sess.cookies,
+                server: sess.server,
+                courseUrl: course.url
+              })
+            });
+            const data = await res.json();
+            if (res.ok && data.activities) {
+              const actionable = data.activities.filter((act: any) => act.type === 'TAREA' || act.type === 'CUESTIONARIO');
+              actionable.forEach((act: any) => {
+                workingQueue.push({
+                  sessionIndex: coursesObj.sessIdx,
+                  username: sess.username,
+                  server: sess.server,
+                  courseId: course.id,
+                  courseName: course.text,
+                  activityUrl: act.url,
+                  type: act.type,
+                  activityName: act.name
+                });
+              });
+            }
+          } catch (e) {
+            console.error(`Failed course activities fetch for ${sess.username} - ${course.text}:`, e);
+          }
+        }
+      }
+
+      initialCount = workingQueue.length;
+      if (initialCount === 0) {
+        setGlobalSync({
+          status: 'completed',
+          currentCourse: 'Terminado',
+          currentActivity: 'No se encontraron actividades formativas.',
+          processedCount: 0,
+          totalCount: 0,
+          queue: []
+        });
+        localStorage.setItem('unemi_global_sync_state', JSON.stringify({
+          status: 'completed',
+          currentCourse: 'Terminado',
+          currentActivity: 'No se encontraron actividades.',
+          processedCount: 0,
+          totalCount: 0,
+          queue: [],
+          lastActive: Date.now()
+        }));
+        return;
+      }
+
+      setGlobalSync(prev => ({
+        ...prev,
+        totalCount: initialCount,
+        queue: workingQueue
+      }));
+    }
+
+    let processed = initialProcessed;
+    let isInterrupted = false;
+
+    // Helper to compute task stats locally
+    const computeStatsLocal = (type: string, details: any) => {
+      let status = 'No entregado';
+      let grade: string | null = null;
+      let gradeOver: string | null = null;
+
+      if (details.por_hacer_calificacion) {
+        return { status: 'No entregado', grade: null, gradeOver: null };
+      }
+
+      if (type === 'CUESTIONARIO') {
+        if (details.quiz_info) {
+          const qi = details.quiz_info;
+          if (qi.calificacion_final) {
+            status = 'Calificado';
+            grade = qi.calificacion_final;
+            gradeOver = qi.calificacion_sobre;
+          } else if (qi.intentos && qi.intentos.length > 0) {
+            const finishedAttempt = qi.intentos.find((att: any) => 
+              att.estado?.toLowerCase().includes('terminado') || 
+              att.estado?.toLowerCase().includes('finalizado')
+            );
+            if (finishedAttempt) {
+              status = finishedAttempt.calificacion ? 'Calificado' : 'Entregado';
+              grade = finishedAttempt.calificacion;
+              gradeOver = finishedAttempt.calificacion_sobre;
+            } else {
+              status = 'Entregado';
+            }
+          } else if (details.hecho_calificacion) {
+            status = 'Entregado';
+          }
+        } else if (details.hecho_calificacion) {
+          status = 'Entregado';
+        }
+      } else if (type === 'TAREA') {
+        const isCalificado = details.estado_calificacion?.toLowerCase().includes('calificado') || !!details.calificacion;
+        if (isCalificado) {
+          status = 'Calificado';
+          grade = details.calificacion || null;
+          gradeOver = details.calificacion_sobre || null;
+        } else if (
+          details.estado_entrega && (
+            details.estado_entrega.toLowerCase().includes('enviado') ||
+            details.estado_entrega.toLowerCase().includes('entregado')
+          )
+        ) {
+          status = 'Entregado';
+        } else {
+          const estEntrega = details.estado_entrega?.toLowerCase() || '';
+          if (estEntrega.includes('borrador')) {
+            status = 'Borrador';
+          } else if (estEntrega.includes('no entregado') || estEntrega.includes('sin entregar') || estEntrega.includes('no se ha enviado')) {
+            status = 'No entregado';
+          } else if (details.hecho_calificacion) {
+            status = 'Entregado';
+          } else {
+            status = 'No entregado';
+          }
+        }
+      }
+      return { status, grade, gradeOver };
+    };
+
+    while (workingQueue.length > 0) {
+      const currentPersistedStateStr = localStorage.getItem('unemi_global_sync_state');
+      if (currentPersistedStateStr) {
+        const cps = JSON.parse(currentPersistedStateStr);
+        if (cps.status === 'paused' || cps.status === 'interrupted') {
+          isInterrupted = true;
+          break;
+        }
+      }
+
+      const currentItem = workingQueue.shift()!;
+      const sess = sessions[currentItem.sessionIndex];
+      if (!sess) {
+        processed++;
+        continue;
+      }
+
+      setGlobalSync(prev => ({
+        ...prev,
+        currentCourse: currentItem.courseName,
+        currentActivity: currentItem.activityName,
+        processedCount: processed,
+        queue: [...workingQueue]
+      }));
+
+      localStorage.setItem('unemi_global_sync_state', JSON.stringify({
+        status: 'syncing',
+        currentCourse: currentItem.courseName,
+        currentActivity: currentItem.activityName,
+        processedCount: processed,
+        totalCount: initialCount,
+        queue: workingQueue,
+        lastActive: Date.now()
+      }));
+
+      try {
+        const apiBase = import.meta.env.VITE_API_URL || '';
+        const res = await fetch(`${apiBase}/api/moodle/activity-details`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            moodleSession: sess.cookies,
+            server: sess.server,
+            activityUrl: currentItem.activityUrl
+          })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.details) {
+            const details = data.details;
+            const computedStats = computeStatsLocal(currentItem.type, details);
+            
+            const newTodo: TodoTask = {
+              id: `moodle-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+              title: currentItem.activityName,
+              courseId: currentItem.courseId,
+              courseName: currentItem.courseName,
+              activityUrl: currentItem.activityUrl,
+              type: currentItem.type,
+              description: details.detalle || undefined,
+              closureDate: details.closureDateISO || null,
+              aperture: details.aperture || null,
+              apertureDateISO: details.apertureDateISO || null,
+              completed: !details.por_hacer_calificacion && (
+                           (details.estado_entrega && (details.estado_entrega.toLowerCase().includes('enviado') || details.estado_entrega.toLowerCase().includes('entregado'))) || 
+                           details.quiz_info?.intentos?.some((att: any) => att.estado?.toLowerCase().includes('terminado')) || 
+                           (details.hecho_calificacion === true) ||
+                           (computedStats.status === 'Calificado' || computedStats.status === 'Entregado') ||
+                           false
+                         ),
+              createdAt: new Date().toISOString(),
+              status: computedStats.status,
+              grade: computedStats.grade,
+              gradeOver: computedStats.gradeOver,
+              gradingStatus: details.estado_calificacion || null,
+              estado_calificacion: details.estado_calificacion || null,
+              estado_entrega: details.estado_entrega || null,
+              comentario_calificador: details.comentario_calificador || null,
+              advertencia_preguntas: details.advertencia_preguntas || null,
+              por_hacer_calificacion: details.por_hacer_calificacion || false,
+              hecho_calificacion: details.hecho_calificacion || false,
+              grupo: details.grupo || null,
+              moodleUsername: currentItem.username,
+              moodleServer: currentItem.server,
+              lastSyncedAt: new Date().toISOString()
+            };
+
+            setTasks(prevTasks => {
+              const copy = [...prevTasks];
+              const matchIdx = copy.findIndex(t => t.activityUrl === currentItem.activityUrl && currentItem.activityUrl);
+              if (matchIdx !== -1) {
+                copy[matchIdx] = {
+                  ...copy[matchIdx],
+                  ...newTodo,
+                  id: copy[matchIdx].id
+                };
+              } else {
+                copy.push(newTodo);
+              }
+              localStorage.setItem('unemi_tasks', JSON.stringify(copy));
+              return copy;
+            });
+          }
+        }
+      } catch (err) {
+        console.error(`Global sync failed detail load:`, err);
+      }
+
+      processed++;
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    if (!isInterrupted) {
+      setGlobalSync({
+        status: 'completed',
+        currentCourse: '',
+        currentActivity: '',
+        processedCount: initialCount,
+        totalCount: initialCount,
+        queue: []
+      });
+      localStorage.setItem('unemi_global_sync_state', JSON.stringify({
+        status: 'completed',
+        currentCourse: '',
+        currentActivity: '',
+        processedCount: initialCount,
+        totalCount: initialCount,
+        queue: [],
+        lastActive: Date.now()
+      }));
+    }
+  };
+
+  const pauseGlobalSync = () => {
+    setGlobalSync(prev => {
+      const newState = { ...prev, status: 'paused' as const };
+      localStorage.setItem('unemi_global_sync_state', JSON.stringify({
+        ...newState,
+        lastActive: Date.now()
+      }));
+      return newState;
+    });
+  };
+
+  const cancelGlobalSync = () => {
+    setGlobalSync({
+      status: 'idle',
+      currentCourse: '',
+      currentActivity: '',
+      processedCount: 0,
+      totalCount: 0,
+      queue: []
+    });
+    localStorage.removeItem('unemi_global_sync_state');
+  };
+
+  const handleUpdateSingleTask = async (taskId: string) => {
+    const rawMatch = tasks.find(t => t.id === taskId);
+    if (!rawMatch || !rawMatch.activityUrl || !rawMatch.moodleUsername || !rawMatch.moodleServer) return;
+
+    setSyncingTaskId(taskId);
+    try {
+      const sess = sessions.find(s => s.username.toLowerCase() === rawMatch.moodleUsername?.toLowerCase() && s.server === rawMatch.moodleServer);
+      if (!sess) {
+        alert('No se encontró una sesión activa relacionada para esa actividad. Por favor ve a la pestaña "Conectar Moodle" y reconéctala.');
+        setSyncingTaskId(null);
+        return;
+      }
+
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      const res = await fetch(`${apiBase}/api/moodle/activity-details`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          moodleSession: sess.cookies,
+          server: sess.server,
+          activityUrl: rawMatch.activityUrl
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.details) {
+          const details = data.details;
+          
+          const computeStatsLocal = (type: string, det: any) => {
+            let status = 'No entregado';
+            let grade: string | null = null;
+            let gradeOver: string | null = null;
+
+            if (det.por_hacer_calificacion) {
+              return { status: 'No entregado', grade: null, gradeOver: null };
+            }
+
+            if (type === 'CUESTIONARIO') {
+              if (det.quiz_info) {
+                const qi = det.quiz_info;
+                if (qi.calificacion_final) {
+                  status = 'Calificado';
+                  grade = qi.calificacion_final;
+                  gradeOver = qi.calificacion_sobre;
+                } else if (qi.intentos && qi.intentos.length > 0) {
+                  const finishedAttempt = qi.intentos.find((att: any) => 
+                    att.estado?.toLowerCase().includes('terminado') || 
+                    att.estado?.toLowerCase().includes('finalizado')
+                  );
+                  if (finishedAttempt) {
+                    status = finishedAttempt.calificacion ? 'Calificado' : 'Entregado';
+                    grade = finishedAttempt.calificacion;
+                    gradeOver = finishedAttempt.calificacion_sobre;
+                  } else {
+                    status = 'Entregado';
+                  }
+                } else if (det.hecho_calificacion) {
+                  status = 'Entregado';
+                }
+              } else if (det.hecho_calificacion) {
+                status = 'Entregado';
+              }
+            } else if (type === 'TAREA') {
+              const isCalificado = det.estado_calificacion?.toLowerCase().includes('calificado') || !!det.calificacion;
+              if (isCalificado) {
+                status = 'Calificado';
+                grade = det.calificacion || null;
+                gradeOver = det.calificacion_sobre || null;
+              } else if (
+                det.estado_entrega && (
+                  det.estado_entrega.toLowerCase().includes('enviado') ||
+                  det.estado_entrega.toLowerCase().includes('entregado')
+                )
+              ) {
+                status = 'Entregado';
+              } else {
+                const estEntrega = det.estado_entrega?.toLowerCase() || '';
+                if (estEntrega.includes('borrador')) {
+                  status = 'Borrador';
+                } else if (estEntrega.includes('no entregado') || estEntrega.includes('sin entregar') || estEntrega.includes('no se ha enviado')) {
+                  status = 'No entregado';
+                } else if (det.hecho_calificacion) {
+                  status = 'Entregado';
+                } else {
+                  status = 'No entregado';
+                }
+              }
+            }
+            return { status, grade, gradeOver };
+          };
+
+          const stats = computeStatsLocal(rawMatch.type, details);
+          const updatedTask: TodoTask = {
+            ...rawMatch,
+            description: details.detalle || undefined,
+            closureDate: details.closureDateISO || null,
+            aperture: details.aperture || null,
+            apertureDateISO: details.apertureDateISO || null,
+            completed: !details.por_hacer_calificacion && (
+                         (details.estado_entrega && (details.estado_entrega.toLowerCase().includes('enviado') || details.estado_entrega.toLowerCase().includes('entregado'))) || 
+                         details.quiz_info?.intentos?.some((att: any) => att.estado?.toLowerCase().includes('terminado')) || 
+                         (details.hecho_calificacion === true) ||
+                         (stats.status === 'Calificado' || stats.status === 'Entregado') ||
+                         false
+                       ),
+            status: stats.status,
+            grade: stats.grade,
+            gradeOver: stats.gradeOver,
+            gradingStatus: details.estado_calificacion || null,
+            estado_calificacion: details.estado_calificacion || null,
+            estado_entrega: details.estado_entrega || null,
+            comentario_calificador: details.comentario_calificador || null,
+            advertencia_preguntas: details.advertencia_preguntas || null,
+            por_hacer_calificacion: details.por_hacer_calificacion || false,
+            hecho_calificacion: details.hecho_calificacion || false,
+            grupo: details.grupo || null,
+            lastSyncedAt: new Date().toISOString()
+          };
+
+          setTasks(prevTasks => {
+            const copy = [...prevTasks];
+            const matchIdx = copy.findIndex(t => t.id === taskId);
+            if (matchIdx !== -1) {
+              copy[matchIdx] = updatedTask;
+            }
+            localStorage.setItem('unemi_tasks', JSON.stringify(copy));
+            return copy;
+          });
+        }
+      } else {
+        alert('No se pudo actualizar de forma remota la actividad seleccionada.');
+      }
+    } catch (e) {
+      console.error('Failed to update single task:', e);
+    } finally {
+      setSyncingTaskId(null);
+    }
+  };
+
+  const handleDownloadHtml = async (task: TodoTask) => {
+    if (!task.activityUrl || !task.moodleUsername || !task.moodleServer) return;
+    const matchSess = sessions.find(s => s.username.toLowerCase() === task.moodleUsername?.toLowerCase() && s.server === task.moodleServer);
+    if (!matchSess) {
+      alert('No se encontró una sesión activa para esta cuenta. Por favor vuelve a conectar la cuenta.');
+      return;
+    }
+    
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      const res = await fetch(`${apiBase}/api/moodle/download-raw`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          moodleSession: matchSess.cookies,
+          server: matchSess.server,
+          url: task.activityUrl
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.html) {
+        const blob = new Blob([data.html], { type: 'text/html;charset=utf-8' });
+        const urlObj = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = urlObj;
+        const safeName = task.title
+          .replace(/[^a-z0-9áéíóúñ]/gi, '_')
+          .replace(/__+/g, '_')
+          .substring(0, 80);
+        a.download = `${safeName || 'pagina_moodle'}.html`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(urlObj);
+      } else {
+        alert(data.error || 'Error al descargar la página de Moodle.');
+      }
+    } catch (err) {
+      console.error('Error downloading HTML:', err);
+      alert('Error de red al intentar descargar la página.');
+    }
+  };
+
+  const handleViewHtml = async (task: TodoTask) => {
+    if (!task.activityUrl || !task.moodleUsername || !task.moodleServer) return;
+    const matchSess = sessions.find(s => s.username.toLowerCase() === task.moodleUsername?.toLowerCase() && s.server === task.moodleServer);
+    if (!matchSess) {
+      alert('No se encontró una sesión activa para esta cuenta. Por favor vuelve a conectar la cuenta.');
+      return;
+    }
+    
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      const res = await fetch(`${apiBase}/api/moodle/download-raw`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          moodleSession: matchSess.cookies,
+          server: matchSess.server,
+          url: task.activityUrl
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.html) {
+        const blob = new Blob([data.html], { type: 'text/html;charset=utf-8' });
+        const urlObj = window.URL.createObjectURL(blob);
+        const w = window.open(urlObj, '_blank');
+        if (!w) {
+          const a = document.createElement('a');
+          a.href = urlObj;
+          a.target = '_blank';
+          a.click();
+        }
+      } else {
+        alert(data.error || 'Error al obtener la página de Moodle.');
+      }
+    } catch (err) {
+      console.error('Error viewing HTML:', err);
+      alert('Error de red al intentar cargar la página.');
+    }
+  };
+
   // Metrics Calculations
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter(t => t.completed).length;
@@ -308,15 +913,132 @@ export default function App() {
         {/* Academic Analytics summary panel */}
         <div id="analytics-grid-row" className="bg-white border border-gray-150/40 rounded-3xl p-5 md:p-6 shadow-2xs grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
           
-          <div className="md:col-span-5 space-y-1">
-            <div className="flex items-center space-x-1.5 text-blue-600 text-xs font-bold">
-              <Sparkles className="w-4 h-4" />
-              <span>Sincronizador Inteligente</span>
+          <div className="md:col-span-5 space-y-2.5">
+            <div className="flex items-center space-x-1.5 text-blue-600 text-[11px] font-bold">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Sincronizador Inteligente Multi-Cuenta</span>
             </div>
-            <h2 className="text-base md:text-lg font-bold text-gray-900 leading-snug">Sincroniza tus fechas de Aula Virtual</h2>
-            <p className="text-xs text-gray-500 leading-relaxed max-w-md">
-              Manten tus deberes y cuestionarios actualizados. Este gestor escanea de forma remota, organiza cierres académicos cronológicamente y evita penalizaciones por entregas tardías.
-            </p>
+            <h2 className="text-sm md:text-base font-extrabold text-gray-900 leading-snug">Sincronizador de Materias</h2>
+            
+            {/* Sync control block */}
+            <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl space-y-2 max-w-md shadow-2xs">
+              {globalSync.status === 'idle' && (
+                <div className="space-y-1.5">
+                  <p className="text-[11px] text-gray-500 font-medium">Sincroniza todas las materias de tus {sessions.length} cuentas en segundo plano.</p>
+                  <button
+                    type="button"
+                    onClick={() => startGlobalSync()}
+                    disabled={sessions.length === 0}
+                    className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 transition-all shadow-xs active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-white shrink-0" />
+                    <span>Sincronizar Todas las Materias</span>
+                  </button>
+                  {sessions.length === 0 && (
+                    <p className="text-[9px] text-rose-500 font-bold text-center">⚠️ Conecta una cuenta para habilitar la sincronización.</p>
+                  )}
+                </div>
+              )}
+
+              {globalSync.status === 'syncing' && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-extrabold text-blue-600 uppercase tracking-wider animate-pulse">Sincronizando...</span>
+                    <span className="text-[11px] font-mono font-bold text-gray-600">{globalSync.processedCount} de {globalSync.totalCount || '?'}</span>
+                  </div>
+                  <div className="w-full bg-blue-100/40 h-1.5 rounded-full overflow-hidden">
+                    <div 
+                      className="bg-blue-600 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${globalSync.totalCount > 0 ? (globalSync.processedCount / globalSync.totalCount) * 100 : 10}%` }}
+                    />
+                  </div>
+                  <div className="text-[10px] text-gray-500 leading-tight space-y-0.5">
+                    <p className="font-semibold text-gray-700 truncate">Materia: <span className="font-extrabold text-slate-800">{globalSync.currentCourse || 'Descubriendo...'}</span></p>
+                    <p className="italic truncate text-slate-500">Detalle: {globalSync.currentActivity || 'Buscando actividades...'}</p>
+                  </div>
+                  <div className="flex space-x-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={pauseGlobalSync}
+                      className="flex-1 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-[10px] font-bold rounded-lg cursor-pointer transition-all text-center"
+                    >
+                      Pausar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelGlobalSync}
+                      className="flex-1 py-1 bg-red-50 hover:bg-red-100 border border-red-200 text-red-800 text-[10px] font-bold rounded-lg cursor-pointer transition-all text-center"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {globalSync.status === 'paused' && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-extrabold text-amber-600 uppercase">Sincronización Pausada</span>
+                    <span className="font-mono text-gray-500">{globalSync.processedCount} de {globalSync.totalCount}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => startGlobalSync(globalSync.queue)}
+                    className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-bold flex items-center justify-center space-x-1.5 cursor-pointer transition-all"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                    <span>Reanudar Sincronización</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelGlobalSync}
+                    className="w-full py-1 border border-red-200 text-red-600 hover:bg-red-50 text-[9px] font-bold rounded-lg cursor-pointer text-center"
+                  >
+                    Reiniciar de Cero
+                  </button>
+                </div>
+              )}
+
+              {globalSync.status === 'interrupted' && (
+                <div className="space-y-2">
+                  <div className="space-y-1">
+                    <p className="text-[11px] text-red-600 font-extrabold flex items-center gap-1">⚠️ ¡Sincronización Interrumpida!</p>
+                    <p className="text-[10px] text-gray-500 leading-normal">Se detectó que la sincronización previa fue interrumpida. Puedes reanudarla desde donde se quedó para ahorrar tiempo.</p>
+                  </div>
+                  <div className="flex space-x-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => startGlobalSync(globalSync.queue)}
+                      className="flex-grow py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-extrabold rounded-lg flex items-center justify-center space-x-1 cursor-pointer transition-all shadow-2xs"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                      <span>Reanudar ({globalSync.processedCount} / {globalSync.totalCount})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelGlobalSync}
+                      className="py-1.5 px-3 border border-red-200 text-red-700 hover:bg-red-50 text-[10px] font-bold rounded-lg cursor-pointer transition-all"
+                    >
+                      Reiniciar
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {globalSync.status === 'completed' && (
+                <div className="space-y-1.5">
+                  <p className="text-[11px] text-emerald-600 font-extrabold flex items-center gap-1">✅ ¡Todas las materias actualizadas!</p>
+                  <button
+                    type="button"
+                    onClick={() => startGlobalSync()}
+                    className="w-full py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-250 text-emerald-800 text-[10px] font-semibold rounded-lg cursor-pointer transition-all flex items-center justify-center space-x-1"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                    <span>Actualizar todo de nuevo</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Stat 1: Completed Rate */}
@@ -438,6 +1160,10 @@ export default function App() {
               onClearAgenda={onClearAgenda}
               navigationTrigger={agendaNavigation}
               onClearNavigationTrigger={() => setAgendaNavigation(null)}
+              onRefreshSingleTask={handleUpdateSingleTask}
+              syncingTaskId={syncingTaskId}
+              onDownloadHtml={handleDownloadHtml}
+              onViewHtml={handleViewHtml}
             />
           )}
 

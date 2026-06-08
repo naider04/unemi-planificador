@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Clock, CheckCircle, Trash2, Calendar, FileText, Square, CheckSquare, Search, 
   ChevronRight, ChevronDown, Filter, EyeOff, LayoutGrid, ListFilter, AlertCircle, PlusCircle, CheckSquare2,
-  Download
+  Download, RefreshCw, Eye
 } from 'lucide-react';
 import { TodoTask } from '../types';
 
@@ -15,6 +15,10 @@ interface ActivityTimelineProps {
   onClearAgenda?: () => void;
   navigationTrigger?: string | null;
   onClearNavigationTrigger?: () => void;
+  onRefreshSingleTask?: (id: string) => void;
+  syncingTaskId?: string | null;
+  onDownloadHtml?: (task: TodoTask) => void;
+  onViewHtml?: (task: TodoTask) => void;
 }
 
 export default function ActivityTimeline({ 
@@ -25,7 +29,11 @@ export default function ActivityTimeline({
   onNavigateToMoodleActivity,
   onClearAgenda,
   navigationTrigger,
-  onClearNavigationTrigger
+  onClearNavigationTrigger,
+  onRefreshSingleTask,
+  syncingTaskId,
+  onDownloadHtml,
+  onViewHtml
 }: ActivityTimelineProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCarrera, setSelectedCarrera] = useState<string>('all');
@@ -352,8 +360,32 @@ export default function ActivityTimeline({
     return date.toLocaleDateString('es-EC', options);
   };
 
+  const getRelativeSyncTime = (lastSyncedAtStr?: string) => {
+    if (!lastSyncedAtStr) return null;
+    try {
+      const past = new Date(lastSyncedAtStr).getTime();
+      const diffMs = Date.now() - past;
+      if (diffMs < 0) return 'hace un momento';
+      const seconds = Math.floor(diffMs / 1000);
+      if (seconds < 60) return 'hace un momento';
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours} hrs ago`;
+      const days = Math.floor(hours / 24);
+      return `${days} d ago`;
+    } catch {
+      return null;
+    }
+  };
+
   const getTaskEmoji = (task: TodoTask): string => {
-    // 3. Actividad no realizada y pasado fecha de cierre = ☠️
+    // 1. Actividad completada/entregada pero sin nota visible o pendiente = ⏱️
+    if ((task.completed || task.status === 'Entregado') && !task.grade) {
+      return '⏱️';
+    }
+
+    // 2. Actividad no realizada y pasado fecha de cierre = ☠️
     if (!task.completed && task.closureDate) {
       const deadline = new Date(task.closureDate).getTime();
       const now = new Date().getTime();
@@ -362,27 +394,34 @@ export default function ActivityTimeline({
       }
     }
 
-    // 4. Actividades que cierran en menos de un día = ⚠️
+    // 3. Actividades que cierran en menos de 30 horas = 🔥
+    // And ⚠️ for activities closing outside 11:50 PM to 1:00 AM range
     if (!task.completed && task.closureDate) {
       const deadline = new Date(task.closureDate).getTime();
       const now = new Date().getTime();
       const diff = deadline - now;
-      if (diff > 0 && diff < 24 * 60 * 60 * 1000) {
-        return '⚠️';
+      if (diff > 0) {
+        if (diff < 30 * 60 * 60 * 1000) {
+          return '🔥';
+        }
+        
+        const date = new Date(task.closureDate);
+        const hours = date.getHours();
+        const minutes = date.getMinutes();
+        const totalMinutes = hours * 60 + minutes;
+        const inIdealRange = (totalMinutes >= 23 * 60 + 50) || (totalMinutes <= 1 * 60);
+        if (!inIdealRange) {
+          return '⚠️';
+        }
+
+        // Actividades que cierran en menos de 10 días = 💪
+        if (diff < 10 * 24 * 60 * 60 * 1000) {
+          return '💪';
+        }
       }
     }
 
-    // 5. Actividades que cierran en menos de 10 días = 💪
-    if (!task.completed && task.closureDate) {
-      const deadline = new Date(task.closureDate).getTime();
-      const now = new Date().getTime();
-      const diff = deadline - now;
-      if (diff >= 24 * 60 * 60 * 1000 && diff < 10 * 24 * 60 * 60 * 1000) {
-        return '💪';
-      }
-    }
-
-    // 2. Agrega emojis a las actividades con estas reglas de notas
+    // 4. Emojis para actividades con calificaciones (😢 reemplaza 🥲 que no se ve en algunos navegadores)
     if (task.grade) {
       const g = parseFloat(task.grade);
       if (!isNaN(g)) {
@@ -391,8 +430,8 @@ export default function ActivityTimeline({
           const pctVal = (g / max) * 100;
           if (pctVal >= 90 && pctVal <= 100) return '😄';
           if (pctVal >= 80 && pctVal < 90) return '🙂';
-          if (pctVal >= 70 && pctVal < 80) return '🥲'; // sonriente con lagrima
-          if (pctVal >= 60 && pctVal < 70) return '🥲'; // carita triste (con lagrimas as instructions copy)
+          if (pctVal >= 70 && pctVal < 80) return '😢';
+          if (pctVal >= 60 && pctVal < 70) return '😢';
           if (pctVal > 0 && pctVal < 60) return '👎';
         }
       }
@@ -1140,24 +1179,73 @@ export default function ActivityTimeline({
                                 </div>
 
                                 <div className="flex flex-col items-center md:items-end gap-2 mt-2 md:mt-0 pt-3 md:pt-0 border-t md:border-t-0 border-gray-150 shrink-0 select-none">
-                                  <div className="text-[11px] font-medium text-slate-500 flex items-center space-x-1">
+                                  <div className="text-[11px] font-medium text-slate-500 flex flex-wrap items-center justify-end gap-1.5 select-none text-right">
                                     {task.grupo ? (
-                                      <>
-                                        <span>👥</span>
-                                        <span className="text-[10px] bg-blue-50 border border-blue-100/55 text-blue-700 px-1.5 py-0.5 rounded font-bold">
-                                          Grupal
-                                        </span>
-                                      </>
+                                      <span className="text-[10px] bg-blue-50 border border-blue-100/55 text-blue-700 px-1.5 py-0.5 rounded font-bold">
+                                        👥 Grupal
+                                      </span>
                                     ) : (
-                                      <>
-                                        <span>👤</span>
-                                        <span className="text-[10px] bg-slate-50 border border-slate-150/45 text-slate-600 px-1.5 py-0.5 rounded font-bold">
-                                          Individual
-                                        </span>
-                                      </>
+                                      <span className="text-[10px] bg-slate-50 border border-slate-150/45 text-slate-600 px-1.5 py-0.5 rounded font-bold">
+                                        👤 Individual
+                                      </span>
+                                    )}
+
+                                    {/* Action Links/Buttons for HTML raw parsing and single task refresh */}
+                                    {task.type !== 'MANUAL' && (
+                                      <div className="flex items-center space-x-1">
+                                        {onViewHtml && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              onViewHtml(task);
+                                            }}
+                                            className="bg-slate-50 hover:bg-slate-100/90 text-slate-500 hover:text-slate-800 border border-slate-200 p-1 rounded-lg transition-all cursor-pointer"
+                                            title="Ver HTML en nueva pestaña"
+                                          >
+                                            <Eye className="w-3 h-3 shrink-0" />
+                                          </button>
+                                        )}
+                                        {onDownloadHtml && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              onDownloadHtml(task);
+                                            }}
+                                            className="bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-blue-600 border border-slate-200 p-1 rounded-lg transition-all cursor-pointer"
+                                            title="Descargar HTML original"
+                                          >
+                                            <Download className="w-3 h-3 shrink-0" />
+                                          </button>
+                                        )}
+                                      </div>
                                     )}
                                   </div>
-                                  <div className="flex items-center justify-between md:justify-end space-x-2.5 w-full md:w-auto">
+
+                                  <div className="flex flex-wrap items-center justify-between md:justify-end gap-2 w-full md:w-auto">
+                                    {task.type !== 'MANUAL' && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (onRefreshSingleTask) onRefreshSingleTask(task.id);
+                                        }}
+                                        disabled={syncingTaskId === task.id}
+                                        className={`text-[10px] font-semibold border rounded-lg px-2 py-1 transition-all text-left flex items-center space-x-1 shrink-0 ${
+                                          syncingTaskId === task.id 
+                                            ? 'bg-blue-50 text-blue-600 border-blue-200 animate-pulse' 
+                                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-250 cursor-pointer'
+                                        }`}
+                                        title="Haz clic para actualizar esta actividad individual desde Moodle"
+                                      >
+                                        <RefreshCw className={`w-2.5 h-2.5 shrink-0 ${syncingTaskId === task.id ? 'animate-spin' : ''}`} />
+                                        <span>
+                                          Última sincronización: {getRelativeSyncTime(task.lastSyncedAt) || 'nunca'}
+                                        </span>
+                                      </button>
+                                    )}
+
                                     <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border font-mono ${remaining.color}`}>
                                       {remaining.text}
                                     </span>
@@ -1399,24 +1487,73 @@ export default function ActivityTimeline({
 
                                             {/* Right tags & remaining indicator */}
                                             <div className="flex flex-col items-center md:items-end gap-2 mt-2 md:mt-0 pt-3 md:pt-0 border-t md:border-t-0 border-gray-150 shrink-0 select-none">
-                                              <div className="text-[11px] font-medium text-slate-500 flex items-center space-x-1">
+                                              <div className="text-[11px] font-medium text-slate-500 flex flex-wrap items-center justify-end gap-1.5 select-none text-right">
                                                 {task.grupo ? (
-                                                  <>
-                                                    <span>👥</span>
-                                                    <span className="text-[10px] bg-blue-50 border border-blue-100/55 text-blue-700 px-1.5 py-0.5 rounded font-bold">
-                                                      Grupal
-                                                    </span>
-                                                  </>
+                                                  <span className="text-[10px] bg-blue-50 border border-blue-100/55 text-blue-700 px-1.5 py-0.5 rounded font-bold">
+                                                    👥 Grupal
+                                                  </span>
                                                 ) : (
-                                                  <>
-                                                    <span>👤</span>
-                                                    <span className="text-[10px] bg-slate-50 border border-slate-150/45 text-slate-600 px-1.5 py-0.5 rounded font-bold">
-                                                      Individual
-                                                    </span>
-                                                  </>
+                                                  <span className="text-[10px] bg-slate-50 border border-slate-150/45 text-slate-600 px-1.5 py-0.5 rounded font-bold">
+                                                    👤 Individual
+                                                  </span>
+                                                )}
+
+                                                {/* Action Links/Buttons for HTML raw parsing and single task refresh */}
+                                                {task.type !== 'MANUAL' && (
+                                                  <div className="flex items-center space-x-1">
+                                                    {onViewHtml && (
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          onViewHtml(task);
+                                                        }}
+                                                        className="bg-slate-50 hover:bg-slate-100/90 text-slate-500 hover:text-slate-800 border border-slate-200 p-1 rounded-lg transition-all cursor-pointer"
+                                                        title="Ver HTML en nueva pestaña"
+                                                      >
+                                                        <Eye className="w-3 h-3 shrink-0" />
+                                                      </button>
+                                                    )}
+                                                    {onDownloadHtml && (
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          onDownloadHtml(task);
+                                                        }}
+                                                        className="bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-blue-600 border border-slate-200 p-1 rounded-lg transition-all cursor-pointer"
+                                                        title="Descargar HTML original"
+                                                      >
+                                                        <Download className="w-3 h-3 shrink-0" />
+                                                      </button>
+                                                    )}
+                                                  </div>
                                                 )}
                                               </div>
-                                              <div className="flex items-center justify-between md:justify-end space-x-2.5 w-full md:w-auto">
+
+                                              <div className="flex flex-wrap items-center justify-between md:justify-end gap-2 w-full md:w-auto">
+                                                {task.type !== 'MANUAL' && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      if (onRefreshSingleTask) onRefreshSingleTask(task.id);
+                                                    }}
+                                                    disabled={syncingTaskId === task.id}
+                                                    className={`text-[10px] font-semibold border rounded-lg px-2 py-1 transition-all text-left flex items-center space-x-1 shrink-0 ${
+                                                      syncingTaskId === task.id 
+                                                        ? 'bg-blue-50 text-blue-600 border-blue-200 animate-pulse' 
+                                                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-250 cursor-pointer'
+                                                    }`}
+                                                    title="Haz clic para actualizar esta actividad individual desde Moodle"
+                                                  >
+                                                    <RefreshCw className={`w-2.5 h-2.5 shrink-0 ${syncingTaskId === task.id ? 'animate-spin' : ''}`} />
+                                                    <span>
+                                                      Última sincronización: {getRelativeSyncTime(task.lastSyncedAt) || 'nunca'}
+                                                    </span>
+                                                  </button>
+                                                )}
+
                                                 <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border font-mono ${remaining.color}`}>
                                                   {remaining.text}
                                                 </span>

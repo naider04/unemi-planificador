@@ -667,6 +667,35 @@ export default function MoodleBrowser({
     }
   };
 
+  const viewRawHtml = async () => {
+    if (!selectedActivity) return;
+    setDownloadingHtml(true);
+    try {
+      const res = await fetch(`${apiBase}/api/moodle/download-raw`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          moodleSession: session.cookies,
+          server: session.server,
+          url: selectedActivity.url
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.html) {
+        const blob = new Blob([data.html], { type: 'text/html;charset=utf-8' });
+        const urlObj = window.URL.createObjectURL(blob);
+        window.open(urlObj, '_blank');
+        setTimeout(() => window.URL.revokeObjectURL(urlObj), 15000);
+      } else {
+        showToast(data.error || 'Error al ver la página HTML de Moodle.', 'error');
+      }
+    } catch (err) {
+      showToast('Error de comunicación al intentar ver el documento.', 'error');
+    } finally {
+      setDownloadingHtml(false);
+    }
+  };
+
   // Group activities helper
   const groupedActivities = activities.reduce<Record<string, Activity[]>>((acc, act) => {
     if (!acc[act.section]) acc[act.section] = [];
@@ -1201,29 +1230,42 @@ export default function MoodleBrowser({
                           <span>Agendar Actividad</span>
                         </button>
                       )}
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-3 gap-1.5">
                         <a
                           id="open-moodle-raw"
                           href={selectedActivity.url}
                           target="_blank"
                           rel="noreferrer"
-                          className="py-2 border border-gray-200 hover:bg-gray-50 text-gray-700 bg-white rounded-xl text-[11px] font-semibold flex items-center justify-center space-x-1 transition-all"
+                          className="py-2 border border-gray-200 hover:bg-gray-50 text-gray-700 bg-white rounded-xl text-[10px] font-semibold flex items-center justify-center space-x-0.5 transition-all"
                         >
-                          <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                          <span className="truncate">Abrir en UNEMI</span>
+                          <ExternalLink className="w-3 h-3 shrink-0" />
+                          <span className="truncate">UNEMI</span>
                         </a>
+                        <button
+                          id="view-moodle-html"
+                          onClick={viewRawHtml}
+                          disabled={downloadingHtml}
+                          className="py-2 border border-teal-200 hover:bg-teal-600 hover:text-white hover:border-teal-600 text-teal-700 bg-teal-50 rounded-xl text-[10px] font-semibold flex items-center justify-center space-x-0.5 transition-all disabled:opacity-50 cursor-pointer"
+                        >
+                          {downloadingHtml ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+                          ) : (
+                            <Eye className="w-3.5 h-3.5 shrink-0" />
+                          )}
+                          <span className="truncate">Ver HTML</span>
+                        </button>
                         <button
                           id="download-moodle-raw"
                           onClick={downloadRawHtml}
                           disabled={downloadingHtml}
-                          className="py-2 border border-amber-200 hover:bg-amber-600 hover:text-white hover:border-amber-600 text-amber-700 bg-amber-50 rounded-xl text-[11px] font-semibold flex items-center justify-center space-x-1 transition-all disabled:opacity-50"
+                          className="py-2 border border-amber-200 hover:bg-amber-600 hover:text-white hover:border-amber-600 text-amber-700 bg-amber-50 rounded-xl text-[10px] font-semibold flex items-center justify-center space-x-0.5 transition-all disabled:opacity-50 cursor-pointer"
                         >
                           {downloadingHtml ? (
                             <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
                           ) : (
                             <Download className="w-3.5 h-3.5 shrink-0" />
                           )}
-                          <span className="truncate">Descargar HTML</span>
+                          <span className="truncate">Bajar HTML</span>
                         </button>
                       </div>
                     </div>

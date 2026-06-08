@@ -99,6 +99,7 @@ export interface TodoTask {
   grupo?: string | null;
   moodleUsername?: string | null;
   moodleServer?: 'a' | 'b' | null;
+  lastSyncedAt?: string;
 }
 
 export interface MoodleSession {
