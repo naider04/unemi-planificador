@@ -625,48 +625,6 @@ export default function MoodleBrowser({
     showToast('¡Actividad agendada con éxito en tu calendario!', 'success');
   };
 
-  const downloadRawHtml = async () => {
-    if (!selectedActivity) return;
-    setDownloadingHtml(true);
-    try {
-      const res = await fetch(`${apiBase}/api/moodle/download-raw`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          moodleSession: session.cookies,
-          server: session.server,
-          url: selectedActivity.url
-        })
-      });
-      const data = await res.json();
-      if (res.ok && data.html) {
-        // Trigger browser download
-        const blob = new Blob([data.html], { type: 'text/html;charset=utf-8' });
-        const urlObj = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = urlObj;
-        
-        // Sanitize name for the filename
-        const safeName = selectedActivity.name
-          .replace(/[^a-z0-9áéíóúñ]/gi, '_')
-          .replace(/__+/g, '_')
-          .substring(0, 80);
-        
-        a.download = `${safeName || 'pagina_moodle'}.html`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(urlObj);
-      } else {
-        showToast(data.error || 'Error al descargar la página HTML de Moodle.', 'error');
-      }
-    } catch (err) {
-      showToast('Error de comunicación al intentar descargar el documento.', 'error');
-    } finally {
-      setDownloadingHtml(false);
-    }
-  };
-
   const viewRawHtml = async () => {
     if (!selectedActivity) return;
     setDownloadingHtml(true);
@@ -1230,22 +1188,22 @@ export default function MoodleBrowser({
                           <span>Agendar Actividad</span>
                         </button>
                       )}
-                      <div className="grid grid-cols-3 gap-1.5">
+                      <div className="grid grid-cols-2 gap-2">
                         <a
                           id="open-moodle-raw"
                           href={selectedActivity.url}
                           target="_blank"
                           rel="noreferrer"
-                          className="py-2 border border-gray-200 hover:bg-gray-50 text-gray-700 bg-white rounded-xl text-[10px] font-semibold flex items-center justify-center space-x-0.5 transition-all"
+                          className="py-2 border border-gray-200 hover:bg-gray-50 text-gray-700 bg-white rounded-xl text-xs font-semibold flex items-center justify-center space-x-1 transition-all"
                         >
-                          <ExternalLink className="w-3 h-3 shrink-0" />
-                          <span className="truncate">UNEMI</span>
+                          <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">Abrir en UNEMI</span>
                         </a>
                         <button
                           id="view-moodle-html"
                           onClick={viewRawHtml}
                           disabled={downloadingHtml}
-                          className="py-2 border border-teal-200 hover:bg-teal-600 hover:text-white hover:border-teal-600 text-teal-700 bg-teal-50 rounded-xl text-[10px] font-semibold flex items-center justify-center space-x-0.5 transition-all disabled:opacity-50 cursor-pointer"
+                          className="py-2 border border-teal-205 hover:bg-teal-600 hover:text-white hover:border-teal-600 text-teal-750 bg-teal-50 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1 transition-all disabled:opacity-50 cursor-pointer"
                         >
                           {downloadingHtml ? (
                             <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
@@ -1253,19 +1211,6 @@ export default function MoodleBrowser({
                             <Eye className="w-3.5 h-3.5 shrink-0" />
                           )}
                           <span className="truncate">Ver HTML</span>
-                        </button>
-                        <button
-                          id="download-moodle-raw"
-                          onClick={downloadRawHtml}
-                          disabled={downloadingHtml}
-                          className="py-2 border border-amber-200 hover:bg-amber-600 hover:text-white hover:border-amber-600 text-amber-700 bg-amber-50 rounded-xl text-[10px] font-semibold flex items-center justify-center space-x-0.5 transition-all disabled:opacity-50 cursor-pointer"
-                        >
-                          {downloadingHtml ? (
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
-                          ) : (
-                            <Download className="w-3.5 h-3.5 shrink-0" />
-                          )}
-                          <span className="truncate">Bajar HTML</span>
                         </button>
                       </div>
                     </div>

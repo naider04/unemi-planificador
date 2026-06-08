@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import * as cheerio from 'cheerio';
+import * as fs from 'fs';
 
 const app = express();
 const PORT = 3000;
@@ -1058,6 +1059,943 @@ app.post('/api/moodle/download-raw', async (req, res) => {
     console.error('Download raw error:', err);
     return res.status(500).json({ error: err.message });
   }
+});
+
+// --- SERVER-SIDE RESUMABLE BACKGROUND SYNC SYSTEM ---
+const DATA_DIR = path.join(process.cwd(), 'data');
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+interface SyncJob {
+  key: string;
+  status: 'idle' | 'syncing' | 'completed' | 'failed' | 'paused' | 'interrupted';
+  currentCourse: string;
+  currentActivity: string;
+  processedCount: number;
+  totalCount: number;
+  tasks: any[];
+  error?: string;
+  lastActive: number;
+}
+
+const syncJobs = new Map<string, SyncJob>();
+
+async function saveJobToDisk(key: string, job: SyncJob) {
+  try {
+    const filePath = path.join(DATA_DIR, `sync_${key}.json`);
+    await fs.promises.writeFile(filePath, JSON.stringify(job, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to write job to disk:', err);
+  }
+}
+
+async function loadJobFromDisk(key: string): Promise<SyncJob | null> {
+  try {
+    const filePath = path.join(DATA_DIR, `sync_${key}.json`);
+    if (fs.existsSync(filePath)) {
+      const content = await fs.promises.readFile(filePath, 'utf-8');
+      return JSON.parse(content);
+    }
+  } catch (err) {
+    // If file doesn't exist, ignore logs to keep cleanly separated
+  }
+  return null;
+}
+
+async function processQueueConcurrently(
+  queue: any[],
+  concurrencyLimit: number,
+  workerFn: (item: any) => Promise<void>
+) {
+  const activePromises: Promise<void>[] = [];
+  for (const item of queue) {
+    if (activePromises.length >= concurrencyLimit) {
+      await Promise.race(activePromises);
+    }
+    const p = workerFn(item).then(() => {
+      activePromises.splice(activePromises.indexOf(p), 1);
+    });
+    activePromises.push(p);
+  }
+  await Promise.all(activePromises);
+}
+
+async function runBackgroundSync(key: string, sessions: any[]) {
+  const job = syncJobs.get(key);
+  if (!job) return;
+
+  try {
+    const baseUrls = sessions.map(s => s.server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
+    
+    // Step 1: Map all courses for each active session
+    job.currentCourse = 'Mapeando materias...';
+    job.currentActivity = 'Estableciendo enlaces de Moodle...';
+    await saveJobToDisk(key, job);
+
+    const coursesBySession: { sessIdx: number; courses: any[] }[] = [];
+    for (let sIdx = 0; sIdx < sessions.length; sIdx++) {
+      const sess = sessions[sIdx];
+      const base = baseUrls[sIdx];
+      try {
+        const dashboardHtml = await fetchMoodleHtml(`${base}/my/`, sess.cookies);
+        const $ = cheerio.load(dashboardHtml);
+        const courses: any[] = [];
+        
+        $('a[href]').each((_, elem) => {
+          const text = $(elem).text().trim();
+          const href = $(elem).attr('href') || '';
+          const isMoodleFormat = /\s*-\s*\[[^\]]+\]\s*-\s*/.test(text);
+          const isCourseUrl = href.includes('course/view.php');
+          if ((isMoodleFormat || (isCourseUrl && text.length > 6)) && !text.includes('Área personal') && !text.includes('Dashboard')) {
+            const fullUrl = href.startsWith('http') ? href : new URL(href, base).toString();
+            const idMatch = href.match(/id=(\d+)/);
+            const id = idMatch ? idMatch[1] : href;
+            if (!courses.some(c => c.id === id)) {
+              courses.push({ id, text, url: fullUrl });
+            }
+          }
+        });
+        
+        coursesBySession.push({ sessIdx: sIdx, courses });
+      } catch (e: any) {
+        console.error(`Background course list download failed for ${sess.username}:`, e);
+      }
+    }
+
+    // Step 2: Extract all core courses activities
+    const workingQueue: any[] = [];
+    for (const coursesObj of coursesBySession) {
+      const sess = sessions[coursesObj.sessIdx];
+      const base = baseUrls[coursesObj.sessIdx];
+      for (const course of coursesObj.courses) {
+        // Double check status before doing heavy scans to allow cleaner cancellations
+        const currJob = syncJobs.get(key);
+        if (!currJob || currJob.status === 'idle') {
+          return;
+        }
+
+        job.currentCourse = `${sess.username}: ${course.text}`;
+        job.currentActivity = 'Buscando tareas y cuestionarios...';
+        await saveJobToDisk(key, job);
+
+        try {
+          const courseHtml = await fetchMoodleHtml(course.url, sess.cookies);
+          const $ = cheerio.load(courseHtml);
+          const courseIdMatch = course.url.match(/id=(\d+)/);
+          const courseId = courseIdMatch ? courseIdMatch[1] : '';
+
+          const sectionUrlsToFetch: string[] = [];
+          const sections: any[] = [];
+
+          const addSectionUrl = (urlStr: string, nameText: string) => {
+            if (!urlStr) return;
+            const fullUrl = urlStr.startsWith('http') ? urlStr : new URL(urlStr, base).toString();
+            if (courseId && (!fullUrl.includes('id=' + courseId) || (!fullUrl.includes('section=') && !fullUrl.includes('sectionid=')))) return;
+            const cleanName = nameText.replace(/Tema\s+\d+/gi, '').replace(/Sección\s+\d+/gi, '').replace(/Unidad\s+\d+/gi, '').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim() || nameText.trim();
+            if (!sections.some(s => s.url === fullUrl)) {
+              sections.push({ text: cleanName || nameText.trim() || 'Sección', url: fullUrl });
+            }
+            if (!sectionUrlsToFetch.includes(fullUrl)) {
+              sectionUrlsToFetch.push(fullUrl);
+            }
+          };
+
+          $('.section').each((_, elem) => {
+            const sectionNameElem = $(elem).find('.sectionname, h2, h3, .section-title').first();
+            const text = sectionNameElem.text().trim();
+            const hrefLink = $(elem).find('a[href]').first();
+            const href = hrefLink.attr('href') || '';
+            if (href) addSectionUrl(href, text);
+          });
+
+          $('[id^="section-"]').each((_, elem) => {
+            const idStr = $(elem).attr('id') || '';
+            const match = idStr.match(/^section-(\d+)$/);
+            if (match && match[1] !== '0') {
+              const heading = $(elem).find('.sectionname, h2, h3, .section-title').first().text().trim();
+              addSectionUrl(`${course.url}&section=${match[1]}`, heading || `Sección ${match[1]}`);
+            }
+          });
+
+          $('a[href]').each((_, elem) => {
+            const href = $(elem).attr('href') || '';
+            const text = $(elem).text().trim();
+            if (href.includes('course/view.php') && (href.includes('section=') || href.includes('sectionid='))) {
+              const idMatch = href.match(/id=(\d+)/);
+              if (!courseId || (idMatch && idMatch[1] === courseId)) {
+                addSectionUrl(href, text || `Sección`);
+              }
+            }
+          });
+
+          if (sections.length === 0 && courseId) {
+            for (let i = 1; i <= 8; i++) {
+              addSectionUrl(`${course.url}&section=${i}`, `Sección ${i}`);
+            }
+          }
+
+          const activitiesMap = new Map<string, any>();
+          const sectionNameByUrl: Record<string, string> = {};
+          sections.forEach(s => { sectionNameByUrl[s.url] = s.text; });
+
+          const parseAndRegisterActivities = (html: string, defaultSection: string) => {
+            const page$ = cheerio.load(html);
+            page$('.activity').each((_, elem) => {
+              const $activity = page$(elem);
+              let link = $activity.find('a.aalink').first();
+              if (link.length === 0) link = $activity.find('a[href]').first();
+              if (link.length === 0) return;
+              const url = link.attr('href') || '';
+              if (!url || url.includes('course/view.php')) return;
+              const fullUrl = url.startsWith('http') ? url : new URL(url, base).toString();
+              
+              let name = '';
+              const instancename = link.find('.instancename').first();
+              if (instancename.length > 0) {
+                const clone = instancename.clone();
+                clone.find('.accesshide').remove();
+                name = clone.text().trim();
+              } else {
+                name = link.text().trim() || $activity.text().trim();
+              }
+
+              const testLower = name.trim().toLowerCase();
+              const genericFilters = ['continuar', 'continue', 'intentar', 'iniciar', 'ver', 'entrar', 'comenzar', 'continuar el último intento'];
+              if (!name || name.length < 2 || genericFilters.includes(testLower)) {
+                const actualHeading = $activity.find('.activityname, .instancename, a.aalink, h3, h4, h5, .section-title').first();
+                if (actualHeading.length > 0) {
+                  const clone = actualHeading.clone();
+                  clone.find('.accesshide, .sr-only').remove();
+                  const headingText = clone.text().trim();
+                  if (headingText && !genericFilters.includes(headingText.toLowerCase())) {
+                    name = headingText;
+                  }
+                }
+              }
+
+              name = name.replace(/Tarea$/, '').replace(/Cuestionario$/, '').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+              if (!name || name.length < 2) return;
+
+              const lowerName = name.toLowerCase();
+              const genericWords = [
+                'continuar', 'continue', 'volver', 'regresar', 
+                'siguiente', 'anterior', 'atras', 'cancelar', 
+                'start', 'comenzar', 'intentar', 'iniciar', 'ir a',
+                'ver', 'entrar', 'access', 'descargar', 'download',
+                'click', 'clic', 'aquí', 'aqui'
+              ];
+              if (
+                genericWords.some(gen => lowerName === gen || lowerName === `${gen}...` || lowerName === `...${gen}`) ||
+                lowerName.includes('volver al') || lowerName.includes('regresar al') ||
+                lowerName.includes('ir al ') || lowerName.includes('ir a la ') ||
+                lowerName.includes('siguiente actividad') || lowerName.includes('actividad anterior')
+              ) {
+                return;
+              }
+
+              let type = 'ACTIVIDAD';
+              let icon = '📚';
+              if ($activity.hasClass('assign') || url.includes('/mod/assign/')) {
+                type = 'TAREA';
+                icon = '📝';
+              } else if ($activity.hasClass('quiz') || url.includes('/mod/quiz/')) {
+                type = 'CUESTIONARIO';
+                icon = '📋';
+              } else if ($activity.hasClass('forum') || url.includes('/mod/forum/')) {
+                type = 'FORO';
+                icon = '💬';
+              }
+
+              const completionStatus: string[] = [];
+              $activity.find('.badge, span[class*="badge"], .completioninfo, .completion-info').each((_, badgeElem) => {
+                const badgeText = page$(badgeElem).text().trim();
+                if (badgeText) completionStatus.push(badgeText);
+              });
+
+              let sectionName = defaultSection;
+              const parentSection = $activity.closest('.section, li.section, .course-section');
+              if (parentSection.length > 0) {
+                const heading = parentSection.find('.sectionname, h2, h3, .section-title').first();
+                if (heading.length > 0) sectionName = heading.text().replace(/\s+/g, ' ').trim();
+              }
+
+              let closure: string | null = null;
+              let closureDateISO: string | null = null;
+              const datesElem = $activity.find('.activitydates, .activity-dates, [data-region="activity-dates"], .activity-dates-wrapper, .activitymeta, .activityinfo, .activity-info');
+              if (datesElem.length > 0) {
+                const text = datesElem.text().trim();
+                const parts = text.split('\n').map(p => p.trim()).filter(Boolean);
+                for (const part of parts) {
+                  const lowerP = part.toLowerCase();
+                  if (lowerP.includes('cierra') || lowerP.includes('cierre') || lowerP.includes('vence') || lowerP.includes('entrega') || lowerP.includes('vencimiento') || lowerP.includes('due') || lowerP.includes('hasta')) {
+                    closure = part;
+                    const colonIdx = part.indexOf(':');
+                    const rawDate = colonIdx !== -1 ? part.substring(colonIdx + 1).trim() : part.replace(/cierra|cierre|vence|vencimiento|entrega|due|hasta/gi, '').trim();
+                    closureDateISO = parseMoodleSpanishDate(rawDate);
+                    break;
+                  }
+                }
+              }
+
+              if (!closure) {
+                $activity.find('div, p, span, small').each((_, el) => {
+                  const elText = page$(el).text().trim();
+                  if (!elText || elText.length > 100) return;
+                  const lowerT = elText.toLowerCase();
+                  if (lowerT.includes('cierra:') || lowerT.includes('cierre:') || lowerT.includes('vence:') || lowerT.includes('fecha de entrega:') || lowerT.includes('vencimiento:')) {
+                    closure = elText;
+                    const colonIdx = elText.indexOf(':');
+                    const rawDate = elText.substring(colonIdx + 1).trim();
+                    closureDateISO = parseMoodleSpanishDate(rawDate);
+                    return false;
+                  }
+                });
+              }
+
+              if (!activitiesMap.has(fullUrl)) {
+                activitiesMap.set(fullUrl, {
+                  name,
+                  url: fullUrl,
+                  type,
+                  icon,
+                  section: sectionName,
+                  completionStatus,
+                  closure,
+                  closureDateISO
+                });
+              }
+            });
+
+            // Extra support for general anchor links inside Sections
+            page$('a[href]').each((_, elem) => {
+              const href = page$(elem).attr('href') || '';
+              if (!href.includes('/mod/assign/') && !href.includes('/mod/quiz/') && !href.includes('/mod/forum/')) return;
+              const fullUrl = href.startsWith('http') ? href : new URL(href, base).toString();
+              if (activitiesMap.has(fullUrl)) return;
+
+              let name = page$(elem).text().trim();
+              const instancename = page$(elem).find('.instancename').first();
+              if (instancename.length > 0) {
+                const clone = instancename.clone();
+                clone.find('.accesshide').remove();
+                name = clone.text().trim();
+              }
+
+              const testLower = name.trim().toLowerCase();
+              const genericFilters = ['continuar', 'continue', 'intentar', 'iniciar', 'ver', 'entrar', 'comenzar', 'continuar el último intento'];
+              if (!name || name.length < 2 || genericFilters.includes(testLower)) {
+                const parentActivity = page$(elem).closest('.activity');
+                if (parentActivity.length > 0) {
+                  const actualHeading = parentActivity.find('.activityname, .instancename, a.aalink, h3, h4, h5, .section-title').first();
+                  if (actualHeading.length > 0) {
+                    const clone = actualHeading.clone();
+                    clone.find('.accesshide, .sr-only').remove();
+                    const headingText = clone.text().trim();
+                    if (headingText && !genericFilters.includes(headingText.toLowerCase())) {
+                      name = headingText;
+                    }
+                  }
+                }
+              }
+
+              name = name.replace(/Tarea$/, '').replace(/Cuestionario$/, '').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+              if (!name || name.length < 3) return;
+
+              const lowerName = name.toLowerCase();
+              const genericWords = [
+                'continuar', 'continue', 'volver', 'regresar', 
+                'siguiente', 'anterior', 'atras', 'cancelar', 
+                'start', 'comenzar', 'intentar', 'iniciar', 'ir a',
+                'ver', 'entrar', 'access', 'descargar', 'download',
+                'click', 'clic', 'aquí', 'aqui'
+              ];
+              if (
+                genericWords.some(gen => lowerName === gen || lowerName === `${gen}...` || lowerName === `...${gen}`) ||
+                lowerName.includes('volver al') || lowerName.includes('regresar al') ||
+                lowerName.includes('ir al ') || lowerName.includes('ir a la ') ||
+                lowerName.includes('siguiente actividad') || lowerName.includes('actividad anterior')
+              ) {
+                return;
+              }
+
+              let type = 'ACTIVIDAD';
+              let icon = '📚';
+              if (href.includes('/mod/assign/')) { type = 'TAREA'; icon = '📝'; }
+              else if (href.includes('/mod/quiz/')) { type = 'CUESTIONARIO'; icon = '📋'; }
+              else if (href.includes('/mod/forum/')) { type = 'FORO'; icon = '💬'; }
+
+              let sectionName = defaultSection;
+              const parentSection = page$(elem).closest('.section, li.section, .course-section');
+              if (parentSection.length > 0) {
+                const heading = parentSection.find('.sectionname, h2, h3, .section-title').first();
+                if (heading.length > 0) sectionName = heading.text().replace(/\s+/g, ' ').trim();
+              }
+
+              let closure: string | null = null;
+              let closureDateISO: string | null = null;
+              const parentActivityElem = page$(elem).closest('.activity');
+              if (parentActivityElem.length > 0) {
+                const datesElem = parentActivityElem.find('.activitydates, .activity-dates, [data-region="activity-dates"], .activity-dates-wrapper, .activitymeta, .activityinfo, .activity-info');
+                if (datesElem.length > 0) {
+                  const text = datesElem.text().trim();
+                  const parts = text.split('\n').map(p => p.trim()).filter(Boolean);
+                  for (const part of parts) {
+                    const lowerP = part.toLowerCase();
+                    if (lowerP.includes('cierra') || lowerP.includes('cierre') || lowerP.includes('vence') || lowerP.includes('entrega') || lowerP.includes('vencimiento') || lowerP.includes('due') || lowerP.includes('hasta')) {
+                      closure = part;
+                      const colonIdx = part.indexOf(':');
+                      const rawDate = colonIdx !== -1 ? part.substring(colonIdx + 1).trim() : part.replace(/cierra|cierre|vence|vencimiento|entrega|due|hasta/gi, '').trim();
+                      closureDateISO = parseMoodleSpanishDate(rawDate);
+                      break;
+                    }
+                  }
+                }
+              }
+
+              activitiesMap.set(fullUrl, {
+                name,
+                url: fullUrl,
+                type,
+                icon,
+                section: sectionName,
+                completionStatus: [],
+                closure,
+                closureDateISO
+              });
+            });
+          };
+
+          parseAndRegisterActivities(courseHtml, 'General');
+
+          // Support parallel sections crawl on server for high velocity
+          const limitUrls = sectionUrlsToFetch.slice(0, 35);
+          await Promise.all(limitUrls.map(async (url) => {
+            try {
+              const secHtml = await fetchMoodleHtml(url, sess.cookies);
+              const secName = sectionNameByUrl[url] || 'Actividades';
+              parseAndRegisterActivities(secHtml, secName);
+            } catch (err) {
+              // Ignore failing sections gracefully
+            }
+          }));
+
+          const activities = Array.from(activitiesMap.values());
+          const actionable = activities.filter((act: any) => act.type === 'TAREA' || act.type === 'CUESTIONARIO');
+          
+          actionable.forEach((act: any) => {
+            workingQueue.push({
+              sessionIndex: coursesObj.sessIdx,
+              username: sess.username,
+              server: sess.server,
+              courseId: course.id,
+              courseName: course.text,
+              activityUrl: act.url,
+              type: act.type,
+              activityName: act.name
+            });
+          });
+        } catch (e: any) {
+          console.error(`Scrape course activities failed for ${sess.username} - ${course.text}:`, e);
+        }
+      }
+    }
+
+    // Prepare active queue details
+    job.totalCount = workingQueue.length;
+    job.processedCount = 0;
+    job.tasks = [];
+    await saveJobToDisk(key, job);
+
+    if (workingQueue.length === 0) {
+      job.status = 'completed';
+      await saveJobToDisk(key, job);
+      return;
+    }
+
+    // Server-side equivalents helper for stats and task modeling
+    const computeStatsServer = (type: string, details: any) => {
+      let status = 'No entregado';
+      let grade: string | null = null;
+      let gradeOver: string | null = null;
+
+      if (details.por_hacer_calificacion) {
+        return { status: 'No entregado', grade: null, gradeOver: null };
+      }
+
+      if (type === 'CUESTIONARIO') {
+        if (details.quiz_info) {
+          const qi = details.quiz_info;
+          if (qi.calificacion_final) {
+            status = 'Calificado';
+            grade = qi.calificacion_final;
+            gradeOver = qi.calificacion_sobre;
+          } else if (qi.intentos && qi.intentos.length > 0) {
+            const finishedAttempt = qi.intentos.find((att: any) => 
+              att.estado?.toLowerCase().includes('terminado') || 
+              att.estado?.toLowerCase().includes('finalizado')
+            );
+            if (finishedAttempt) {
+              status = finishedAttempt.calificacion ? 'Calificado' : 'Entregado';
+              grade = finishedAttempt.calificacion;
+              gradeOver = finishedAttempt.calificacion_sobre;
+            } else {
+              status = 'Entregado';
+            }
+          } else if (details.hecho_calificacion) {
+            status = 'Entregado';
+          }
+        } else if (details.hecho_calificacion) {
+          status = 'Entregado';
+        }
+      } else if (type === 'TAREA') {
+        const isCalificado = details.estado_calificacion?.toLowerCase().includes('calificado') || !!details.calificacion;
+        if (isCalificado) {
+          status = 'Calificado';
+          grade = details.calificacion || null;
+          gradeOver = details.calificacion_sobre || null;
+        } else if (
+          details.estado_entrega && (
+            details.estado_entrega.toLowerCase().includes('enviado') ||
+            details.estado_entrega.toLowerCase().includes('entregado')
+          )
+        ) {
+          status = 'Entregado';
+        } else {
+          const estEntrega = details.estado_entrega?.toLowerCase() || '';
+          if (estEntrega.includes('borrador')) {
+            status = 'Borrador';
+          } else if (estEntrega.includes('no entregado') || estEntrega.includes('sin entregar') || estEntrega.includes('no se ha enviado')) {
+            status = 'No entregado';
+          } else if (details.hecho_calificacion) {
+            status = 'Entregado';
+          } else {
+            status = 'No entregado';
+          }
+        }
+      }
+      return { status, grade, gradeOver };
+    };
+
+    // Parallel scraper with pool limit of 4 concurrency
+    const concurrencyPool = 4;
+    let processed = 0;
+
+    const workerFn = async (currentItem: any) => {
+      // Check cancellation prior to fetching details
+      const currentJobCheck = syncJobs.get(key);
+      if (!currentJobCheck || currentJobCheck.status === 'idle') {
+        return;
+      }
+
+      const sess = sessions[currentItem.sessionIndex];
+      if (!sess) {
+        processed++;
+        return;
+      }
+
+      job.currentCourse = currentItem.courseName;
+      job.currentActivity = currentItem.activityName;
+      job.processedCount = processed;
+      syncJobs.set(key, { ...job });
+
+      try {
+        const activityHtml = await fetchMoodleHtml(currentItem.activityUrl, sess.cookies);
+        const $ = cheerio.load(activityHtml);
+
+        let domAperture: string | null = null;
+        let domClosure: string | null = null;
+        $('[data-region="activity-dates"], .rui-activity-dates, .activity-dates, .activity-dates-wrapper, .rui-activity-information').find('div, p, span').each((_, el) => {
+          const text = $(el).text().trim();
+          if (!text) return;
+          const lower = text.toLowerCase();
+          const isAp = lower.startsWith('abre:') || lower.startsWith('apertura:') || lower.startsWith('abrió:') || lower.startsWith('disponible desde:') || lower.startsWith('opened:');
+          const isCl = lower.startsWith('cierra:') || lower.startsWith('cierre:') || lower.startsWith('cerró:') || lower.startsWith('disponible hasta:') || lower.startsWith('fecha de entrega:') || lower.startsWith('closed:') || lower.startsWith('due:');
+          if (isAp) {
+            const val = text.substring(text.indexOf(':') + 1).trim();
+            if (val && !domAperture) domAperture = val;
+          } else if (isCl) {
+            const val = text.substring(text.indexOf(':') + 1).trim();
+            if (val && !domClosure) domClosure = val;
+          }
+        });
+
+        const $clone = $('body').clone();
+        $clone.find('div, p, br, h1, h2, h3, h4, h5, h6, li, tr, td, section, aside, header, footer').after('\n');
+        const pageText = $clone.text() || $.text() || '';
+
+        const dates = {
+          aperture: domAperture,
+          apertureDateISO: null as string | null,
+          closure: domClosure,
+          closureDateISO: null as string | null
+        };
+
+        if (!dates.aperture) {
+          const aperturePatterns = [/Apertura:\s*([^\n<]+)/i, /Apre:\s*([^\n<]+)/i, /Abrió:\s*([^\n<]+)/i, /Disponible desde:\s*([^\n<]+)/i, /Opened:\s*([^\n<]+)/i];
+          for (const r of aperturePatterns) {
+            const m = pageText.match(r);
+            if (m && m[1]) {
+              const val = m[1].trim();
+              if (!val.includes('Cierre') && !val.includes('Cerró') && !val.includes('Cierra') && !val.includes('Disponible hasta')) {
+                dates.aperture = val; break;
+              }
+            }
+          }
+        }
+
+        if (!dates.closure) {
+          const closurePatterns = [/Cierre:\s*([^\n<]+)/i, /Cierra:\s*([^\n<]+)/i, /Cerró:\s*([^\n<]+)/i, /Disponible hasta:\s*([^\n<]+)/i, /Fecha de entrega:\s*([^\n<]+)/i, /Closed:\s*([^\n<]+)/i, /Due:\s*([^\n<]+)/i];
+          for (const r of closurePatterns) {
+            const m = pageText.match(r);
+            if (m && m[1]) {
+              const val = m[1].trim();
+              if (!val.includes('Apertura') && !val.includes('Abrió') && !val.includes('Abre') && !val.includes('Disponible desde')) {
+                dates.closure = val; break;
+              }
+            }
+          }
+        }
+
+        if (dates.closure) dates.closureDateISO = parseMoodleSpanishDate(dates.closure);
+        if (dates.aperture) dates.apertureDateISO = parseMoodleSpanishDate(dates.aperture);
+
+        const isAssign = currentItem.activityUrl.includes('mod/assign');
+        const isQuiz = currentItem.activityUrl.includes('mod/quiz');
+        const tipo_actividad = isAssign ? 'Tarea' : (isQuiz ? 'Cuestionario' : 'Actividad');
+
+        const detailsInfo: any = {
+          aperture: dates.aperture,
+          apertureDateISO: dates.apertureDateISO,
+          closure: dates.closure,
+          closureDateISO: dates.closureDateISO,
+          tipo_actividad,
+          requisitos_pendientes: [] as string[],
+          requisitos_completados: [] as string[],
+          archivos_enviados: [],
+          archivos_adicionales: [],
+          detalle: null,
+          quiz_info: null
+        };
+
+        $('.badge-sm, .badge').each((_, badge) => {
+          const badgeText = $(badge).text().trim();
+          if (badgeText.startsWith('Hecho:')) detailsInfo.requisitos_completados.push(badgeText.replace('Hecho:', '').trim());
+          else if (badgeText.startsWith('Por hacer:')) detailsInfo.requisitos_pendientes.push(badgeText.replace('Por hacer:', '').trim());
+        });
+
+        if (isAssign) {
+          const submissionTable = $('.submissionsummarytable, .submissionstatustable, table:contains("Estado de la entrega")').first();
+          const tableDetails: Record<string, string> = {};
+          if (submissionTable.length > 0) {
+            submissionTable.find('tr').each((_, tr) => {
+              const th = $(tr).find('th, td.cell.c0').first().text().trim().toLowerCase();
+              const td = $(tr).find('td, td.cell.c1').last().text().trim();
+              if (th && td && td !== '-') tableDetails[th] = td;
+            });
+          }
+          detailsInfo.grupo = tableDetails['grupo'] || tableDetails['group'] || null;
+          detailsInfo.intento = tableDetails['número del intento'] || tableDetails['intento'] || null;
+          detailsInfo.estado_entrega = tableDetails['estado de la entrega'] || tableDetails['submission status'] || null;
+          detailsInfo.estado_calificacion = tableDetails['estado de la calificación'] || tableDetails['grading status'] || null;
+          detailsInfo.tiempo_restante = tableDetails['tiempo restante'] || tableDetails['time remaining'] || null;
+          detailsInfo.ultima_modificacion = tableDetails['última modificación'] || tableDetails['last modified'] || null;
+
+          if (submissionTable.length > 0) {
+            submissionTable.find('tr').each((_, tr) => {
+              const thText = $(tr).find('th, td.cell.c0').first().text().trim().toLowerCase();
+              if (thText.includes('archivos enviados') || thText.includes('file submissions')) {
+                $(tr).find('a[href]').each((_, a) => {
+                  const urlObj = $(a).attr('href') || '';
+                  const nombre = $(a).text().trim();
+                  if (nombre && urlObj) detailsInfo.archivos_enviados.push({ nombre, url: urlObj });
+                });
+              }
+            });
+          }
+
+          const gradeTable = $('.feedback table.generaltable, .feedbacktable table');
+          if (gradeTable.length > 0) {
+            gradeTable.find('tr').each((_, tr) => {
+              const th = $(tr).find('th').first().text().trim().toLowerCase();
+              const td = $(tr).find('td').last().text().trim();
+              if (th && td) {
+                if (th.includes('calificación') || th.includes('grade')) {
+                  const m = td.match(/(\d+[.,]?\d*)\s*[/]\s*(\d+[.,]?\d*)/);
+                  if (m) {
+                    detailsInfo.calificacion = m[1];
+                    detailsInfo.calificacion_sobre = m[2];
+                  } else {
+                    detailsInfo.calificacion = td;
+                  }
+                } else if (th.includes('fecha') || th.includes('date')) {
+                  detailsInfo.fecha_calificacion = td;
+                } else if (th.includes('calificado por') || th.includes('graded by')) {
+                  detailsInfo.calificado_por = $(tr).find('td a').first().text().trim() || td;
+                }
+              }
+            });
+          }
+          const commentElem = $('.feedback .comment, .feedbacktable, .feedback .no-overflow');
+          if (commentElem.length > 0) {
+            detailsInfo.comentario_calificador = commentElem.text().trim().replace(/^Comentarios?/i, '').trim();
+          }
+        }
+
+        if (isQuiz) {
+          const quiz_info: any = { intentos_permitidos: null, limite_tiempo: null, calificacion_final: null, calificacion_sobre: null, porcentaje: null, intentos: [] };
+          const matchIntentos = pageText.match(/Intentos permitidos:\s*(\d+)/i) || pageText.match(/Attempts allowed:\s*(\d+)/i);
+          if (matchIntentos) quiz_info.intentos_permitidos = matchIntentos[1];
+          const matchTiempo = pageText.match(/Límite de tiempo:\s*([^\n<]+)/i) || pageText.match(/Time limit:\s*([^\n<]+)/i);
+          if (matchTiempo) quiz_info.limite_tiempo = matchTiempo[1].trim();
+          
+          const feedbackDiv = $('#feedback, .quizfeedback');
+          if (feedbackDiv.length > 0) {
+            const fbText = feedbackDiv.text().trim();
+            const matchFinalGrade = fbText.match(/calificación final.*?(\d+[.,]?\d*)\s*[/]\s*(\d+[.,]?\d*)/i);
+            if (matchFinalGrade) {
+              quiz_info.calificacion_final = matchFinalGrade[1];
+              quiz_info.calificacion_sobre = matchFinalGrade[2];
+            }
+            const matchPct = fbText.match(/\((\d+)%\)/);
+            if (matchPct) quiz_info.porcentaje = matchPct[1];
+          }
+
+          $('.rui-attempts-list, table.quizattemptsummary').each((_, summary) => {
+            $(summary).find('tr, .rounded.border').each((_, container) => {
+              const attempt: any = { numero: null, estado: null, comenzado: null, completado: null, duracion: null, calificacion: null, calificacion_sobre: null, porcentaje: null, revision_url: null };
+              const h4Val = $(container).find('h4, td.c0, th').first().text().trim();
+              const matchNum = h4Val.match(/Intento\s*(\d+)/i) || h4Val.match(/Attempt\s*(\d+)/i) || h4Val.match(/^(\d+)$/);
+              if (matchNum) attempt.numero = matchNum[1];
+              if ($(container).hasClass('rounded')) {
+                $(container).find('.rui-infobox').each((_, box) => {
+                  const title = $(box).find('h5').text().trim().toLowerCase();
+                  const value = $(box).find('.rui-infobox-content--small').text().trim();
+                  if (title.includes('estado')) attempt.estado = value;
+                  else if (title.includes('comenzado')) attempt.comenzado = value;
+                  else if (title.includes('completo')) attempt.completado = value;
+                  else if (title.includes('duración')) attempt.duracion = value;
+                  else if (title.includes('calificación')) {
+                    const m = value.match(/(\d+[.,]?\d*)\s+de\s+(\d+[.,]?\d*)\s*\((\d+)%\)/);
+                    if (m) { attempt.calificacion = m[1]; attempt.calificacion_sobre = m[2]; attempt.porcentaje = m[3]; }
+                    else { const mSimple = value.match(/(\d+[.,]?\d*)/); if (mSimple) attempt.calificacion = mSimple[1]; }
+                  }
+                });
+              } else {
+                const stateText = $(container).find('.state, td.c1').first().text().trim();
+                if (stateText) attempt.estado = stateText;
+                const gradeText = $(container).find('.grade, td.c2').first().text().trim();
+                if (gradeText) attempt.calificacion = gradeText;
+              }
+              const revLink = $(container).find('a[href*="review.php"]');
+              if (revLink.length > 0) attempt.revision_url = revLink.attr('href');
+              if (attempt.numero || attempt.estado) quiz_info.intentos.push(attempt);
+            });
+          });
+          detailsInfo.quiz_info = quiz_info;
+        }
+
+        const descriptionDiv = $('.activity-description, #intro, .activity-header');
+        if (descriptionDiv.length > 0) {
+          detailsInfo.detalle = descriptionDiv.text().trim();
+          descriptionDiv.find('a[href]').each((_, lLink) => {
+            const hHref = $(lLink).attr('href') || '';
+            const tTexto = $(lLink).text().trim();
+            if (hHref && tTexto && tTexto.length > 3) {
+              if (hHref.includes('pluginfile') || hHref.endsWith('.pdf') || hHref.endsWith('.docx') || hHref.endsWith('.doc')) {
+                detailsInfo.archivos_adicionales.push({ texto: tTexto, url: hHref });
+              }
+            }
+          });
+        }
+
+        if (!detailsInfo.detalle && pageText) {
+          const contentSnippet = pageText.split('Apertura:')[0]?.split('Límite de tiempo:')[0]?.substring(0, 400)?.trim();
+          if (contentSnippet && contentSnippet.length > 20) detailsInfo.detalle = contentSnippet;
+        }
+
+        let advertencia_preguntas = null;
+        if (pageText.includes('Aún no se han agregado preguntas') || activityHtml.includes('Aún no se han agregado preguntas')) {
+          advertencia_preguntas = 'Aún no se han agregado preguntas';
+        }
+        detailsInfo.advertencia_preguntas = advertencia_preguntas;
+
+        let por_hacer_calificacion = false;
+        if (Array.isArray(detailsInfo.requisitos_pendientes)) {
+          por_hacer_calificacion = detailsInfo.requisitos_pendientes.some((r: string) => r.toLowerCase().includes('recibir una calificación') || r.toLowerCase().includes('recibir una calificacion'));
+        }
+        if (!por_hacer_calificacion) {
+          const lowerPage = pageText.toLowerCase();
+          por_hacer_calificacion = lowerPage.includes('por hacer: recibir una calificación') || lowerPage.includes('por hacer: recibir una calificacion');
+        }
+        detailsInfo.por_hacer_calificacion = por_hacer_calificacion;
+
+        let hecho_calificacion = false;
+        if (Array.isArray(detailsInfo.requisitos_completados)) {
+          hecho_calificacion = detailsInfo.requisitos_completados.some((r: string) => r.toLowerCase().includes('recibir una calificación') || r.toLowerCase().includes('recibir una calificacion'));
+        }
+        if (!hecho_calificacion) {
+          const lowerPage = pageText.toLowerCase();
+          hecho_calificacion = lowerPage.includes('hecho: recibir una calificación') || lowerPage.includes('hecho: recibir una calificacion');
+        }
+        detailsInfo.hecho_calificacion = hecho_calificacion;
+
+        const computedStats = computeStatsServer(currentItem.type, detailsInfo);
+
+        const newTodo = {
+          id: `moodle-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+          title: currentItem.activityName,
+          courseId: currentItem.courseId,
+          courseName: currentItem.courseName,
+          activityUrl: currentItem.activityUrl,
+          type: currentItem.type,
+          description: detailsInfo.detalle || undefined,
+          closureDate: detailsInfo.closureDateISO || null,
+          aperture: detailsInfo.aperture || null,
+          apertureDateISO: detailsInfo.apertureDateISO || null,
+          completed: !detailsInfo.por_hacer_calificacion && (
+                       (detailsInfo.estado_entrega && (detailsInfo.estado_entrega.toLowerCase().includes('enviado') || detailsInfo.estado_entrega.toLowerCase().includes('entregado'))) || 
+                       detailsInfo.quiz_info?.intentos?.some((att: any) => att.estado?.toLowerCase().includes('terminado')) || 
+                       (detailsInfo.hecho_calificacion === true) ||
+                       (computedStats.status === 'Calificado' || computedStats.status === 'Entregado') ||
+                       false
+                     ),
+          createdAt: new Date().toISOString(),
+          status: computedStats.status,
+          grade: computedStats.grade,
+          gradeOver: computedStats.gradeOver,
+          gradingStatus: detailsInfo.estado_calificacion || null,
+          estado_calificacion: detailsInfo.estado_calificacion || null,
+          estado_entrega: detailsInfo.estado_entrega || null,
+          comentario_calificador: detailsInfo.comentario_calificador || null,
+          advertencia_preguntas: detailsInfo.advertencia_preguntas || null,
+          por_hacer_calificacion: detailsInfo.por_hacer_calificacion || false,
+          hecho_calificacion: detailsInfo.hecho_calificacion || false,
+          grupo: detailsInfo.grupo || null,
+          moodleUsername: currentItem.username,
+          moodleServer: currentItem.server,
+          lastSyncedAt: new Date().toISOString()
+        };
+
+        const existingIdx = job.tasks.findIndex(t => t.activityUrl === currentItem.activityUrl);
+        if (existingIdx !== -1) {
+          job.tasks[existingIdx] = newTodo;
+        } else {
+          job.tasks.push(newTodo);
+        }
+      } catch (err) {
+        console.error(`Background download details exception for ${currentItem.activityName}:`, err);
+      }
+
+      processed++;
+      job.processedCount = processed;
+      if (processed % 5 === 0 || processed === job.totalCount) {
+        await saveJobToDisk(key, job);
+      }
+    };
+
+    await processQueueConcurrently(workingQueue, concurrencyPool, workerFn);
+
+    // Ensure we don't overwrite if canceled mid-job
+    const finalJobCheck = syncJobs.get(key);
+    if (finalJobCheck && finalJobCheck.status === 'syncing') {
+      job.status = 'completed';
+      job.currentCourse = '';
+      job.currentActivity = '';
+      await saveJobToDisk(key, job);
+      syncJobs.set(key, job);
+    }
+
+  } catch (err: any) {
+    console.error('Unified background sync error:', err);
+    job.status = 'failed';
+    job.error = err.message || 'Error de conexión con Moodle';
+    await saveJobToDisk(key, job);
+    syncJobs.set(key, job);
+  }
+}
+
+// REST Endpoints: Background Sync Trigger
+app.post('/api/moodle/sync/start', async (req, res) => {
+  const { sessions } = req.body;
+  if (!sessions || !Array.isArray(sessions) || sessions.length === 0) {
+    return res.status(400).json({ error: 'Faltan conexiones de Moodle para iniciar sincronización' });
+  }
+
+  const key = sessions.map(s => s.username.toLowerCase()).sort().join('_');
+  
+  let existingJob = syncJobs.get(key);
+  if (!existingJob) {
+    existingJob = await loadJobFromDisk(key);
+  }
+
+  if (existingJob && existingJob.status === 'syncing') {
+    return res.json({ success: true, key, status: 'running', job: existingJob });
+  }
+
+  const newJob: SyncJob = {
+    key,
+    status: 'syncing',
+    currentCourse: 'Mapeando materias...',
+    currentActivity: 'Leyendo estructura general...',
+    processedCount: 0,
+    totalCount: 0,
+    tasks: [],
+    lastActive: Date.now()
+  };
+
+  syncJobs.set(key, newJob);
+  await saveJobToDisk(key, newJob);
+
+  runBackgroundSync(key, sessions).catch(err => {
+    console.error('Fatal async sync failure:', err);
+  });
+
+  return res.json({ success: true, key, status: 'started', job: newJob });
+});
+
+// REST Endpoints: Background Sync Polling
+app.post('/api/moodle/sync/status', async (req, res) => {
+  const { key } = req.body;
+  if (!key) {
+    return res.status(400).json({ error: 'Falta clave identificadora del job' });
+  }
+
+  let job = syncJobs.get(key);
+  if (!job) {
+    job = await loadJobFromDisk(key);
+    if (job) {
+      syncJobs.set(key, job);
+    }
+  }
+
+  if (!job) {
+    return res.json({ status: 'idle' });
+  }
+
+  return res.json({ job });
+});
+
+// REST Endpoints: Background Sync Cancellation
+app.post('/api/moodle/sync/cancel', async (req, res) => {
+  const { key } = req.body;
+  if (!key) {
+    return res.status(400).json({ error: 'Falta clave identificadora' });
+  }
+
+  let job = syncJobs.get(key);
+  if (!job) job = await loadJobFromDisk(key);
+  
+  if (job) {
+    job.status = 'idle';
+    job.processedCount = 0;
+    job.totalCount = 0;
+    job.tasks = [];
+    syncJobs.set(key, job);
+    await saveJobToDisk(key, job);
+  }
+
+  return res.json({ success: true });
 });
 
 // Configure Vite integration
