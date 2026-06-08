@@ -29,6 +29,7 @@ interface CourseStats {
 
 export default function StatsPanel({ tasks, onNavigateToMoodleActivity }: StatsPanelProps) {
   const [expandedCourses, setExpandedCourses] = useState<Record<string, boolean>>({});
+  const [selectedCarrera, setSelectedCarrera] = useState<string>('all');
 
   const parseVal = (v: string | null | undefined): number | null => {
     if (v === null || v === undefined) return null;
@@ -37,10 +38,64 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity }: StatsP
     return isNaN(num) ? null : num;
   };
 
+  // Helper to extract carrera and curso from courseName
+  const getCourseDetails = (courseName: string | null | undefined) => {
+    if (!courseName) return { materia: '', codigo: '', curso: 'N/A', carrera: 'Otros' };
+    const parts = courseName.split(' - ').map(p => p.trim());
+    if (parts.length >= 4) {
+      return {
+        materia: parts[0],
+        codigo: parts[1],
+        curso: parts[2],
+        carrera: parts[3]
+      };
+    } else if (parts.length === 3) {
+      if (parts[1].startsWith('[') && parts[1].endsWith(']')) {
+        return {
+          materia: parts[0],
+          codigo: parts[1],
+          curso: 'N/A',
+          carrera: parts[2]
+        };
+      }
+    }
+    const codeIndex = parts.findIndex(p => p.startsWith('[') && p.endsWith(']'));
+    if (codeIndex !== -1) {
+      const materia = parts.slice(0, codeIndex).join(' - ');
+      const codigo = parts[codeIndex];
+      let curso = 'N/A';
+      let carrera = 'Otros';
+      const remaining = parts.slice(codeIndex + 1);
+      if (remaining.length === 2) {
+        curso = remaining[0];
+        carrera = remaining[1];
+      } else if (remaining.length === 1) {
+        carrera = remaining[0];
+      }
+      return { materia, codigo, curso, carrera };
+    }
+    return { materia: courseName, codigo: '', curso: 'N/A', carrera: 'Otros' };
+  };
+
+  // Find unique careers in task base
+  const uniqueCarreras = Array.from(
+    new Set(
+      tasks
+        .map(t => getCourseDetails(t.courseName).carrera)
+        .filter(Boolean)
+    )
+  ).sort();
+
+  // Filter tasks by selected career
+  const filteredTasks = tasks.filter(task => {
+    if (selectedCarrera === 'all') return true;
+    return getCourseDetails(task.courseName).carrera === selectedCarrera;
+  });
+
   // Group and compute stats for each course
   const coursesMap: Record<string, CourseStats> = {};
 
-  tasks.forEach(task => {
+  filteredTasks.forEach(task => {
     if (!task.courseName) return;
     const courseKey = task.courseName;
 
@@ -127,7 +182,7 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity }: StatsP
   const hasAnyGrades = courseStatsList.some(c => c.percentage !== null);
 
   return (
-    <div id="stats-panel-root" className="space-y-6">
+    <div id="timeline-card-wrapper" className="space-y-6">
       
       {/* Dynamic Summary Cards */}
       <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-xs">
@@ -140,6 +195,28 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity }: StatsP
             <p className="text-xs text-gray-400 mt-0.5">
               Tus materias ordenadas de menor a mayor promedio. Los trabajos no entregados vencidos penalizan con <span className="font-semibold text-rose-600">0%</span>.
             </p>
+          </div>
+        </div>
+
+        {/* Filters Block */}
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-4 mt-2">
+          {/* Label or left spacer */}
+          <div className="md:col-span-3 flex items-center">
+            <span className="text-xs font-bold text-gray-500">Filtrar rendimiento por carrera:</span>
+          </div>
+          {/* Career Filter Container (will be div:nth-of-type(2)) */}
+          <div className="md:col-span-3 relative">
+            <select
+              id="task-career-filter"
+              value={selectedCarrera}
+              onChange={(e) => setSelectedCarrera(e.target.value)}
+              className="block w-full px-3 py-2 border border-gray-150 rounded-xl text-xs text-gray-700 bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+            >
+              <option value="all">Todas las Carreras ({uniqueCarreras.length})</option>
+              {uniqueCarreras.map(carr => (
+                <option key={carr} value={carr}>{carr === 'Otros' ? 'Otros / Manuales' : carr}</option>
+              ))}
+            </select>
           </div>
         </div>
 
