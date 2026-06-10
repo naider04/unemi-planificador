@@ -429,7 +429,7 @@ export default function ActivityTimeline({
     }
 
     // 3. Actividades que cierran en menos de 30 horas = 🔥
-    // And ⚠️ for activities closing outside 11:50 PM to 1:00 AM range
+    // And ⚠️ helper for activities closing outside 23:57 to 00:00 range (almost 3 minutes)
     if (!task.completed && task.closureDate) {
       const deadline = new Date(task.closureDate).getTime();
       const now = new Date().getTime();
@@ -442,9 +442,8 @@ export default function ActivityTimeline({
         const date = new Date(task.closureDate);
         const hours = date.getHours();
         const minutes = date.getMinutes();
-        const totalMinutes = hours * 60 + minutes;
-        const inIdealRange = (totalMinutes >= 23 * 60 + 50) || (totalMinutes <= 1 * 60);
-        if (!inIdealRange) {
+        const inExcludedRange = (hours === 23 && minutes >= 57) || (hours === 0 && minutes === 0);
+        if (!inExcludedRange) {
           return '⚠️';
         }
 
