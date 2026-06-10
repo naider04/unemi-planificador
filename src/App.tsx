@@ -11,6 +11,24 @@ import ActivityTimeline from './components/ActivityTimeline';
 import NewTaskModal from './components/NewTaskModal';
 import StatsPanel from './components/StatsPanel';
 
+const isStatusSubmittedLocal = (estadoEntrega: string | null | undefined): boolean => {
+  if (!estadoEntrega) return false;
+  const estLower = estadoEntrega.toLowerCase();
+  if (
+    estLower.includes('no se ha enviado nada') || 
+    estLower.includes('no entregado') || 
+    estLower.includes('sin entregar') || 
+    estLower.includes('no enviado') ||
+    estLower.includes('sin enviar')
+  ) {
+    return false;
+  }
+  if (estLower.includes('enviado') || estLower.includes('entregado')) {
+    return true;
+  }
+  return false;
+};
+
 export default function App() {
   const [sessions, setSessions] = useState<MoodleSession[]>([]);
   const [activeSessionIndex, setActiveSessionIndex] = useState<number>(0);
@@ -682,12 +700,7 @@ export default function App() {
                 status = 'Calificado';
                 grade = det.calificacion || null;
                 gradeOver = det.calificacion_sobre || null;
-              } else if (
-                det.estado_entrega && (
-                  det.estado_entrega.toLowerCase().includes('enviado') ||
-                  det.estado_entrega.toLowerCase().includes('entregado')
-                )
-              ) {
+              } else if (isStatusSubmittedLocal(det.estado_entrega)) {
                 status = 'Entregado';
               } else {
                 const estEntrega = det.estado_entrega?.toLowerCase() || '';
@@ -713,7 +726,7 @@ export default function App() {
             aperture: details.aperture || null,
             apertureDateISO: details.apertureDateISO || null,
             completed: !details.por_hacer_calificacion && (
-                         (details.estado_entrega && (details.estado_entrega.toLowerCase().includes('enviado') || details.estado_entrega.toLowerCase().includes('entregado'))) || 
+                         isStatusSubmittedLocal(details.estado_entrega) || 
                          details.quiz_info?.intentos?.some((att: any) => att.estado?.toLowerCase().includes('terminado')) || 
                          (details.hecho_calificacion === true) ||
                          (stats.status === 'Calificado' || stats.status === 'Entregado') ||

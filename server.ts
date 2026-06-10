@@ -277,6 +277,12 @@ app.post('/api/moodle/courses', async (req, res) => {
 
     return res.json({ courses });
   } catch (err: any) {
+    const lowerMsg = (err.message || '').toLowerCase();
+    const isSessionExpired = lowerMsg.includes('expiró') || lowerMsg.includes('expirada') || lowerMsg.includes('expirado') || lowerMsg.includes('inválida') || lowerMsg.includes('invalida') || lowerMsg.includes('sesión') || lowerMsg.includes('sesion') || lowerMsg.includes('redirect');
+    if (isSessionExpired) {
+      console.warn('Courses expected session separation:', err.message);
+      return res.status(401).json({ error: err.message });
+    }
     console.error('Courses error:', err);
     return res.status(500).json({ error: err.message });
   }
@@ -674,6 +680,12 @@ app.post('/api/moodle/course-activities', async (req, res) => {
 
     return res.json({ activities, sections });
   } catch (err: any) {
+    const lowerMsg = (err.message || '').toLowerCase();
+    const isSessionExpired = lowerMsg.includes('expiró') || lowerMsg.includes('expirada') || lowerMsg.includes('expirado') || lowerMsg.includes('inválida') || lowerMsg.includes('invalida') || lowerMsg.includes('sesión') || lowerMsg.includes('sesion') || lowerMsg.includes('redirect');
+    if (isSessionExpired) {
+      console.warn('Course activities expected session separation:', err.message);
+      return res.status(401).json({ error: err.message });
+    }
     console.error('Course activities error:', err);
     return res.status(500).json({ error: err.message });
   }
@@ -1040,6 +1052,12 @@ app.post('/api/moodle/activity-details', async (req, res) => {
 
     return res.json({ details: info });
   } catch (err: any) {
+    const lowerMsg = (err.message || '').toLowerCase();
+    const isSessionExpired = lowerMsg.includes('expiró') || lowerMsg.includes('expirada') || lowerMsg.includes('expirado') || lowerMsg.includes('inválida') || lowerMsg.includes('invalida') || lowerMsg.includes('sesión') || lowerMsg.includes('sesion') || lowerMsg.includes('redirect');
+    if (isSessionExpired) {
+      console.warn('Activity details expected session separation:', err.message);
+      return res.status(401).json({ error: err.message });
+    }
     console.error('Activity details error:', err);
     return res.status(500).json({ error: err.message });
   }
@@ -1056,6 +1074,12 @@ app.post('/api/moodle/download-raw', async (req, res) => {
     const html = await fetchMoodleHtml(url, moodleSession);
     return res.json({ html });
   } catch (err: any) {
+    const lowerMsg = (err.message || '').toLowerCase();
+    const isSessionExpired = lowerMsg.includes('expiró') || lowerMsg.includes('expirada') || lowerMsg.includes('expirado') || lowerMsg.includes('inválida') || lowerMsg.includes('invalida') || lowerMsg.includes('sesión') || lowerMsg.includes('sesion') || lowerMsg.includes('redirect');
+    if (isSessionExpired) {
+      console.warn('Download raw expected session separation:', err.message);
+      return res.status(401).json({ error: err.message });
+    }
     console.error('Download raw error:', err);
     return res.status(500).json({ error: err.message });
   }
@@ -1163,7 +1187,13 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         
         coursesBySession.push({ sessIdx: sIdx, courses });
       } catch (e: any) {
-        console.error(`Background course list download failed for ${sess.username}:`, e);
+        const lowerMsg = (e.message || '').toLowerCase();
+        const isSessionExpired = lowerMsg.includes('expiró') || lowerMsg.includes('expirada') || lowerMsg.includes('expirado') || lowerMsg.includes('inválida') || lowerMsg.includes('invalida') || lowerMsg.includes('sesión') || lowerMsg.includes('sesion');
+        if (isSessionExpired) {
+          console.warn(`[Expected Expiry] Background course list download for ${sess.username} had expired session.`);
+        } else {
+          console.error(`Background course list download failed for ${sess.username}:`, e);
+        }
         invalidSessions.push(sess.username);
       }
     }
@@ -1509,7 +1539,13 @@ async function runBackgroundSync(key: string, sessions: any[]) {
             });
           });
         } catch (e: any) {
-          console.error(`Scrape course activities failed for ${sess.username} - ${course.text}:`, e);
+          const lowerMsg = (e.message || '').toLowerCase();
+          const isSessionExpired = lowerMsg.includes('expiró') || lowerMsg.includes('expirada') || lowerMsg.includes('expirado') || lowerMsg.includes('inválida') || lowerMsg.includes('invalida') || lowerMsg.includes('sesión') || lowerMsg.includes('sesion');
+          if (isSessionExpired) {
+            console.warn(`[Expected Expiry] Scrape course activities for ${sess.username} - ${course.text} had expired session.`);
+          } else {
+            console.error(`Scrape course activities failed for ${sess.username} - ${course.text}:`, e);
+          }
         }
       }
     }
@@ -1525,6 +1561,24 @@ async function runBackgroundSync(key: string, sessions: any[]) {
       await saveJobToDisk(key, job);
       return;
     }
+
+    const isStatusSubmittedServer = (estadoEntrega: string | null | undefined): boolean => {
+      if (!estadoEntrega) return false;
+      const estLower = estadoEntrega.toLowerCase();
+      if (
+        estLower.includes('no se ha enviado nada') || 
+        estLower.includes('no entregado') || 
+        estLower.includes('sin entregar') || 
+        estLower.includes('no enviado') ||
+        estLower.includes('sin enviar')
+      ) {
+        return false;
+      }
+      if (estLower.includes('enviado') || estLower.includes('entregado')) {
+        return true;
+      }
+      return false;
+    };
 
     // Server-side equivalents helper for stats and task modeling
     const computeStatsServer = (type: string, details: any) => {
@@ -1567,12 +1621,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
           status = 'Calificado';
           grade = details.calificacion || null;
           gradeOver = details.calificacion_sobre || null;
-        } else if (
-          details.estado_entrega && (
-            details.estado_entrega.toLowerCase().includes('enviado') ||
-            details.estado_entrega.toLowerCase().includes('entregado')
-          )
-        ) {
+        } else if (isStatusSubmittedServer(details.estado_entrega)) {
           status = 'Entregado';
         } else {
           const estEntrega = details.estado_entrega?.toLowerCase() || '';
@@ -1867,7 +1916,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
           aperture: detailsInfo.aperture || null,
           apertureDateISO: detailsInfo.apertureDateISO || null,
           completed: !detailsInfo.por_hacer_calificacion && (
-                       (detailsInfo.estado_entrega && (detailsInfo.estado_entrega.toLowerCase().includes('enviado') || detailsInfo.estado_entrega.toLowerCase().includes('entregado'))) || 
+                       isStatusSubmittedServer(detailsInfo.estado_entrega) || 
                        detailsInfo.quiz_info?.intentos?.some((att: any) => att.estado?.toLowerCase().includes('terminado')) || 
                        (detailsInfo.hecho_calificacion === true) ||
                        (computedStats.status === 'Calificado' || computedStats.status === 'Entregado') ||
@@ -1896,8 +1945,14 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         } else {
           job.tasks.push(newTodo);
         }
-      } catch (err) {
-        console.error(`Background download details exception for ${currentItem.activityName}:`, err);
+      } catch (err: any) {
+        const lowerMsg = (err.message || '').toLowerCase();
+        const isSessionExpired = lowerMsg.includes('expiró') || lowerMsg.includes('expirada') || lowerMsg.includes('expirado') || lowerMsg.includes('inválida') || lowerMsg.includes('invalida') || lowerMsg.includes('sesión') || lowerMsg.includes('sesion');
+        if (isSessionExpired) {
+          console.warn(`[Expected Expiry] Background download details exception for ${currentItem.activityName} had expired session.`);
+        } else {
+          console.error(`Background download details exception for ${currentItem.activityName}:`, err);
+        }
       }
 
       processed++;
