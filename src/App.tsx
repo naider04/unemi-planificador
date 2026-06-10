@@ -21,6 +21,7 @@ export default function App() {
   const [moodleNavigation, setMoodleNavigation] = useState<{ courseId: string; activityUrl: string } | null>(null);
   const [agendaNavigation, setAgendaNavigation] = useState<string | null>(null);
   const [prefillLogin, setPrefillLogin] = useState<{ username: string; server: 'a' | 'b'; errorMsg: string } | null>(null);
+  const [timelineFilterCourseId, setTimelineFilterCourseId] = useState<string | null>(null);
 
   // Global Sync State
   const [globalSync, setGlobalSync] = useState<{
@@ -55,6 +56,11 @@ export default function App() {
 
   // 1. Initial Load from LocalStorage
   useEffect(() => {
+    try {
+      sessionStorage.removeItem('unemi_collapsed_weeks');
+    } catch (e) {
+      console.error(e);
+    }
     try {
       const cachedSessions = localStorage.getItem('unemi_sessions');
       let loadedSessions: MoodleSession[] = [];
@@ -146,9 +152,13 @@ export default function App() {
       const data = await res.json();
       if (res.ok && data.courses) {
         setCourses(data.courses);
+      } else {
+        const errMsg = data.error || 'La sesión de Moodle ha expirado o es inválida.';
+        handleSessionError(session, errMsg);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching courses cache list:', err);
+      handleSessionError(session, err?.message || 'Error de conexión.');
     }
   };
 
@@ -158,10 +168,11 @@ export default function App() {
       s => s.username.toLowerCase() === newSession.username.toLowerCase() && s.server === newSession.server
     );
     let updatedSessions = [...sessions];
+    const sessionWithCleanStatus = { ...newSession, expired: false };
     if (existsIdx !== -1) {
-      updatedSessions[existsIdx] = newSession;
+      updatedSessions[existsIdx] = sessionWithCleanStatus;
     } else {
-      updatedSessions.push(newSession);
+      updatedSessions.push(sessionWithCleanStatus);
     }
     setSessions(updatedSessions);
     localStorage.setItem('unemi_sessions', JSON.stringify(updatedSessions));
@@ -189,6 +200,17 @@ export default function App() {
   };
 
   const handleSessionError = (failedSession: MoodleSession, rawMsg: string) => {
+    setSessions(prev => {
+      const updated = prev.map(s => {
+        if (s.username.toLowerCase() === failedSession.username.toLowerCase() && s.server === failedSession.server) {
+          return { ...s, expired: true };
+        }
+        return s;
+      });
+      localStorage.setItem('unemi_sessions', JSON.stringify(updated));
+      return updated;
+    });
+
     let friendlyMsg = 'Tu sesión en el aula virtual de UNEMI ha expirado o se ha cerrado.';
     if (rawMsg.toLowerCase().includes('fetch failed')) {
       friendlyMsg = 'Sesión cerrada o error de conexión de red (Fetch failed). Vuelve a conectar tu cuenta para re-autenticarte.';
@@ -405,6 +427,39 @@ export default function App() {
         localStorage.removeItem('unemi_sync_key');
         return false;
       } else if (job.status === 'failed') {
+        const errMsg = job.error || '';
+        if (errMsg.includes('No hay sesiones abiertas actualmente')) {
+          setSessions(prev => {
+            const updated = prev.map(s => ({ ...s, expired: true }));
+            localStorage.setItem('unemi_sessions', JSON.stringify(updated));
+            return updated;
+          });
+          localStorage.removeItem('unemi_sync_key');
+          setPrefillLogin({
+            username: sessions[0]?.username || '',
+            server: sessions[0]?.server || 'a',
+            errorMsg: 'Las cuentas conectadas han expirado o se cerraron. Por favor ingresa tus datos de acceso nuevamente en "Conectar Moodle".'
+          });
+          setActiveTab('login');
+          setGlobalSync({
+            status: 'failed',
+            currentCourse: 'Sesiones expiradas',
+            currentActivity: errMsg,
+            processedCount: job.processedCount,
+            totalCount: job.totalCount,
+            queue: []
+          });
+          localStorage.setItem('unemi_global_sync_state', JSON.stringify({
+            status: 'failed',
+            currentCourse: 'Sesiones expiradas',
+            currentActivity: errMsg,
+            processedCount: job.processedCount,
+            totalCount: job.totalCount,
+            queue: []
+          }));
+          return false;
+        }
+
         setGlobalSync({
           status: 'failed',
           currentCourse: 'Sincronización interrumpida',
@@ -976,6 +1031,37 @@ export default function App() {
                   </button>
                 </div>
               )}
+
+              {globalSync.status === 'failed' && (
+                <div className="space-y-2">
+                  <div className="space-y-1">
+                    <p className="text-[11px] text-rose-600 font-extrabold flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                      <span>Sincronización Fallida</span>
+                    </p>
+                    <p className="text-[10px] text-slate-605 leading-normal bg-rose-50/70 border border-rose-100 rounded-xl p-2.5 font-medium">
+                      {globalSync.currentActivity || 'No se pudo contactar con las aulas virtuales de UNEMI.'}
+                    </p>
+                  </div>
+                  <div className="flex space-x-1.5 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => startGlobalSync()}
+                      className="flex-grow py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-extrabold rounded-lg flex items-center justify-center space-x-1 cursor-pointer transition-all shadow-2xs"
+                    >
+                      <RefreshCw className="w-3 h-3 shrink-0" />
+                      <span>Reintentar</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelGlobalSync}
+                      className="py-1.5 px-3 border border-gray-200 text-gray-700 hover:bg-gray-50 text-[10px] font-bold rounded-lg cursor-pointer transition-all"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1115,6 +1201,8 @@ export default function App() {
               syncingTaskId={syncingTaskId}
               onDownloadHtml={handleDownloadHtml}
               onViewHtml={handleViewHtml}
+              filterCourseIdTrigger={timelineFilterCourseId}
+              onClearFilterCourseIdTrigger={() => setTimelineFilterCourseId(null)}
             />
           )}
 
@@ -1200,25 +1288,52 @@ export default function App() {
                     {sessions.map((sess, idx) => (
                       <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-100 rounded-xl">
                         <div className="flex items-center space-x-2.5 min-w-0">
-                          <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${idx === activeSessionIndex ? 'bg-emerald-500 animate-pulse' : 'bg-emerald-400'}`}></span>
+                          <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                            sess.expired 
+                              ? 'bg-rose-500' 
+                              : idx === activeSessionIndex 
+                                ? 'bg-emerald-500 animate-pulse' 
+                                : 'bg-emerald-400'
+                          }`}></span>
                           <div className="min-w-0">
                             <p className="text-xs font-bold text-gray-800 truncate font-mono">{sess.username}</p>
                             <p className="text-[10px] text-gray-400 capitalize">
-                              {sess.server === 'a' ? 'Aula Grado A' : 'Aula Grado B'} {idx === activeSessionIndex ? '(Navegador Actual)' : ''}
+                              {sess.server === 'a' ? 'Aula Grado A' : 'Aula Grado B'}{' '}
+                              {sess.expired ? (
+                                <span className="text-rose-500 font-semibold">(Sesión Expirada)</span>
+                              ) : (
+                                idx === activeSessionIndex ? '(Navegador Actual)' : ''
+                              )}
                             </p>
                           </div>
                         </div>
                         <div className="flex items-center space-x-1.5">
-                          {idx !== activeSessionIndex && (
+                          {sess.expired ? (
                             <button
                               onClick={() => {
-                                setActiveSessionIndex(idx);
-                                setActiveTab('browser');
+                                setPrefillLogin({
+                                  username: sess.username,
+                                  server: sess.server,
+                                  errorMsg: 'Por favor, ingresa tus datos de acceso para volver a conectar tu cuenta.'
+                                });
+                                setActiveTab('login');
                               }}
-                              className="text-[10px] font-semibold text-blue-600 hover:bg-blue-50 hover:text-blue-700 px-2.5 py-1 rounded-lg border border-blue-100 transition-colors cursor-pointer"
+                              className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer mr-1"
                             >
-                              Ver navegador
+                              Reconectar
                             </button>
+                          ) : (
+                            idx !== activeSessionIndex && (
+                              <button
+                                onClick={() => {
+                                  setActiveSessionIndex(idx);
+                                  setActiveTab('browser');
+                                }}
+                                className="text-[10px] font-semibold text-blue-600 hover:bg-blue-50 hover:text-blue-700 px-2.5 py-1 rounded-lg border border-blue-100 transition-colors cursor-pointer"
+                              >
+                                Ver navegador
+                              </button>
+                            )
                           )}
                           <button
                             onClick={() => {
@@ -1234,7 +1349,7 @@ export default function App() {
                             }}
                             className="text-[10px] font-semibold text-red-600 hover:bg-red-50 hover:text-red-700 px-2.5 py-1 rounded-lg border border-red-100 transition-colors cursor-pointer"
                           >
-                            Cerrar Sesión
+                            {sess.expired ? 'Quitar Cuenta' : 'Cerrar Sesión'}
                           </button>
                         </div>
                       </div>
@@ -1261,6 +1376,10 @@ export default function App() {
                 }
                 setMoodleNavigation({ courseId, activityUrl });
                 setActiveTab('browser');
+              }}
+              onViewUpcomingActivities={(courseId) => {
+                setTimelineFilterCourseId(courseId);
+                setActiveTab('agenda');
               }}
             />
           )}

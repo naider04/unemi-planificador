@@ -106,4 +106,5 @@ export interface MoodleSession {
   username: string;
   server: 'a' | 'b';
   cookies: string;
+  expired?: boolean;
 }

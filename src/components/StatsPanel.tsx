@@ -5,6 +5,7 @@ import { Award, ChevronDown, ChevronUp, AlertCircle, BookOpen, Clock, CalendarDa
 interface StatsPanelProps {
   tasks: TodoTask[];
   onNavigateToMoodleActivity?: (courseId: string, activityUrl: string) => void;
+  onViewUpcomingActivities?: (courseId: string) => void;
 }
 
 interface CourseStats {
@@ -27,7 +28,7 @@ interface CourseStats {
   }[];
 }
 
-export default function StatsPanel({ tasks, onNavigateToMoodleActivity }: StatsPanelProps) {
+export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUpcomingActivities }: StatsPanelProps) {
   const [expandedCourses, setExpandedCourses] = useState<Record<string, boolean>>({});
   const [selectedCarrera, setSelectedCarrera] = useState<string>('all');
 
@@ -354,9 +355,24 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity }: StatsP
               {/* Collapsed tasks list */}
               {isExpanded && (
                 <div className="border-t border-gray-100 bg-white p-5 animate-in slide-in-from-top-1 duration-150">
-                  <h4 className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider mb-3">
-                    Desglose de Calificaciones ({course.tasksList.length} ítems analizados)
-                  </h4>
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                    <h4 className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">
+                      Desglose de Calificaciones ({course.tasksList.length} ítems analizados)
+                    </h4>
+                    {onViewUpcomingActivities && course.courseId && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onViewUpcomingActivities(course.courseId!);
+                        }}
+                        className="py-1 px-2.5 bg-blue-50 hover:bg-blue-100 text-blue-600 text-[11px] font-bold rounded-xl transition-all flex items-center space-x-1.5 cursor-pointer border border-blue-200/50 w-fit"
+                      >
+                        <CalendarDays className="w-3.5 h-3.5 shrink-0" />
+                        <span>Ver próximas actividades</span>
+                      </button>
+                    )}
+                  </div>
                   
                   {course.tasksList.length === 0 ? (
                     <p className="text-xs text-gray-400 italic">No hay notas registradas para esta materia.</p>

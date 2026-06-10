@@ -19,6 +19,8 @@ interface ActivityTimelineProps {
   syncingTaskId?: string | null;
   onDownloadHtml?: (task: TodoTask) => void;
   onViewHtml?: (task: TodoTask) => void;
+  filterCourseIdTrigger?: string | null;
+  onClearFilterCourseIdTrigger?: () => void;
 }
 
 export default function ActivityTimeline({ 
@@ -33,14 +35,48 @@ export default function ActivityTimeline({
   onRefreshSingleTask,
   syncingTaskId,
   onDownloadHtml,
-  onViewHtml
+  onViewHtml,
+  filterCourseIdTrigger,
+  onClearFilterCourseIdTrigger
 }: ActivityTimelineProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCarrera, setSelectedCarrera] = useState<string>('all');
   const [selectedCourseId, setSelectedCourseId] = useState<string>('all');
   const [showCompleted, setShowCompleted] = useState<boolean>(true);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [collapsedWeeks, setCollapsedWeeks] = useState<Record<string, boolean>>({});
+  
+  const [collapsedWeeksState, setCollapsedWeeksState] = useState<Record<string, boolean>>(() => {
+    try {
+      const cached = sessionStorage.getItem('unemi_collapsed_weeks');
+      return cached ? JSON.parse(cached) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const setCollapsedWeeks = (val: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>)) => {
+    setCollapsedWeeksState(prev => {
+      const next = typeof val === 'function' ? val(prev) : val;
+      try {
+        sessionStorage.setItem('unemi_collapsed_weeks', JSON.stringify(next));
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
+  };
+
+  const collapsedWeeks = collapsedWeeksState;
+
+  useEffect(() => {
+    if (filterCourseIdTrigger) {
+      setSelectedCourseId(filterCourseIdTrigger);
+      setShowCompleted(false);
+      if (onClearFilterCourseIdTrigger) {
+        onClearFilterCourseIdTrigger();
+      }
+    }
+  }, [filterCourseIdTrigger, onClearFilterCourseIdTrigger]);
 
   const [now, setNow] = useState(new Date());
 
@@ -893,19 +929,6 @@ export default function ActivityTimeline({
                                             <Eye className="w-3 h-3 shrink-0" />
                                           </button>
                                         )}
-                                        {onDownloadHtml && (
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              onDownloadHtml(task);
-                                            }}
-                                            className="bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-blue-600 border border-slate-200 p-1 rounded-lg transition-all cursor-pointer"
-                                            title="Descargar HTML original"
-                                          >
-                                            <Download className="w-3 h-3 shrink-0" />
-                                          </button>
-                                        )}
                                       </div>
                                     )}
                                   </div>
@@ -1199,19 +1222,6 @@ export default function ActivityTimeline({
                                                         title="Ver HTML en nueva pestaña"
                                                       >
                                                         <Eye className="w-3 h-3 shrink-0" />
-                                                      </button>
-                                                    )}
-                                                    {onDownloadHtml && (
-                                                      <button
-                                                        type="button"
-                                                        onClick={(e) => {
-                                                          e.stopPropagation();
-                                                          onDownloadHtml(task);
-                                                        }}
-                                                        className="bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-blue-600 border border-slate-200 p-1 rounded-lg transition-all cursor-pointer"
-                                                        title="Descargar HTML original"
-                                                      >
-                                                        <Download className="w-3 h-3 shrink-0" />
                                                       </button>
                                                     )}
                                                   </div>

@@ -196,7 +196,7 @@ export default function LoginPanel({
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="ej. wpatinoc"
+              placeholder="ej. mi_usuario"
               disabled={loading}
               className="block w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-xs placeholder-gray-400 focus:outline-hidden focus:ring-2 focus:ring-blue-100 focus:border-blue-500 disabled:opacity-50"
             />

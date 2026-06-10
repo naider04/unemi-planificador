@@ -1129,16 +1129,20 @@ async function runBackgroundSync(key: string, sessions: any[]) {
     const baseUrls = sessions.map(s => s.server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
     
     // Step 1: Map all courses for each active session
-    job.currentCourse = 'Mapeando materias...';
-    job.currentActivity = 'Estableciendo enlaces de Moodle...';
+    job.currentCourse = 'Verificando sesiones...';
+    job.currentActivity = `Validando conexiones de Moodle para ${sessions.length} cuenta(s)...`;
     await saveJobToDisk(key, job);
 
     const coursesBySession: { sessIdx: number; courses: any[] }[] = [];
+    let validSessionCount = 0;
+    const invalidSessions: string[] = [];
+
     for (let sIdx = 0; sIdx < sessions.length; sIdx++) {
       const sess = sessions[sIdx];
       const base = baseUrls[sIdx];
       try {
         const dashboardHtml = await fetchMoodleHtml(`${base}/my/`, sess.cookies);
+        validSessionCount++;
         const $ = cheerio.load(dashboardHtml);
         const courses: any[] = [];
         
@@ -1160,8 +1164,17 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         coursesBySession.push({ sessIdx: sIdx, courses });
       } catch (e: any) {
         console.error(`Background course list download failed for ${sess.username}:`, e);
+        invalidSessions.push(sess.username);
       }
     }
+
+    if (validSessionCount === 0) {
+      throw new Error(`No hay sesiones abiertas actualmente. Las cuentas conectadas (${invalidSessions.join(', ')}) han expirado o se cerraron. Por favor ingresa tus datos de acceso nuevamente en 'Conectar Moodle'.`);
+    }
+
+    job.currentCourse = 'Sesiones verificadas';
+    job.currentActivity = `Encontradas ${validSessionCount} de ${sessions.length} sesiones abiertas. Iniciando sincronización...`;
+    await saveJobToDisk(key, job);
 
     // Step 2: Extract all core courses activities
     const workingQueue: any[] = [];

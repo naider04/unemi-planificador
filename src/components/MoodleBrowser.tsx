@@ -66,6 +66,7 @@ export default function MoodleBrowser({
   const [downloadingHtml, setDownloadingHtml] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
+  const [downloadingCourseHtml, setDownloadingCourseHtml] = useState(false);
   const [confirmSyncAll, setConfirmSyncAll] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ text: string, type: 'info' | 'success' | 'error' } | null>(null);
 
@@ -75,10 +76,15 @@ export default function MoodleBrowser({
       lowerMessage.includes('fetch failed') ||
       lowerMessage.includes('expiró la sesión') ||
       lowerMessage.includes('sesión') ||
+      lowerMessage.includes('sesion') ||
       lowerMessage.includes('expired') ||
       lowerMessage.includes('autenticar') ||
       lowerMessage.includes('credenciales') ||
-      lowerMessage.includes('login')
+      lowerMessage.includes('login') ||
+      lowerMessage.includes('inválida') ||
+      lowerMessage.includes('invalida') ||
+      lowerMessage.includes('no hay sesiones') ||
+      lowerMessage.includes('expirada')
     ) {
       if (onSessionError) {
         onSessionError(session, apiErrorMsg || 'La sesión de Moodle expiró o se cerró.');
@@ -434,6 +440,16 @@ export default function MoodleBrowser({
     }));
   };
 
+  const isPastDate = (isoStr: string | null | undefined): boolean => {
+    if (!isoStr) return false;
+    try {
+      const d = new Date(isoStr);
+      return d.getTime() < Date.now();
+    } catch {
+      return false;
+    }
+  };
+
   // Global automatic synchronizer for ALL courses mapped in Moodle
   const syncAllCoursesDeadlines = async () => {
     if (!courses.length) {
@@ -654,6 +670,36 @@ export default function MoodleBrowser({
     }
   };
 
+  const viewCourseRawHtml = async () => {
+    if (!selectedCourse) return;
+    setDownloadingCourseHtml(true);
+    try {
+      const res = await fetch(`${apiBase}/api/moodle/download-raw`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          moodleSession: session.cookies,
+          server: session.server,
+          url: selectedCourse.url
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.html) {
+        const blob = new Blob([data.html], { type: 'text/html;charset=utf-8' });
+        const urlObj = window.URL.createObjectURL(blob);
+        window.open(urlObj, '_blank');
+        setTimeout(() => window.URL.revokeObjectURL(urlObj), 15000);
+      } else {
+        showToast(data.error || 'Error al ver la página HTML del curso.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error de comunicación al intentar ver el curso.', 'error');
+    } finally {
+      setDownloadingCourseHtml(false);
+    }
+  };
+
   // Group activities helper
   const groupedActivities = activities.reduce<Record<string, Activity[]>>((acc, act) => {
     if (!acc[act.section]) acc[act.section] = [];
@@ -683,14 +729,25 @@ export default function MoodleBrowser({
               <ArrowLeft className="w-4 h-4" />
               <span>Ver mis materias</span>
             </button>
-            <div className="flex items-start space-x-3">
-              <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl mt-1 shrink-0">
-                <BookOpen className="w-5 h-5" />
+            <div className="flex items-start justify-between space-x-3">
+              <div className="flex items-start space-x-3 min-w-0">
+                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl mt-1 shrink-0">
+                  <BookOpen className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-gray-900 line-clamp-2">{selectedCourse.text}</h3>
+                  <p className="text-xs text-gray-400 mt-1 font-mono">ID: {selectedCourse.id}</p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-sm font-bold text-gray-900 line-clamp-2">{selectedCourse.text}</h3>
-                <p className="text-xs text-gray-400 mt-1 font-mono">ID: {selectedCourse.id}</p>
-              </div>
+              <button
+                type="button"
+                onClick={viewCourseRawHtml}
+                disabled={downloadingCourseHtml}
+                className="p-2 text-slate-500 hover:text-slate-800 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl cursor-pointer transition-all shrink-0"
+                title="Ver vista general del curso (link temporal)"
+              >
+                <Eye className={`w-4 h-4 ${downloadingCourseHtml ? 'animate-pulse' : ''}`} />
+              </button>
             </div>
 
             {/* Sync Bulk Button */}
@@ -854,7 +911,9 @@ export default function MoodleBrowser({
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {Object.entries(groupedActivities).map(([sectionName, list]) => {
+                    {Object.entries(groupedActivities)
+                      .filter(([sectionName]) => isSectionOfInterest(sectionName))
+                      .map(([sectionName, list]) => {
                       const activitiesList = list as Activity[];
                       const collapsed = isSectionCollapsed(sectionName);
                       return (
@@ -933,12 +992,21 @@ export default function MoodleBrowser({
                                   {/* Action / Date Row */}
                                   <div className="flex items-center justify-between gap-1 mt-1 pt-1 border-t border-slate-100/60">
                                     {(closureISO || closureText) ? (
-                                      <div className="flex items-center space-x-1.5 text-[10px] font-semibold text-rose-700 bg-rose-50/70 border border-rose-150/40 rounded-lg px-2 py-0.5 w-fit">
-                                        <Clock className="w-3 h-3 text-rose-500 shrink-0" />
-                                        <span className="truncate max-w-[124px]">
-                                          {closureText || (closureISO ? formatCalendarDate(closureISO) : '')}
-                                        </span>
-                                      </div>
+                                      (() => {
+                                        const past = isPastDate(closureISO);
+                                        return (
+                                          <div className={`flex items-center space-x-1.5 text-[10px] font-semibold rounded-lg px-2 py-0.5 w-fit ${
+                                            past 
+                                              ? 'text-rose-700 bg-rose-50/70 border border-rose-150/40' 
+                                              : 'text-emerald-700 bg-emerald-50/70 border border-emerald-150/40'
+                                          }`}>
+                                            <Clock className={`w-3 h-3 shrink-0 ${past ? 'text-rose-500' : 'text-emerald-500'}`} />
+                                            <span className="truncate max-w-[124px]">
+                                              {closureText || (closureISO ? formatCalendarDate(closureISO) : '')}
+                                            </span>
+                                          </div>
+                                        );
+                                      })()
                                     ) : (
                                       <div className="flex items-center space-x-1.5 text-[10px] font-medium text-slate-400 italic">
                                         <Clock className="w-3 h-3 text-slate-300 shrink-0" />
