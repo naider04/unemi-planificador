@@ -1091,6 +1091,13 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
+interface SyncLogEntry {
+  timestamp: string;
+  type: 'info' | 'success' | 'warn' | 'error' | 'performance';
+  message: string;
+  durationMs?: number;
+}
+
 interface SyncJob {
   key: string;
   status: 'idle' | 'syncing' | 'completed' | 'failed' | 'paused' | 'interrupted';
@@ -1101,9 +1108,18 @@ interface SyncJob {
   tasks: any[];
   error?: string;
   lastActive: number;
+  logs?: SyncLogEntry[];
 }
 
 const syncJobs = new Map<string, SyncJob>();
+
+function addLog(job: SyncJob, type: 'info' | 'success' | 'warn' | 'error' | 'performance', message: string, durationMs?: number) {
+  if (!job.logs) job.logs = [];
+  const now = new Date();
+  const timestamp = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3, '0');
+  job.logs.push({ timestamp, type, message, durationMs });
+  console.log(`[SyncLog][${timestamp}] [${type.toUpperCase()}] ${message} ${durationMs !== undefined ? `(${durationMs}ms)` : ''}`);
+}
 
 async function saveJobToDisk(key: string, job: SyncJob) {
   try {
@@ -1161,11 +1177,15 @@ async function runBackgroundSync(key: string, sessions: any[]) {
     let validSessionCount = 0;
     const invalidSessions: string[] = [];
 
+    addLog(job, 'info', `Verificando conexiones en Moodle para ${sessions.length} cuenta(s) activa(s)...`);
+
     for (let sIdx = 0; sIdx < sessions.length; sIdx++) {
       const sess = sessions[sIdx];
       const base = baseUrls[sIdx];
+      const startDash = Date.now();
       try {
         const dashboardHtml = await fetchMoodleHtml(`${base}/my/`, sess.cookies);
+        const dashTime = Date.now() - startDash;
         validSessionCount++;
         const $ = cheerio.load(dashboardHtml);
         const courses: any[] = [];
@@ -1186,9 +1206,12 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         });
         
         coursesBySession.push({ sessIdx: sIdx, courses });
+        addLog(job, 'performance', `Cuenta (${sess.username}) verificada con éxito. Se encontraron ${courses.length} materias.`, dashTime);
       } catch (e: any) {
+        const dashTime = Date.now() - startDash;
         const lowerMsg = (e.message || '').toLowerCase();
         const isSessionExpired = lowerMsg.includes('expiró') || lowerMsg.includes('expirada') || lowerMsg.includes('expirado') || lowerMsg.includes('inválida') || lowerMsg.includes('invalida') || lowerMsg.includes('sesión') || lowerMsg.includes('sesion');
+        addLog(job, 'warn', `No se pudo obtener el dashboard para ${sess.username}: ${e.message}`, dashTime);
         if (isSessionExpired) {
           console.warn(`[Expected Expiry] Background course list download for ${sess.username} had expired session.`);
         } else {
@@ -1199,11 +1222,13 @@ async function runBackgroundSync(key: string, sessions: any[]) {
     }
 
     if (validSessionCount === 0) {
+      addLog(job, 'error', `Sincronización abortada. No hay sesiones de Moodle activas.`);
       throw new Error(`No hay sesiones abiertas actualmente. Las cuentas conectadas (${invalidSessions.join(', ')}) han expirado o se cerraron. Por favor ingresa tus datos de acceso nuevamente en 'Conectar Moodle'.`);
     }
 
     job.currentCourse = 'Sesiones verificadas';
     job.currentActivity = `Encontradas ${validSessionCount} de ${sessions.length} sesiones abiertas. Iniciando sincronización...`;
+    addLog(job, 'success', `Sesiones Moodle validadas correctamente (${validSessionCount} activas).`);
     await saveJobToDisk(key, job);
 
     // Step 2: Extract all core courses activities
@@ -1222,8 +1247,11 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         job.currentActivity = 'Buscando tareas y cuestionarios...';
         await saveJobToDisk(key, job);
 
+        const courseStart = Date.now();
         try {
+          const fetchStart = Date.now();
           const courseHtml = await fetchMoodleHtml(course.url, sess.cookies);
+          const fetchTime = Date.now() - fetchStart;
           const $ = cheerio.load(courseHtml);
           const courseIdMatch = course.url.match(/id=(\d+)/);
           const courseId = courseIdMatch ? courseIdMatch[1] : '';
@@ -1513,15 +1541,20 @@ async function runBackgroundSync(key: string, sessions: any[]) {
 
           // Support parallel sections crawl on server for high velocity
           const limitUrls = sectionUrlsToFetch.slice(0, 35);
-          await Promise.all(limitUrls.map(async (url) => {
-            try {
-              const secHtml = await fetchMoodleHtml(url, sess.cookies);
-              const secName = sectionNameByUrl[url] || 'Actividades';
-              parseAndRegisterActivities(secHtml, secName);
-            } catch (err) {
-              // Ignore failing sections gracefully
-            }
-          }));
+          const sectionsStart = Date.now();
+          if (limitUrls.length > 0) {
+            await Promise.all(limitUrls.map(async (url) => {
+              try {
+                const secHtml = await fetchMoodleHtml(url, sess.cookies);
+                const secName = sectionNameByUrl[url] || 'Actividades';
+                parseAndRegisterActivities(secHtml, secName);
+              } catch (err) {
+                // Ignore failing sections gracefully
+              }
+            }));
+            const sectionsDuration = Date.now() - sectionsStart;
+            addLog(job, 'performance', `[${course.text}] Descargados ${limitUrls.length} subtemas/secciones en paralelo.`, sectionsDuration);
+          }
 
           const activities = Array.from(activitiesMap.values());
           const actionable = activities.filter((act: any) => act.type === 'TAREA' || act.type === 'CUESTIONARIO');
@@ -1538,7 +1571,12 @@ async function runBackgroundSync(key: string, sessions: any[]) {
               activityName: act.name
             });
           });
+
+          const totalDuration = Date.now() - courseStart;
+          addLog(job, 'performance', `Materia "${course.text}" procesada (${actionable.length} actividades entregables encontradas). (HTML principal: ${fetchTime}ms)`, totalDuration);
         } catch (e: any) {
+          const totalDuration = Date.now() - courseStart;
+          addLog(job, 'warn', `No se pudo escanear la materia "${course.text}": ${e.message}`, totalDuration);
           const lowerMsg = (e.message || '').toLowerCase();
           const isSessionExpired = lowerMsg.includes('expiró') || lowerMsg.includes('expirada') || lowerMsg.includes('expirado') || lowerMsg.includes('inválida') || lowerMsg.includes('invalida') || lowerMsg.includes('sesión') || lowerMsg.includes('sesion');
           if (isSessionExpired) {
@@ -1650,6 +1688,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         return;
       }
 
+      const taskStart = Date.now();
       const sess = sessions[currentItem.sessionIndex];
       if (!sess) {
         processed++;
@@ -1945,7 +1984,12 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         } else {
           job.tasks.push(newTodo);
         }
+        
+        const taskDuration = Date.now() - taskStart;
+        addLog(job, 'performance', `[Detalle] (${currentItem.type}) ${currentItem.courseName} -> ${currentItem.activityName} cargada y procesada.`, taskDuration);
       } catch (err: any) {
+        const taskDuration = Date.now() - taskStart;
+        addLog(job, 'warn', `No se pudo parsear el detalle de "${currentItem.activityName}": ${err.message}`, taskDuration);
         const lowerMsg = (err.message || '').toLowerCase();
         const isSessionExpired = lowerMsg.includes('expiró') || lowerMsg.includes('expirada') || lowerMsg.includes('expirado') || lowerMsg.includes('inválida') || lowerMsg.includes('invalida') || lowerMsg.includes('sesión') || lowerMsg.includes('sesion');
         if (isSessionExpired) {
@@ -1962,7 +2006,11 @@ async function runBackgroundSync(key: string, sessions: any[]) {
       }
     };
 
+    addLog(job, 'info', `Iniciando análisis detallado en paralelo de ${workingQueue.length} actividades entregables bajo una piscina de conexión máxima de ${concurrencyPool}.`);
+    const detailsStart = Date.now();
     await processQueueConcurrently(workingQueue, concurrencyPool, workerFn);
+    const detailsDuration = Date.now() - detailsStart;
+    addLog(job, 'success', `Análisis de detalles paralelos terminado con éxito. Procesadas ${workingQueue.length} actividades.`, detailsDuration);
 
     // Ensure we don't overwrite if canceled mid-job
     const finalJobCheck = syncJobs.get(key);
@@ -1970,6 +2018,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
       job.status = 'completed';
       job.currentCourse = '';
       job.currentActivity = '';
+      addLog(job, 'success', 'Sincronización global completada de manera exitosa. Todas las notas, fechas de cierre, y estados se encuentran al día.');
       await saveJobToDisk(key, job);
       syncJobs.set(key, job);
     }
@@ -1978,6 +2027,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
     console.error('Unified background sync error:', err);
     job.status = 'failed';
     job.error = err.message || 'Error de conexión con Moodle';
+    addLog(job, 'error', `Sincronización global fallida: ${err.message}`);
     await saveJobToDisk(key, job);
     syncJobs.set(key, job);
   }
@@ -2009,7 +2059,14 @@ app.post('/api/moodle/sync/start', async (req, res) => {
     processedCount: 0,
     totalCount: 0,
     tasks: [],
-    lastActive: Date.now()
+    lastActive: Date.now(),
+    logs: [
+      {
+        timestamp: new Date().toTimeString().split(' ')[0] + '.' + String(new Date().getMilliseconds()).padStart(3, '0'),
+        type: 'info',
+        message: 'Iniciando proceso completo de sincronización global.'
+      }
+    ]
   };
 
   syncJobs.set(key, newJob);

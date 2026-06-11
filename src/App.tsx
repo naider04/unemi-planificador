@@ -58,6 +58,12 @@ export default function App() {
       type: 'TAREA' | 'CUESTIONARIO';
       activityName: string;
     }[];
+    logs?: {
+      timestamp: string;
+      type: 'info' | 'success' | 'warn' | 'error' | 'performance';
+      message: string;
+      durationMs?: number;
+    }[];
   }>({
     status: 'idle',
     currentCourse: '',
@@ -369,7 +375,8 @@ export default function App() {
           currentActivity: job.currentActivity || 'Buscando actividades...',
           processedCount: job.processedCount,
           totalCount: job.totalCount,
-          queue: [] as any[]
+          queue: [] as any[],
+          logs: job.logs || []
         };
 
         setGlobalSync(nextState);
@@ -410,7 +417,8 @@ export default function App() {
           currentActivity: '',
           processedCount: job.totalCount,
           totalCount: job.totalCount,
-          queue: []
+          queue: [],
+          logs: job.logs || []
         });
 
         localStorage.setItem('unemi_global_sync_state', JSON.stringify({
@@ -419,7 +427,8 @@ export default function App() {
           currentActivity: '',
           processedCount: job.totalCount,
           totalCount: job.totalCount,
-          queue: []
+          queue: [],
+          logs: job.logs || []
         }));
 
         // Process a final merge of all tasks
@@ -465,7 +474,8 @@ export default function App() {
             currentActivity: errMsg,
             processedCount: job.processedCount,
             totalCount: job.totalCount,
-            queue: []
+            queue: [],
+            logs: job.logs || []
           });
           localStorage.setItem('unemi_global_sync_state', JSON.stringify({
             status: 'failed',
@@ -473,7 +483,8 @@ export default function App() {
             currentActivity: errMsg,
             processedCount: job.processedCount,
             totalCount: job.totalCount,
-            queue: []
+            queue: [],
+            logs: job.logs || []
           }));
           return false;
         }
@@ -484,7 +495,8 @@ export default function App() {
           currentActivity: job.error || 'Ocurrió un error en la conexión',
           processedCount: job.processedCount,
           totalCount: job.totalCount,
-          queue: []
+          queue: [],
+          logs: job.logs || []
         });
         localStorage.setItem('unemi_global_sync_state', JSON.stringify({
           status: 'failed',
@@ -492,7 +504,8 @@ export default function App() {
           currentActivity: job.error || 'Error',
           processedCount: job.processedCount,
           totalCount: job.totalCount,
-          queue: []
+          queue: [],
+          logs: job.logs || []
         }));
         localStorage.removeItem('unemi_sync_key');
         return false;
@@ -1072,6 +1085,45 @@ export default function App() {
                     >
                       Cerrar
                     </button>
+                  </div>
+                </div>
+              )}
+              
+              {/* Registro de rendimiento y tiempos detailed container */}
+              {globalSync.logs && globalSync.logs.length > 0 && (
+                <div className="mt-3.5 p-3 bg-slate-900 border border-slate-950 text-slate-100 rounded-2xl shadow-inner space-y-2 font-mono text-[10px]">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <span className="font-extrabold text-[9px] text-slate-400 flex items-center gap-1.5">
+                      <span className="inline-block w-2 bg-blue-500 rounded-full animate-ping h-2 shrink-0" />
+                      REGISTRO DE RENDIMIENTO
+                    </span>
+                    <span className="text-[9px] text-slate-500 font-extrabold">
+                      {globalSync.logs.length} ENTRADAS
+                    </span>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-slate-800 scrolling-touch pr-1">
+                    {globalSync.logs.map((log, idx) => {
+                      let badgeColor = "text-blue-400 bg-blue-950/40";
+                      if (log.type === 'success') { badgeColor = "text-emerald-400 bg-emerald-950/40"; }
+                      if (log.type === 'warn') { badgeColor = "text-amber-400 bg-amber-950/30"; }
+                      if (log.type === 'error') { badgeColor = "text-rose-400 bg-rose-950/40"; }
+                      if (log.type === 'performance') { badgeColor = "text-purple-400 bg-purple-950/30"; }
+
+                      return (
+                        <div key={idx} className="flex items-start space-x-1.5 py-0.5 border-b border-slate-800/10 last:border-0 leading-normal">
+                          <span className="text-slate-500 shrink-0 font-light select-none">{log.timestamp}</span>
+                          <span className={`px-1 rounded-sm text-[8px] font-bold tracking-wider shrink-0 select-none uppercase ${badgeColor}`}>
+                            {log.type}
+                          </span>
+                          <span className="flex-1 text-slate-300 font-sans break-words whitespace-pre-wrap">{log.message}</span>
+                          {log.durationMs !== undefined && (
+                            <span className="px-1 py-0.5 rounded-sm bg-slate-800/80 text-[8.5px] font-bold text-amber-500 shrink-0 select-none">
+                              {log.durationMs >= 1000 ? `${(log.durationMs / 1000).toFixed(2)}s` : `${log.durationMs}ms`}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
