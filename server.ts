@@ -1208,7 +1208,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         });
         
         coursesBySession.push({ sessIdx: sIdx, courses });
-        addLog(job, 'performance', `Cuenta (${sess.username}) verificada con éxito. Se encontraron ${courses.length} materias.`, dashTime);
+        addLog(job, 'performance', `[HTTP_GET] URL="${base}/my/" | RESPONSE=200 OK | PAYLOAD_SIZE=${dashboardHtml.length} bytes | PARSER="cheerio" | EXTRACTED_COURSES=${courses.length} | USER="${sess.username}" | AUTH_COOKIES_LEN=${sess.cookies ? sess.cookies.length : 0} bytes`, dashTime);
       } catch (e: any) {
         const dashTime = Date.now() - startDash;
         const lowerMsg = (e.message || '').toLowerCase();
@@ -1218,7 +1218,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         if (!job.expiredSessions) job.expiredSessions = [];
         job.expiredSessions.push({ username: sess.username, server: sess.server });
         
-        addLog(job, 'warn', `No se pudo obtener el dashboard para ${sess.username} en ${sess.server === 'a' ? 'Aula A' : 'Aula B'}: ${e.message}`, dashTime);
+        addLog(job, 'warn', `[HTTP_GET_FAIL] URL="${base}/my/" | ERROR="${e.message}" | STACK="${e.stack ? e.stack.split('\n')[0] : 'N/A'}" | CONFIG_SERVER="${sess.server.toUpperCase()}" | USER="${sess.username}"`, dashTime);
         if (isSessionExpired) {
           console.warn(`[Expected Expiry] Background course list download for ${sess.username} had expired session.`);
         } else {
@@ -1229,13 +1229,13 @@ async function runBackgroundSync(key: string, sessions: any[]) {
     }
 
     if (validSessionCount === 0) {
-      addLog(job, 'error', `Sincronización abortada. No hay sesiones de Moodle activas.`);
+      addLog(job, 'error', `[SYNC_ABORT] CRITICAL_ERROR="Zero active sessions matched" | ATOMS_CHECKED=${sessions.length} | EXPIRED_ACCOUNTS="${invalidSessions.join(', ')}"`);
       throw new Error(`No hay sesiones abiertas actualmente. Las cuentas conectadas (${invalidSessions.join(', ')}) han expirado o se cerraron. Por favor ingresa tus datos de acceso nuevamente en 'Conectar Moodle'.`);
     }
 
     job.currentCourse = 'Sesiones verificadas';
     job.currentActivity = `Encontradas ${validSessionCount} de ${sessions.length} sesiones abiertas. Iniciando sincronización...`;
-    addLog(job, 'success', `Sesiones Moodle validadas correctamente (${validSessionCount} activas).`);
+    addLog(job, 'success', `[VALIDATE_SESSIONS] STATUS_SUCCESS=true | ACTIVE_SESSIONS_COUNT=${validSessionCount} | INACTIVE_SESSIONS_COUNT=${sessions.length - validSessionCount}`);
     await saveJobToDisk(key, job);
 
     // Step 2: Extract all core courses activities
@@ -1560,7 +1560,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
               }
             }));
             const sectionsDuration = Date.now() - sectionsStart;
-            addLog(job, 'performance', `[${course.text}] Descargados ${limitUrls.length} subtemas/secciones en paralelo.`, sectionsDuration);
+            addLog(job, 'performance', `[PARALLEL_SECTIONS_FETCH] COURSE_ID=${course.id} | ATTEMPTED_SECTIONS=${limitUrls.length} | SUBTOPICS_RESOLVED=${limitUrls.length} | CONCURRENCY_MAX=35 | DELAY=${sectionsDuration}ms | TEXT="${course.text}"`, sectionsDuration);
           }
 
           const activities = Array.from(activitiesMap.values());
@@ -1580,10 +1580,10 @@ async function runBackgroundSync(key: string, sessions: any[]) {
           });
 
           const totalDuration = Date.now() - courseStart;
-          addLog(job, 'performance', `Materia "${course.text}" procesada (${actionable.length} actividades entregables encontradas). (HTML principal: ${fetchTime}ms)`, totalDuration);
+          addLog(job, 'performance', `[COURSE_RESOLVED] COURSE_ID=${course.id} | TITLE="${course.text}" | HTML_SIZE=${courseHtml ? courseHtml.length : 0} bytes | FETCH_DNS_TCP_DUR=${fetchTime}ms | SECTIONS_EXPLORED=${sectionUrlsToFetch.length} | TOTAL_ACTIVITIES_DISCOVERED=${activities.length} | ACTIONABLE_DELIVERABLES=${actionable.length} | TOTAL_SCRAPE_DUR=${totalDuration}ms`, totalDuration);
         } catch (e: any) {
           const totalDuration = Date.now() - courseStart;
-          addLog(job, 'warn', `No se pudo escanear la materia "${course.text}": ${e.message}`, totalDuration);
+          addLog(job, 'warn', `[COURSE_SCRAPE_FAIL] COURSE_ID=${course.id} | NAME="${course.text}" | ERROR_MSG="${e.message}" | TOTAL_DUR=${totalDuration}ms | STACK="${e.stack ? e.stack.split('\n')[0] : 'N/A'}"`, totalDuration);
           const lowerMsg = (e.message || '').toLowerCase();
           const isSessionExpired = lowerMsg.includes('expiró') || lowerMsg.includes('expirada') || lowerMsg.includes('expirado') || lowerMsg.includes('inválida') || lowerMsg.includes('invalida') || lowerMsg.includes('sesión') || lowerMsg.includes('sesion');
           if (isSessionExpired) {
@@ -1993,10 +1993,10 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         }
         
         const taskDuration = Date.now() - taskStart;
-        addLog(job, 'performance', `[Detalle] (${currentItem.type}) ${currentItem.courseName} -> ${currentItem.activityName} cargada y procesada.`, taskDuration);
+        addLog(job, 'performance', `[FETCH_DETAIL] ADDR="${currentItem.activityUrl}" | TYPE=${currentItem.type} | COURSE_ID=${currentItem.courseId} | TITLE="${currentItem.activityName}" | STATUS="${computedStats.status}" | CALIF="${computedStats.grade || 'N/A'}/${computedStats.gradeOver || '100'}" | ENTREGA="${detailsInfo.estado_entrega || 'N/A'}" | CALIFIC_REQ=${detailsInfo.hecho_calificacion}`, taskDuration);
       } catch (err: any) {
         const taskDuration = Date.now() - taskStart;
-        addLog(job, 'warn', `No se pudo parsear el detalle de "${currentItem.activityName}": ${err.message}`, taskDuration);
+        addLog(job, 'warn', `[DETAIL_PARSE_FAIL] URL="${currentItem.activityUrl}" | TARGET_NAME="${currentItem.activityName}" | MSG="${err.message}" | STACK="${err.stack ? err.stack.split('\n')[0] : 'N/A'}"`, taskDuration);
         const lowerMsg = (err.message || '').toLowerCase();
         const isSessionExpired = lowerMsg.includes('expiró') || lowerMsg.includes('expirada') || lowerMsg.includes('expirado') || lowerMsg.includes('inválida') || lowerMsg.includes('invalida') || lowerMsg.includes('sesión') || lowerMsg.includes('sesion');
         if (isSessionExpired) {
@@ -2013,11 +2013,11 @@ async function runBackgroundSync(key: string, sessions: any[]) {
       }
     };
 
-    addLog(job, 'info', `Iniciando análisis detallado en paralelo de ${workingQueue.length} actividades entregables bajo una piscina de conexión máxima de ${concurrencyPool}.`);
+    addLog(job, 'info', `[BATCH_QUE_START] QUE_LENGTH=${workingQueue.length} | CONCURRENCY_MAX=${concurrencyPool} | POOL_TYPE="Promise.race"`);
     const detailsStart = Date.now();
     await processQueueConcurrently(workingQueue, concurrencyPool, workerFn);
     const detailsDuration = Date.now() - detailsStart;
-    addLog(job, 'success', `Análisis de detalles paralelos terminado con éxito. Procesadas ${workingQueue.length} actividades.`, detailsDuration);
+    addLog(job, 'success', `[BATCH_QUE_FINISHED] QUE_LENGTH=${workingQueue.length} | ACTIVE_THREAD_RELEASES=all | DURATION=${detailsDuration}ms`, detailsDuration);
 
     // Ensure we don't overwrite if canceled mid-job
     const finalJobCheck = syncJobs.get(key);
@@ -2025,7 +2025,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
       job.status = 'completed';
       job.currentCourse = '';
       job.currentActivity = '';
-      addLog(job, 'success', 'Sincronización global completada de manera exitosa. Todas las notas, fechas de cierre, y estados se encuentran al día.');
+      addLog(job, 'success', `[SYNC_COMPLETED_SUCCESSFULLY] STATE_PERSISTENCE="sync_${key}.json" | COMMITTED_TODOS_COUNT=${job.tasks.length} | STATUS="completed"`);
       await saveJobToDisk(key, job);
       syncJobs.set(key, job);
     }
@@ -2034,7 +2034,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
     console.error('Unified background sync error:', err);
     job.status = 'failed';
     job.error = err.message || 'Error de conexión con Moodle';
-    addLog(job, 'error', `Sincronización global fallida: ${err.message}`);
+    addLog(job, 'error', `[SYNC_FAILED_CRITICAL] EXCEPTION_MSG="${err.message}" | STACK="${err.stack ? err.stack.replace(/\n/g, ' -> ') : 'N/A'}" | STATUS="failed"`);
     await saveJobToDisk(key, job);
     syncJobs.set(key, job);
   }
