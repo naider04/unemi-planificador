@@ -1109,6 +1109,7 @@ interface SyncJob {
   error?: string;
   lastActive: number;
   logs?: SyncLogEntry[];
+  expiredSessions?: { username: string; server: 'a' | 'b' }[];
 }
 
 const syncJobs = new Map<string, SyncJob>();
@@ -1176,6 +1177,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
     const coursesBySession: { sessIdx: number; courses: any[] }[] = [];
     let validSessionCount = 0;
     const invalidSessions: string[] = [];
+    job.expiredSessions = [];
 
     addLog(job, 'info', `Verificando conexiones en Moodle para ${sessions.length} cuenta(s) activa(s)...`);
 
@@ -1211,13 +1213,18 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         const dashTime = Date.now() - startDash;
         const lowerMsg = (e.message || '').toLowerCase();
         const isSessionExpired = lowerMsg.includes('expiró') || lowerMsg.includes('expirada') || lowerMsg.includes('expirado') || lowerMsg.includes('inválida') || lowerMsg.includes('invalida') || lowerMsg.includes('sesión') || lowerMsg.includes('sesion');
-        addLog(job, 'warn', `No se pudo obtener el dashboard para ${sess.username}: ${e.message}`, dashTime);
+        
+        const label = `${sess.username} (${sess.server === 'a' ? 'Aula Grado A' : 'Aula Grado B'})`;
+        if (!job.expiredSessions) job.expiredSessions = [];
+        job.expiredSessions.push({ username: sess.username, server: sess.server });
+        
+        addLog(job, 'warn', `No se pudo obtener el dashboard para ${sess.username} en ${sess.server === 'a' ? 'Aula A' : 'Aula B'}: ${e.message}`, dashTime);
         if (isSessionExpired) {
           console.warn(`[Expected Expiry] Background course list download for ${sess.username} had expired session.`);
         } else {
           console.error(`Background course list download failed for ${sess.username}:`, e);
         }
-        invalidSessions.push(sess.username);
+        invalidSessions.push(label);
       }
     }
 

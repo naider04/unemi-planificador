@@ -455,17 +455,28 @@ export default function App() {
         return false;
       } else if (job.status === 'failed') {
         const errMsg = job.error || '';
-        if (errMsg.includes('No hay sesiones abiertas actualmente')) {
+        if (errMsg.includes('No hay sesiones abiertas actualmente') || (job.expiredSessions && job.expiredSessions.length > 0)) {
+          const expiredList = job.expiredSessions || [];
           setSessions(prev => {
-            const updated = prev.map(s => ({ ...s, expired: true }));
+            const updated = prev.map(s => {
+              const isMatch = expiredList.length > 0
+                ? expiredList.some((e: any) => e.username.toLowerCase() === s.username.toLowerCase() && e.server === s.server)
+                : true;
+              return isMatch ? { ...s, expired: true } : s;
+            });
             localStorage.setItem('unemi_sessions', JSON.stringify(updated));
             return updated;
           });
           localStorage.removeItem('unemi_sync_key');
+          
+          const firstExpired = expiredList.length > 0
+            ? sessions.find(s => expiredList.some((e: any) => e.username.toLowerCase() === s.username.toLowerCase() && e.server === s.server))
+            : sessions[0];
+
           setPrefillLogin({
-            username: sessions[0]?.username || '',
-            server: sessions[0]?.server || 'a',
-            errorMsg: 'Las cuentas conectadas han expirado o se cerraron. Por favor ingresa tus datos de acceso nuevamente en "Conectar Moodle".'
+            username: firstExpired?.username || sessions[0]?.username || '',
+            server: firstExpired?.server || sessions[0]?.server || 'a',
+            errorMsg: 'Las cuentas o sesiones conectadas han expirado o se cerraron. Por favor ingresa tus datos de acceso en "Conectar Moodle" para continuar.'
           });
           setActiveTab('login');
           setGlobalSync({
