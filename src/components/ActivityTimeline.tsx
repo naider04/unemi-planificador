@@ -144,27 +144,38 @@ export default function ActivityTimeline({
       return str;
     };
 
-    const rows = scannedTasks.map(task => [
-      task.id || '',
-      task.title || '',
-      task.type || '',
-      task.grupo ? task.grupo : 'Individual',
-      task.courseId || '',
-      task.courseName || '',
-      task.activityUrl || '',
-      task.description || '',
-      task.apertureDateISO || '',
-      task.apertureDateISO ? formatCalendarDate(task.apertureDateISO) : (task.aperture || ''),
-      task.closureDate || '',
-      task.closureDate ? formatCalendarDate(task.closureDate) : '',
-      task.completed ? 'Sí' : 'No',
-      task.createdAt || '',
-      task.status || task.estado_entrega || '',
-      task.grade || '',
-      task.gradeOver || '',
-      task.estado_calificacion || task.gradingStatus || '',
-      task.comentario_calificador || ''
-    ]);
+    const nowTime = new Date().getTime();
+    const rows = scannedTasks.map(task => {
+      const isSkeleton = !task.completed && task.closureDate && (new Date(task.closureDate).getTime() < nowTime);
+      const displayGrade = task.grade ? task.grade : (isSkeleton ? '0.00' : '');
+      const displayStatus = ((task.status === 'Calificado' || task.grade) ? 'Calificado' : (task.estado_calificacion || task.gradingStatus || (task.hecho_calificacion ? 'Calificación no visible' : '')));
+      const hasPassed = task.closureDate ? (new Date(task.closureDate).getTime() < nowTime) : false;
+      const displayEntrega = task.completed
+        ? (task.status || task.estado_entrega || 'Entregado')
+        : (hasPassed ? 'No Entregado' : 'Entregar');
+
+      return [
+        task.id || '',
+        task.title || '',
+        task.type || '',
+        task.grupo ? task.grupo : 'Individual',
+        task.courseId || '',
+        task.courseName || '',
+        task.activityUrl || '',
+        task.description || '',
+        task.apertureDateISO || '',
+        task.apertureDateISO ? formatCalendarDate(task.apertureDateISO) : (task.aperture || ''),
+        task.closureDate || '',
+        task.closureDate ? formatCalendarDate(task.closureDate) : '',
+        task.completed ? 'Sí' : 'No',
+        task.createdAt || '',
+        displayEntrega,
+        displayGrade,
+        task.gradeOver || '',
+        displayStatus,
+        task.comentario_calificador || ''
+      ];
+    });
 
     const csvContent = [
       headers.join(','),
