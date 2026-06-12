@@ -316,11 +316,15 @@ export default function ActivityTimeline({
     return { materia: courseName, codigo: '', curso: 'N/A', carrera: 'Otros' };
   };
 
-  // Find unique accounts in task base
-  const uniqueAccounts = Array.from(
+  // Find unique account-career combinations in task base
+  const uniqueAccountCareers = Array.from(
     new Set(
       tasks
-        .map(t => t.moodleUsername || 'Manual')
+        .map(t => {
+          const username = t.moodleUsername || 'Manual';
+          const carrera = getCourseDetails(t.courseName).carrera;
+          return `${username}|${carrera}`;
+        })
         .filter(Boolean)
     )
   ).sort();
@@ -330,18 +334,18 @@ export default function ActivityTimeline({
     new Map(
       tasks
         .filter(t => t.courseId && t.courseName)
-        .filter(t => selectedAccounts.length === 0 || selectedAccounts.includes(t.moodleUsername || 'Manual'))
+        .filter(t => selectedAccounts.length === 0 || selectedAccounts.includes(`${t.moodleUsername || 'Manual'}|${getCourseDetails(t.courseName).carrera}`))
         .map(t => [t.courseId, t.courseName])
     ).entries()
   );
 
-  // Auto-reset subject filter if the current subject does not belong to the newly selected accounts
+  // Auto-reset subject filter if the current subject does not belong to the newly selected accounts and careers
   useEffect(() => {
     if (selectedCourseId !== 'all') {
       const match = tasks.find(t => t.courseId === selectedCourseId);
       if (match) {
-        const itemAccount = match.moodleUsername || 'Manual';
-        if (selectedAccounts.length > 0 && !selectedAccounts.includes(itemAccount)) {
+        const itemAccountKey = `${match.moodleUsername || 'Manual'}|${getCourseDetails(match.courseName).carrera}`;
+        if (selectedAccounts.length > 0 && !selectedAccounts.includes(itemAccountKey)) {
           setSelectedCourseId('all');
         }
       }
@@ -494,7 +498,7 @@ export default function ActivityTimeline({
     .filter(task => {
       const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
                             (task.description && task.description.toLowerCase().includes(searchQuery.toLowerCase()));
-      const matchesAccount = selectedAccounts.length === 0 || selectedAccounts.includes(task.moodleUsername || 'Manual');
+      const matchesAccount = selectedAccounts.length === 0 || selectedAccounts.includes(`${task.moodleUsername || 'Manual'}|${getCourseDetails(task.courseName).carrera}`);
       const matchesCourse = selectedCourseId === 'all' || task.courseId === selectedCourseId;
       const matchesCompleted = showCompleted || !task.completed;
       return matchesSearch && matchesAccount && matchesCourse && matchesCompleted;
@@ -612,8 +616,8 @@ export default function ActivityTimeline({
                 </div>
                 <span className="truncate">
                   {selectedAccounts.length === 0 
-                    ? `Todas las Cuentas (${uniqueAccounts.length})` 
-                    : `${selectedAccounts.length} cuenta${selectedAccounts.length > 1 ? 's' : ''}`
+                    ? `Todas las Cuentas (${uniqueAccountCareers.length})` 
+                    : `${selectedAccounts.length} filtro${selectedAccounts.length > 1 ? 's' : ''} activo${selectedAccounts.length > 1 ? 's' : ''}`
                   }
                 </span>
               </div>
@@ -628,7 +632,7 @@ export default function ActivityTimeline({
                 />
                 <div className="absolute left-0 right-0 mt-1.5 bg-white border border-gray-150 rounded-xl shadow-lg z-50 p-2.5 space-y-1 max-h-60 overflow-y-auto">
                   <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-gray-100 px-1 text-[10px] text-gray-400 font-bold uppercase tracking-wider">
-                    <span>Filtrar Cuentas</span>
+                    <span>Filtrar Cuentas / Carreras</span>
                     {selectedAccounts.length > 0 && (
                       <button 
                         type="button"
@@ -639,25 +643,23 @@ export default function ActivityTimeline({
                       </button>
                     )}
                   </div>
-                  {uniqueAccounts.length === 0 ? (
+                  {uniqueAccountCareers.length === 0 ? (
                     <div className="text-center py-2 text-xs text-gray-400 font-medium">
-                      No hay cuentas disponibles
+                      No hay opciones disponibles
                     </div>
                   ) : (
-                    uniqueAccounts.map(account => {
-                      const isChecked = selectedAccounts.includes(account);
-                      const accountCareers = Array.from(
-                        new Set(
-                          tasks
-                            .filter(t => (t.moodleUsername || 'Manual') === account)
-                            .map(t => getCourseDetails(t.courseName).carrera)
-                            .filter((c): c is string => !!c && c !== 'Otros')
-                        )
-                      );
-                      const careersText = accountCareers.length > 0 ? ` (${accountCareers.join(', ')})` : '';
+                    uniqueAccountCareers.map(key => {
+                      const isChecked = selectedAccounts.includes(key);
+                      const [username, carrera] = key.split('|');
+                      let displayName = '';
+                      if (username === 'Manual') {
+                        displayName = carrera === 'Otros' ? 'Tareas Manuales / Locales' : `Tareas Manuales (${carrera})`;
+                      } else {
+                        displayName = carrera === 'Otros' ? `${username} (Manuales / Otros)` : `${username} (${carrera})`;
+                      }
                       return (
                         <label 
-                          key={account} 
+                          key={key} 
                           className="flex items-center space-x-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer transition-all text-xs font-semibold select-none text-gray-700"
                         >
                           <input
@@ -665,15 +667,15 @@ export default function ActivityTimeline({
                             checked={isChecked}
                             onChange={() => {
                               if (isChecked) {
-                                setSelectedAccounts(selectedAccounts.filter(a => a !== account));
+                                setSelectedAccounts(selectedAccounts.filter(a => a !== key));
                               } else {
-                                setSelectedAccounts([...selectedAccounts, account]);
+                                setSelectedAccounts([...selectedAccounts, key]);
                               }
                             }}
                             className="w-3.5 h-3.5 rounded-md border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                           />
                           <span className="truncate">
-                            {account === 'Manual' ? 'Tareas Manuales / Locales' : `${account}${careersText}`}
+                            {displayName}
                           </span>
                         </label>
                       );
