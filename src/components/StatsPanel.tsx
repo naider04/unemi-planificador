@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { TodoTask } from '../types';
-import { Award, ChevronDown, ChevronUp, AlertCircle, BookOpen, Clock, CalendarDays, CheckCircle2 } from 'lucide-react';
+import { Award, ChevronDown, ChevronUp, AlertCircle, BookOpen, Clock, CalendarDays, CheckCircle2, Filter } from 'lucide-react';
 
 interface StatsPanelProps {
   tasks: TodoTask[];
@@ -30,7 +30,8 @@ interface CourseStats {
 
 export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUpcomingActivities }: StatsPanelProps) {
   const [expandedCourses, setExpandedCourses] = useState<Record<string, boolean>>({});
-  const [selectedCarrera, setSelectedCarrera] = useState<string>('all');
+  const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
+  const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState<boolean>(false);
 
   const parseVal = (v: string | null | undefined): number | null => {
     if (v === null || v === undefined) return null;
@@ -78,19 +79,19 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
     return { materia: courseName, codigo: '', curso: 'N/A', carrera: 'Otros' };
   };
 
-  // Find unique careers in task base
-  const uniqueCarreras = Array.from(
+  // Find unique accounts in task base
+  const uniqueAccounts = Array.from(
     new Set(
       tasks
-        .map(t => getCourseDetails(t.courseName).carrera)
+        .map(t => t.moodleUsername || 'Manual')
         .filter(Boolean)
     )
-  ).sort();
+  ).sort() as string[];
 
-  // Filter tasks by selected career
+  // Filter tasks by selected accounts
   const filteredTasks = tasks.filter(task => {
-    if (selectedCarrera === 'all') return true;
-    return getCourseDetails(task.courseName).carrera === selectedCarrera;
+    if (selectedAccounts.length === 0) return true;
+    return selectedAccounts.includes(task.moodleUsername || 'Manual');
   });
 
   // Group and compute stats for each course
@@ -203,21 +204,80 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
         <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-4 mt-2">
           {/* Label or left spacer */}
           <div className="md:col-span-3 flex items-center">
-            <span className="text-xs font-bold text-gray-500">Filtrar rendimiento por carrera:</span>
+            <span className="text-xs font-bold text-gray-500">Filtrar rendimiento por cuenta:</span>
           </div>
-          {/* Career Filter Container (will be div:nth-of-type(2)) */}
-          <div className="md:col-span-3 relative">
-            <select
-              id="task-career-filter"
-              value={selectedCarrera}
-              onChange={(e) => setSelectedCarrera(e.target.value)}
-              className="block w-full px-3 py-2 border border-gray-150 rounded-xl text-xs text-gray-700 bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+          {/* Account Multi-select Container */}
+          <div className="md:col-span-3 relative" id="account-filter-container">
+            <button
+              type="button"
+              onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
+              className="flex items-center justify-between w-full px-3 py-2 border border-gray-150 bg-white rounded-xl text-xs text-gray-700 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer text-left relative"
             >
-              <option value="all">Todas las Carreras ({uniqueCarreras.length})</option>
-              {uniqueCarreras.map(carr => (
-                <option key={carr} value={carr}>{carr === 'Otros' ? 'Otros / Manuales' : carr}</option>
-              ))}
-            </select>
+              <div className="flex items-center space-x-2 truncate pr-4">
+                <Filter className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                <span className="truncate">
+                  {selectedAccounts.length === 0 
+                    ? `Todas las Cuentas (${uniqueAccounts.length})` 
+                    : `${selectedAccounts.length} cuenta${selectedAccounts.length > 1 ? 's' : ''}`
+                  }
+                </span>
+              </div>
+              <ChevronDown className="w-4 h-4 text-gray-400 shrink-0 absolute right-3 top-2.5" />
+            </button>
+
+            {isAccountDropdownOpen && (
+              <>
+                <div 
+                  className="fixed inset-0 z-40" 
+                  onClick={() => setIsAccountDropdownOpen(false)} 
+                />
+                <div className="absolute left-0 right-0 mt-1.5 bg-white border border-gray-150 rounded-xl shadow-lg z-50 p-2.5 space-y-1 max-h-60 overflow-y-auto">
+                  <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-gray-100 px-1 text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                    <span>Filtrar Cuentas</span>
+                    {selectedAccounts.length > 0 && (
+                      <button 
+                        type="button"
+                        onClick={() => setSelectedAccounts([])}
+                        className="text-blue-600 hover:text-blue-700 cursor-pointer"
+                      >
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
+                  {uniqueAccounts.length === 0 ? (
+                    <div className="text-center py-2 text-xs text-gray-400 font-medium">
+                      No hay cuentas disponibles
+                    </div>
+                  ) : (
+                    uniqueAccounts.map(account => {
+                      const isChecked = selectedAccounts.includes(account);
+                      return (
+                        <label 
+                          key={account} 
+                          className="flex items-center space-x-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer transition-all text-xs font-semibold select-none text-gray-700"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              if (isChecked) {
+                                setSelectedAccounts(selectedAccounts.filter(a => a !== account));
+                              } else {
+                                setSelectedAccounts([...selectedAccounts, account]);
+                              }
+                            }}
+                            className="w-3.5 h-3.5 rounded-md border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          />
+                          <span className="truncate">
+                            {account === 'Manual' ? 'Tareas Manuales / Locales' : account}
+                          </span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
 

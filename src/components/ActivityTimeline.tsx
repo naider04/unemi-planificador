@@ -40,7 +40,8 @@ export default function ActivityTimeline({
   onClearFilterCourseIdTrigger
 }: ActivityTimelineProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCarrera, setSelectedCarrera] = useState<string>('all');
+  const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
+  const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState<boolean>(false);
   const [selectedCourseId, setSelectedCourseId] = useState<string>('all');
   const [showCompleted, setShowCompleted] = useState<boolean>(true);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -315,11 +316,11 @@ export default function ActivityTimeline({
     return { materia: courseName, codigo: '', curso: 'N/A', carrera: 'Otros' };
   };
 
-  // Find unique careers in task base
-  const uniqueCarreras = Array.from(
+  // Find unique accounts in task base
+  const uniqueAccounts = Array.from(
     new Set(
       tasks
-        .map(t => getCourseDetails(t.courseName).carrera)
+        .map(t => t.moodleUsername || 'Manual')
         .filter(Boolean)
     )
   ).sort();
@@ -329,23 +330,23 @@ export default function ActivityTimeline({
     new Map(
       tasks
         .filter(t => t.courseId && t.courseName)
-        .filter(t => selectedCarrera === 'all' || getCourseDetails(t.courseName).carrera === selectedCarrera)
+        .filter(t => selectedAccounts.length === 0 || selectedAccounts.includes(t.moodleUsername || 'Manual'))
         .map(t => [t.courseId, t.courseName])
     ).entries()
   );
 
-  // Auto-reset subject filter if the current subject does not belong to the newly selected career
+  // Auto-reset subject filter if the current subject does not belong to the newly selected accounts
   useEffect(() => {
     if (selectedCourseId !== 'all') {
       const match = tasks.find(t => t.courseId === selectedCourseId);
       if (match) {
-        const itemCarrera = getCourseDetails(match.courseName).carrera;
-        if (selectedCarrera !== 'all' && itemCarrera !== selectedCarrera) {
+        const itemAccount = match.moodleUsername || 'Manual';
+        if (selectedAccounts.length > 0 && !selectedAccounts.includes(itemAccount)) {
           setSelectedCourseId('all');
         }
       }
     }
-  }, [selectedCarrera, selectedCourseId, tasks]);
+  }, [selectedAccounts, selectedCourseId, tasks]);
 
   // Parse remaining duration in a human readable way
   const getRemainingTime = (isoString: string | null, completed: boolean) => {
@@ -493,10 +494,10 @@ export default function ActivityTimeline({
     .filter(task => {
       const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
                             (task.description && task.description.toLowerCase().includes(searchQuery.toLowerCase()));
-      const matchesCarrera = selectedCarrera === 'all' || getCourseDetails(task.courseName).carrera === selectedCarrera;
+      const matchesAccount = selectedAccounts.length === 0 || selectedAccounts.includes(task.moodleUsername || 'Manual');
       const matchesCourse = selectedCourseId === 'all' || task.courseId === selectedCourseId;
       const matchesCompleted = showCompleted || !task.completed;
-      return matchesSearch && matchesCarrera && matchesCourse && matchesCompleted;
+      return matchesSearch && matchesAccount && matchesCourse && matchesCompleted;
     })
     .sort((a, b) => {
       if (!a.closureDate) return 1;
@@ -598,22 +599,80 @@ export default function ActivityTimeline({
             />
           </div>
 
-          {/* Careers Filter */}
-          <div className="md:col-span-3 relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-              <Filter className="w-4 h-4" />
-            </div>
-            <select
-              id="task-career-filter"
-              value={selectedCarrera}
-              onChange={(e) => setSelectedCarrera(e.target.value)}
-              className="block w-full pl-9 pr-3 py-2 border border-gray-150 rounded-xl text-xs text-gray-700 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+          {/* Accounts Multiselect Filter */}
+          <div className="md:col-span-3 relative" id="account-filter-container">
+            <button
+              type="button"
+              onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
+              className="flex items-center justify-between w-full pl-9 pr-3 py-2 border border-gray-150 bg-white rounded-xl text-xs text-gray-700 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer text-left h-full"
             >
-              <option value="all">Todas las Carreras ({uniqueCarreras.length})</option>
-              {uniqueCarreras.map(carr => (
-                <option key={carr} value={carr}>{carr === 'Otros' ? 'Otros / Manuales' : carr}</option>
-              ))}
-            </select>
+              <div className="flex items-center">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                  <Filter className="w-4 h-4" />
+                </div>
+                <span className="truncate">
+                  {selectedAccounts.length === 0 
+                    ? `Todas las Cuentas (${uniqueAccounts.length})` 
+                    : `${selectedAccounts.length} cuenta${selectedAccounts.length > 1 ? 's' : ''}`
+                  }
+                </span>
+              </div>
+              <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+            </button>
+
+            {isAccountDropdownOpen && (
+              <>
+                <div 
+                  className="fixed inset-0 z-40" 
+                  onClick={() => setIsAccountDropdownOpen(false)} 
+                />
+                <div className="absolute left-0 right-0 mt-1.5 bg-white border border-gray-150 rounded-xl shadow-lg z-50 p-2.5 space-y-1 max-h-60 overflow-y-auto">
+                  <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-gray-100 px-1 text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                    <span>Filtrar Cuentas</span>
+                    {selectedAccounts.length > 0 && (
+                      <button 
+                        type="button"
+                        onClick={() => setSelectedAccounts([])}
+                        className="text-blue-600 hover:text-blue-700 cursor-pointer"
+                      >
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
+                  {uniqueAccounts.length === 0 ? (
+                    <div className="text-center py-2 text-xs text-gray-400 font-medium">
+                      No hay cuentas disponibles
+                    </div>
+                  ) : (
+                    uniqueAccounts.map(account => {
+                      const isChecked = selectedAccounts.includes(account);
+                      return (
+                        <label 
+                          key={account} 
+                          className="flex items-center space-x-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer transition-all text-xs font-semibold select-none text-gray-700"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              if (isChecked) {
+                                setSelectedAccounts(selectedAccounts.filter(a => a !== account));
+                              } else {
+                                setSelectedAccounts([...selectedAccounts, account]);
+                              }
+                            }}
+                            className="w-3.5 h-3.5 rounded-md border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          />
+                          <span className="truncate">
+                            {account === 'Manual' ? 'Tareas Manuales / Locales' : account}
+                          </span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Subjects Filter */}

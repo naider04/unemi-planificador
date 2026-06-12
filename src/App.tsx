@@ -40,6 +40,8 @@ export default function App() {
   const [agendaNavigation, setAgendaNavigation] = useState<string | null>(null);
   const [prefillLogin, setPrefillLogin] = useState<{ username: string; server: 'a' | 'b'; errorMsg: string } | null>(null);
   const [timelineFilterCourseId, setTimelineFilterCourseId] = useState<string | null>(null);
+  const [syncedAccountsCount, setSyncedAccountsCount] = useState<number | null>(null);
+  const [isVerifyingSessions, setIsVerifyingSessions] = useState<boolean>(false);
 
   // Global Sync State
   const [globalSync, setGlobalSync] = useState<{
@@ -138,6 +140,12 @@ export default function App() {
         setLastSyncedTime(Number(cachedLastSync));
       }
 
+      // Load synced accounts count
+      const cachedCount = localStorage.getItem('unemi_synced_accounts_count');
+      if (cachedCount) {
+        setSyncedAccountsCount(Number(cachedCount));
+      }
+
       // Restore Global Sync State
       const cachedSync = localStorage.getItem('unemi_global_sync_state');
       if (cachedSync) {
@@ -178,11 +186,55 @@ export default function App() {
         setCourses(data.courses);
       } else {
         const errMsg = data.error || 'La sesión de Moodle ha expirado o es inválida.';
-        handleSessionError(session, errMsg);
+        handleSessionError(session, errMsg, false);
       }
     } catch (err: any) {
       console.error('Error fetching courses cache list:', err);
-      handleSessionError(session, err?.message || 'Error de conexión.');
+      handleSessionError(session, err?.message || 'Error de conexión.', false);
+    }
+  };
+
+  // Trigger verification of all sessions whenever entering the "Mis conexiones" tab (activeTab === 'login')
+  useEffect(() => {
+    if (activeTab === 'login') {
+      verifyAllSessions();
+    }
+  }, [activeTab]);
+
+  const verifyAllSessions = async () => {
+    if (sessions.length === 0 || isVerifyingSessions) return;
+    setIsVerifyingSessions(true);
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      const updatedSessions = await Promise.all(
+        sessions.map(async (sess) => {
+          try {
+            const res = await fetch(`${apiBase}/api/moodle/courses`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                moodleSession: sess.cookies,
+                server: sess.server
+              })
+            });
+            if (res.ok) {
+              return { ...sess, expired: false };
+            } else {
+              return { ...sess, expired: true };
+            }
+          } catch (err) {
+            console.error(`Error verifying session for ${sess.username}:`, err);
+            return { ...sess, expired: true };
+          }
+        })
+      );
+
+      setSessions(updatedSessions);
+      localStorage.setItem('unemi_sessions', JSON.stringify(updatedSessions));
+    } catch (err) {
+      console.error('Error verifying all sessions:', err);
+    } finally {
+      setIsVerifyingSessions(false);
     }
   };
 
@@ -223,7 +275,7 @@ export default function App() {
     }
   };
 
-  const handleSessionError = (failedSession: MoodleSession, rawMsg: string) => {
+  const handleSessionError = (failedSession: MoodleSession, rawMsg: string, forceRedirect: boolean = false) => {
     setSessions(prev => {
       const updated = prev.map(s => {
         if (s.username.toLowerCase() === failedSession.username.toLowerCase() && s.server === failedSession.server) {
@@ -248,7 +300,9 @@ export default function App() {
       errorMsg: friendlyMsg
     });
 
-    setActiveTab('login');
+    if (forceRedirect) {
+      setActiveTab('login');
+    }
   };
 
   const onToggleComplete = (id: string) => {
@@ -568,6 +622,9 @@ export default function App() {
       return;
     }
 
+    setSyncedAccountsCount(sessions.length);
+    localStorage.setItem('unemi_synced_accounts_count', String(sessions.length));
+
     const key = sessions.map(s => s.username.toLowerCase()).sort().join('_');
     localStorage.setItem('unemi_sync_key', key);
 
@@ -781,7 +838,13 @@ export default function App() {
           });
         }
       } else {
-        alert('No se pudo actualizar de forma remota la actividad seleccionada.');
+        const data = await res.json().catch(() => ({}));
+        const errStr = data.error || '';
+        if (errStr.includes('sesión') || errStr.includes('sesion') || errStr.includes('expiró') || errStr.includes('expirada') || errStr.includes('inválida') || errStr.includes('invalida') || res.status === 401) {
+          handleSessionError(sess, errStr || 'La sesión expiró.', true);
+        } else {
+          alert('No se pudo actualizar de forma remota la actividad seleccionada.');
+        }
       }
     } catch (e) {
       console.error('Failed to update single task:', e);
@@ -1055,7 +1118,9 @@ export default function App() {
                   <div className="space-y-0.5">
                     <p className="text-[11px] text-emerald-600 font-extrabold flex items-center gap-1">✅ ¡Todas las materias actualizadas!</p>
                     {lastSyncedTime && (
-                      <p className="text-[9px] text-slate-500 font-bold">Última sincronización completa: {getRelativeLastSyncedTime()}</p>
+                      <p className="text-[9px] text-slate-500 font-bold">
+                        Última sincronización completa {syncedAccountsCount !== null ? `(${syncedAccountsCount} cuenta${syncedAccountsCount !== 1 ? 's' : ''} sincronizada${syncedAccountsCount !== 1 ? 's' : ''})` : ''}: {getRelativeLastSyncedTime()}
+                      </p>
                     )}
                   </div>
                   <button
@@ -1338,7 +1403,7 @@ export default function App() {
                       setAgendaNavigation(activityUrl);
                       setActiveTab('agenda');
                     }}
-                    onSessionError={handleSessionError}
+                    onSessionError={(sess, msg) => handleSessionError(sess, msg, false)}
                   />
                 </div>
               ))}
@@ -1359,7 +1424,15 @@ export default function App() {
 
               {sessions.length > 0 && (
                 <div className="bg-white border border-gray-150/40 rounded-2xl p-5 shadow-xs space-y-3">
-                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Cuentas Conectadas ({sessions.length})</h3>
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Cuentas Conectadas ({sessions.length})</h3>
+                    {isVerifyingSessions && (
+                      <span className="text-[10px] text-blue-650 font-extrabold animate-pulse flex items-center space-x-1">
+                        <RefreshCw className="w-3 h-3 shrink-0 animate-spin" />
+                        <span>Verificando sesión...</span>
+                      </span>
+                    )}
+                  </div>
                   <div className="space-y-2">
                     {sessions.map((sess, idx) => (
                       <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-100 rounded-xl">
