@@ -251,6 +251,15 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
                   ) : (
                     uniqueAccounts.map(account => {
                       const isChecked = selectedAccounts.includes(account);
+                      const accountCareers = Array.from(
+                        new Set(
+                          tasks
+                            .filter(t => (t.moodleUsername || 'Manual') === account)
+                            .map(t => getCourseDetails(t.courseName).carrera)
+                            .filter((c): c is string => !!c && c !== 'Otros')
+                        )
+                      );
+                      const careersText = accountCareers.length > 0 ? ` (${accountCareers.join(', ')})` : '';
                       return (
                         <label 
                           key={account} 
@@ -269,7 +278,7 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
                             className="w-3.5 h-3.5 rounded-md border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                           />
                           <span className="truncate">
-                            {account === 'Manual' ? 'Tareas Manuales / Locales' : account}
+                            {account === 'Manual' ? 'Tareas Manuales / Locales' : `${account}${careersText}`}
                           </span>
                         </label>
                       );
