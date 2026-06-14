@@ -1098,10 +1098,9 @@ export default function App() {
       {/* Main Container Grid layout */}
       <main className="max-w-7xl mx-auto px-4 md:px-6 mt-6 relative z-10 space-y-6">
         
-        {/* Academic Analytics summary panel */}
-        <div id="analytics-grid-row" className="bg-white border border-gray-150/40 rounded-3xl p-5 md:p-6 shadow-2xs grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
+        <div id="analytics-grid-row" className="bg-white border border-gray-150/40 rounded-3xl p-5 md:p-6 shadow-2xs grid grid-cols-1 md:grid-cols-12 gap-5 items-stretch">
           
-          <div className="md:col-span-5 space-y-2.5">
+          <div className="md:col-span-5 space-y-2.5 flex flex-col justify-center">
             <div className="flex items-center space-x-1.5 text-blue-600 text-[11px] font-bold">
               <Sparkles className="w-3.5 h-3.5" />
               <span>Sincronizador Inteligente Multi-Cuenta</span>
@@ -1109,7 +1108,7 @@ export default function App() {
             <h2 className="text-sm md:text-base font-extrabold text-gray-900 leading-snug">Sincronizador de Materias</h2>
             
             {/* Sync control block */}
-            <div className={`p-3.5 bg-slate-50 border border-slate-100 rounded-2xl space-y-2 shadow-2xs transition-all duration-200 ${globalSync.status === 'completed' ? 'max-w-2xl' : 'max-w-md'}`}>
+            <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl space-y-2 shadow-2xs max-w-md w-full">
               {globalSync.status === 'idle' && (
                 <div className="space-y-1.5">
                   <p className="text-[11px] text-gray-500 font-medium">Sincroniza todas las materias de tus {sessions.length} cuentas en segundo plano.</p>
@@ -1214,69 +1213,26 @@ export default function App() {
               )}
 
               {globalSync.status === 'completed' && (
-                <div className="flex flex-col sm:flex-row gap-4 items-stretch justify-between">
-                  {/* Left Column: Status & Sync controls */}
-                  <div className="space-y-2 flex-grow max-w-xs flex flex-col justify-between">
-                    <div className="space-y-0.5">
-                      <p className="text-[11px] text-emerald-600 font-extrabold flex items-center gap-1.5">
-                        <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                        ¡Todas las materias actualizadas!
+                <div className="space-y-2 text-left">
+                  <div className="space-y-1">
+                    <p className="text-[11px] text-emerald-600 font-extrabold flex items-center gap-1.5">
+                      <span className="inline-block w-2 bg-emerald-500 rounded-full animate-pulse h-2 shrink-0" />
+                      ¡Todas las materias actualizadas!
+                    </p>
+                    {lastSyncedTime && (
+                      <p className="text-[9px] text-slate-500 font-bold leading-normal">
+                        Última sincronización completa {syncedAccountsCount !== null ? `(${syncedAccountsCount} cuenta${syncedAccountsCount !== 1 ? 's' : ''} sincronizada${syncedAccountsCount !== 1 ? 's' : ''})` : ''}: {getRelativeLastSyncedTime()}
                       </p>
-                      {lastSyncedTime && (
-                        <p className="text-[9px] text-slate-500 font-bold leading-normal">
-                          Última sincronización completa {syncedAccountsCount !== null ? `(${syncedAccountsCount} cuenta${syncedAccountsCount !== 1 ? 's' : ''} sincronizada${syncedAccountsCount !== 1 ? 's' : ''})` : ''}: {getRelativeLastSyncedTime()}
-                        </p>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => startGlobalSync()}
-                      className="w-full py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-250 text-emerald-800 text-[10px] font-semibold rounded-lg cursor-pointer transition-all flex items-center justify-center space-x-1"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                      <span>Actualizar todo de nuevo</span>
-                    </button>
+                    )}
                   </div>
-
-                  {/* Right Column: Emoji Guide (Compact Table Style) */}
-                  <div className="grid grid-cols-2 gap-x-3.5 gap-y-1.5 text-[9px] font-bold text-gray-500 sm:border-l sm:border-gray-200/80 sm:pl-4 pt-3 sm:pt-0 border-t sm:border-t-0 border-gray-150/40 select-none shrink-0">
-                    <div className="flex items-center space-x-1.5 min-w-[100px]">
-                      <span className="text-xs">🔥</span>
-                      <span>Inminente {"(<30h)"}</span>
-                    </div>
-                    <div className="flex items-center space-x-1.5 min-w-[100px]">
-                      <span className="text-xs">😄</span>
-                      <span className="text-emerald-600">Excelente (≥90%)</span>
-                    </div>
-                    <div className="flex items-center space-x-1.5">
-                      <span className="text-xs">💪</span>
-                      <span>Pendiente {"(<10d)"}</span>
-                    </div>
-                    <div className="flex items-center space-x-1.5">
-                      <span className="text-xs">🙂</span>
-                      <span className="text-blue-650">Aceptable (80-89%)</span>
-                    </div>
-                    <div className="flex items-center space-x-1.5">
-                      <span className="text-xs">⏱️</span>
-                      <span>Entregado {"(Sin nota)"}</span>
-                    </div>
-                    <div className="flex items-center space-x-1.5">
-                      <span className="text-xs">😢</span>
-                      <span className="text-amber-600">Regular (60-79%)</span>
-                    </div>
-                    <div className="flex items-center space-x-1.5">
-                      <span className="text-xs">☠️</span>
-                      <span>Vencido</span>
-                    </div>
-                    <div className="flex items-center space-x-1.5">
-                      <span className="text-xs">👎</span>
-                      <span className="text-rose-600">Reprobado {"(<60%)"}</span>
-                    </div>
-                    <div className="flex items-center space-x-1.5 col-span-2 text-[8px] text-slate-400 font-extrabold uppercase tracking-wider pt-0.5 border-t border-gray-100/30">
-                      <span className="text-xs normal-case select-none">⚠️</span>
-                      <span>Cierre Atípico (Sin fecha)</span>
-                    </div>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => startGlobalSync()}
+                    className="w-full py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-[10px] font-bold rounded-xl cursor-pointer transition-all flex items-center justify-center space-x-1.5"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                    <span>Actualizar todo de nuevo</span>
+                  </button>
                 </div>
               )}
 
@@ -1323,7 +1279,7 @@ export default function App() {
                       {globalSync.logs.length} ENTRADAS
                     </span>
                   </div>
-                  <div className="max-h-48 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-slate-800 scrolling-touch pr-1">
+                  <div className="max-h-36 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-slate-800 scrolling-touch pr-1">
                     {globalSync.logs.map((log, idx) => {
                       let badgeColor = "text-blue-400 bg-blue-950/40";
                       if (log.type === 'success') { badgeColor = "text-emerald-400 bg-emerald-950/40"; }
@@ -1352,43 +1308,97 @@ export default function App() {
             </div>
           </div>
 
-          {/* Stat 1: Completed Rate */}
-          <div className="md:col-span-4 bg-gray-50/50 border border-gray-100 rounded-2xl p-4 flex items-center space-x-4">
-            <div className={`p-3 rounded-xl shrink-0 ${percentComplete === 100 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50/60 text-blue-600'}`}>
-              <Award className="w-6 h-6 stroke-[1.8]" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex justify-between items-baseline">
-                <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Cumplimiento</span>
-                <span className="text-xs font-bold text-gray-800">{percentComplete}%</span>
+          {/* Columna Derecha: Indicador de emojis superior y Estadísticas alineadas */}
+          <div className="md:col-span-7 flex flex-col justify-between space-y-4">
+            
+            {/* Guía de Indicadores de Actividades */}
+            <div className="bg-slate-50/60 border border-slate-100 rounded-2xl p-4 space-y-2.5">
+              <span className="font-extrabold text-gray-400 uppercase tracking-widest text-[9px] flex items-center gap-1.5 select-none font-sans leading-none">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                Guía de Indicadores de Actividades
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-2 text-[9.5px] font-bold text-gray-500 select-none">
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-sm shrink-0">🔥</span>
+                  <span className="truncate">Inminente {"(<30h)"}</span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-sm shrink-0">😄</span>
+                  <span className="text-emerald-600 truncate">Excelente (≥90%)</span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-sm shrink-0">💪</span>
+                  <span className="truncate">Pendiente {"(<10d)"}</span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-sm shrink-0">🙂</span>
+                  <span className="text-blue-650 truncate">Aceptable (80-89%)</span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-sm shrink-0">⏱️</span>
+                  <span className="truncate">Entregado {"(Sin nota)"}</span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-sm shrink-0">😢</span>
+                  <span className="text-amber-600 truncate">Regular (60-79%)</span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-sm shrink-0">☠️</span>
+                  <span className="truncate">Vencido</span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-sm shrink-0">👎</span>
+                  <span className="text-rose-600 truncate">Reprobado {"(<60%)"}</span>
+                </div>
+                <div className="flex items-center space-x-1.5 col-span-2 sm:col-span-1 text-[8.5px] text-slate-400 font-extrabold uppercase tracking-wider">
+                  <span className="text-sm shrink-0 select-none">⚠️</span>
+                  <span className="truncate">Cierre Atípico (Sin fecha)</span>
+                </div>
               </div>
-              <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden mt-1.5">
-                <div 
-                  className={`h-full rounded-full transition-all duration-300 ${percentComplete === 100 ? 'bg-emerald-500' : 'bg-blue-600'}`} 
-                  style={{ width: `${percentComplete}%` }}
-                />
+            </div>
+
+            {/* Dos cuadros estadísticos con el mismo ancho */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full items-stretch animate-fade-in">
+              {/* Stat 1: Completed Rate */}
+              <div className="bg-gray-50/50 border border-gray-100 rounded-2xl p-4 flex items-center space-x-4 h-full">
+                <div className={`p-3 rounded-xl shrink-0 ${percentComplete === 100 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50/60 text-blue-600'}`}>
+                  <Award className="w-5 h-5 stroke-[1.8]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Cumplimiento</span>
+                    <span className="text-xs font-bold text-gray-800">{percentComplete}%</span>
+                  </div>
+                  <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden mt-1.5">
+                    <div 
+                      className={`h-full rounded-full transition-all duration-300 ${percentComplete === 100 ? 'bg-emerald-500' : 'bg-blue-600'}`} 
+                      style={{ width: `${percentComplete}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1.5 leading-none">
+                    {completedTasks} completadas • {pendingTasks} pendientes
+                  </p>
+                </div>
               </div>
-              <p className="text-[10px] text-gray-400 mt-1.5 leading-none">
-                {completedTasks} completadas • {pendingTasks} pendientes
-              </p>
+
+              {/* Stat 2: Connection details */}
+              <div className="bg-gray-50/50 border border-gray-100 rounded-2xl p-4 flex items-center space-x-3 h-full">
+                <div className={`p-3 rounded-xl shrink-0 ${session ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50/70 text-amber-600'}`}>
+                  <BookOpen className="w-5 h-5 stroke-[1.8]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Materia Mapeadas</p>
+                  <h3 className="text-sm font-bold text-gray-800 mt-0.5 truncate">
+                    {courses.length > 0 ? `${courses.length} cursos` : '0 materias'}
+                  </h3>
+                  <p className="text-[10px] text-gray-400 leading-none mt-1 truncate">
+                    {session ? 'Origen: Aula Virtual UNEMI' : 'Conecta tu cuenta Moodle'}
+                  </p>
+                </div>
+              </div>
             </div>
+
           </div>
-
-          {/* Stat 2: Connection details */}
-          <div className="md:col-span-3 bg-gray-50/50 border border-gray-100 rounded-2xl p-4 flex items-center space-x-3">
-            <div className={`p-3 rounded-xl shrink-0 ${session ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50/70 text-amber-600'}`}>
-              <BookOpen className="w-5 h-5 stroke-[1.8]" />
-            </div>
-            <div>
-              <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Materia Mapeadas</p>
-              <h3 className="text-sm font-bold text-gray-800 mt-0.5">{courses.length > 0 ? `${courses.length} cursos` : '0 materias'}</h3>
-              <p className="text-[10px] text-gray-400 leading-none mt-1">
-                {session ? 'Origen: Aula Virtual UNEMI' : 'Conecta tu cuenta Moodle'}
-              </p>
-            </div>
-          </div>
-
-
 
         </div>
 
