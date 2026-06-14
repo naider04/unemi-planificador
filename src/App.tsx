@@ -10,6 +10,30 @@ import MoodleBrowser from './components/MoodleBrowser';
 import ActivityTimeline from './components/ActivityTimeline';
 import NewTaskModal from './components/NewTaskModal';
 import StatsPanel from './components/StatsPanel';
+import { fetchUserCacheFromFirestore, saveUserCacheToFirestore } from './firebase';
+
+export function mergeTasksLists(currentTasks: TodoTask[], newTasks: TodoTask[]): TodoTask[] {
+  const merged = [...currentTasks];
+  newTasks.forEach(nt => {
+    let idx = -1;
+    if (nt.activityUrl) {
+      idx = merged.findIndex(t => t.activityUrl === nt.activityUrl);
+    } else {
+      idx = merged.findIndex(s => s.id === nt.id);
+    }
+
+    if (idx !== -1) {
+      merged[idx] = {
+        ...merged[idx],
+        ...nt,
+        completed: merged[idx].completed || nt.completed,
+      };
+    } else {
+      merged.push(nt);
+    }
+  });
+  return merged;
+}
 
 const isStatusSubmittedLocal = (estadoEntrega: string | null | undefined): boolean => {
   if (!estadoEntrega) return false;
@@ -32,6 +56,7 @@ const isStatusSubmittedLocal = (estadoEntrega: string | null | undefined): boole
 export default function App() {
   const [sessions, setSessions] = useState<MoodleSession[]>([]);
   const [activeSessionIndex, setActiveSessionIndex] = useState<number>(0);
+  const [isDbLoaded, setIsDbLoaded] = useState<boolean>(false);
   const [tasks, setTasks] = useState<TodoTask[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [activeTab, setActiveTab] = useState<'agenda' | 'browser' | 'login' | 'stats'>('agenda');
@@ -80,7 +105,7 @@ export default function App() {
 
   const session = sessions[activeSessionIndex] || null;
 
-  // 1. Initial Load from LocalStorage
+  // 1. Initial Load from LocalStorage and Firestore Cache
   useEffect(() => {
     try {
       sessionStorage.removeItem('unemi_collapsed_weeks');
@@ -102,13 +127,14 @@ export default function App() {
       setSessions(loadedSessions);
 
       const cachedTasks = localStorage.getItem('unemi_tasks');
+      let localTasks: TodoTask[] = [];
       if (cachedTasks) {
-        let loadedTasks: TodoTask[] = JSON.parse(cachedTasks);
+        localTasks = JSON.parse(cachedTasks);
 
         // GMT-5 Timezone Migration for legacy tasks to fix a +5 hours difference
         const hasMigrated = localStorage.getItem('unemi_tz_migrated_v3');
         if (!hasMigrated) {
-          loadedTasks = loadedTasks.map(task => {
+          localTasks = localTasks.map(task => {
             const updated = { ...task };
             if (task.closureDate && task.closureDate.endsWith('Z')) {
               const d = new Date(task.closureDate);
@@ -125,19 +151,15 @@ export default function App() {
           localStorage.setItem('unemi_tz_migrated_v3', 'true');
         }
 
-        // Defensive: clear false activities and update
-        loadedTasks = loadedTasks.filter(t => t.id !== 'welcome-1' && t.id !== 'welcome-2');
-        localStorage.setItem('unemi_tasks', JSON.stringify(loadedTasks));
-        setTasks(loadedTasks);
-      } else {
-        // Start empty as requested
-        setTasks([]);
+        // Defensive: clear false activities
+        localTasks = localTasks.filter(t => t.id !== 'welcome-1' && t.id !== 'welcome-2');
       }
 
       // Load last sync timestamp
       const cachedLastSync = localStorage.getItem('unemi_last_global_sync_time');
-      if (cachedLastSync) {
-        setLastSyncedTime(Number(cachedLastSync));
+      let localSyncedTime = cachedLastSync ? Number(cachedLastSync) : null;
+      if (localSyncedTime) {
+        setLastSyncedTime(localSyncedTime);
       }
 
       // Load synced accounts count
@@ -151,16 +173,71 @@ export default function App() {
       if (cachedSync) {
         try {
           const parsed = JSON.parse(cachedSync);
-          // If was syncing, let it keep syncing so the poll useEffect wakes up and queries the server
           setGlobalSync(parsed);
         } catch (e) {
           console.error('Error recovering global sync state cache:', e);
         }
       }
+
+      // Load user caches from Firestore
+      const loadAllFirestoreCaches = async () => {
+        if (loadedSessions.length === 0) {
+          setTasks(localTasks);
+          localStorage.setItem('unemi_tasks', JSON.stringify(localTasks));
+          setIsDbLoaded(true);
+          return;
+        }
+
+        try {
+          let mergedTasks = [...localTasks];
+          let maxSyncTime = localSyncedTime;
+
+          for (const s of loadedSessions) {
+            try {
+              const firestoreCache = await fetchUserCacheFromFirestore(s.server, s.username);
+              if (firestoreCache) {
+                if (firestoreCache.tasks && firestoreCache.tasks.length > 0) {
+                  mergedTasks = mergeTasksLists(mergedTasks, firestoreCache.tasks);
+                }
+                if (firestoreCache.lastSyncedTime && (!maxSyncTime || firestoreCache.lastSyncedTime > maxSyncTime)) {
+                  maxSyncTime = firestoreCache.lastSyncedTime;
+                }
+              }
+            } catch (err) {
+              console.error(`Error loading Firestore cache for ${s.username}:`, err);
+            }
+          }
+
+          setTasks(mergedTasks);
+          localStorage.setItem('unemi_tasks', JSON.stringify(mergedTasks));
+          if (maxSyncTime) {
+            setLastSyncedTime(maxSyncTime);
+            localStorage.setItem('unemi_last_global_sync_time', String(maxSyncTime));
+          }
+        } catch (err) {
+          console.error("General error loading Firestore caches on startup:", err);
+          setTasks(localTasks);
+        } finally {
+          setIsDbLoaded(true);
+        }
+      };
+
+      loadAllFirestoreCaches();
+
     } catch (err) {
       console.error('Error loading localStorage keys:', err);
+      setIsDbLoaded(true);
     }
   }, []);
+
+  // 1b. Auto-save user cache to Firestore whenever state changes
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    sessions.forEach(s => {
+      saveUserCacheToFirestore(s.server, s.username, tasks, lastSyncedTime)
+        .catch(err => console.error(`Error auto-saving cache to Firestore for ${s.username}:`, err));
+    });
+  }, [tasks, lastSyncedTime, sessions, isDbLoaded]);
 
   // Fetch courses cache sequentially once connected
   useEffect(() => {
@@ -239,7 +316,7 @@ export default function App() {
   };
 
   // 2. State Actions handlers
-  const handleLoginSuccess = (newSession: MoodleSession) => {
+  const handleLoginSuccess = async (newSession: MoodleSession) => {
     const existsIdx = sessions.findIndex(
       s => s.username.toLowerCase() === newSession.username.toLowerCase() && s.server === newSession.server
     );
@@ -259,6 +336,24 @@ export default function App() {
     setActiveSessionIndex(idx !== -1 ? idx : updatedSessions.length - 1);
     setActiveTab('browser'); // take them to Moodle browser immediately
     setPrefillLogin(null); // Clear any active reconnect/prefill error values
+
+    // Async fetch and merge this user's cache from Firestore immediately on login
+    try {
+      const firestoreCache = await fetchUserCacheFromFirestore(newSession.server, newSession.username);
+      if (firestoreCache && firestoreCache.tasks && firestoreCache.tasks.length > 0) {
+        setTasks(prevTasks => {
+          const merged = mergeTasksLists(prevTasks, firestoreCache.tasks);
+          localStorage.setItem('unemi_tasks', JSON.stringify(merged));
+          return merged;
+        });
+        if (firestoreCache.lastSyncedTime && (!lastSyncedTime || firestoreCache.lastSyncedTime > lastSyncedTime)) {
+          setLastSyncedTime(firestoreCache.lastSyncedTime);
+          localStorage.setItem('unemi_last_global_sync_time', String(firestoreCache.lastSyncedTime));
+        }
+      }
+    } catch (err) {
+      console.error(`Error loading database cache for ${newSession.username} on login:`, err);
+    }
   };
 
   const handleLogout = () => {
@@ -394,7 +489,12 @@ export default function App() {
   };
 
   const handleSaveManualTask = (newTask: TodoTask) => {
-    const updated = [newTask, ...tasks];
+    const updatedTask = { ...newTask };
+    if (session) {
+      updatedTask.moodleUsername = session.username;
+      updatedTask.moodleServer = session.server;
+    }
+    const updated = [updatedTask, ...tasks];
     setTasks(updated);
     localStorage.setItem('unemi_tasks', JSON.stringify(updated));
   };
@@ -1009,7 +1109,7 @@ export default function App() {
             <h2 className="text-sm md:text-base font-extrabold text-gray-900 leading-snug">Sincronizador de Materias</h2>
             
             {/* Sync control block */}
-            <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl space-y-2 max-w-md shadow-2xs">
+            <div className={`p-3.5 bg-slate-50 border border-slate-100 rounded-2xl space-y-2 shadow-2xs transition-all duration-200 ${globalSync.status === 'completed' ? 'max-w-2xl' : 'max-w-md'}`}>
               {globalSync.status === 'idle' && (
                 <div className="space-y-1.5">
                   <p className="text-[11px] text-gray-500 font-medium">Sincroniza todas las materias de tus {sessions.length} cuentas en segundo plano.</p>
@@ -1114,23 +1214,69 @@ export default function App() {
               )}
 
               {globalSync.status === 'completed' && (
-                <div className="space-y-1.5">
-                  <div className="space-y-0.5">
-                    <p className="text-[11px] text-emerald-600 font-extrabold flex items-center gap-1">✅ ¡Todas las materias actualizadas!</p>
-                    {lastSyncedTime && (
-                      <p className="text-[9px] text-slate-500 font-bold">
-                        Última sincronización completa {syncedAccountsCount !== null ? `(${syncedAccountsCount} cuenta${syncedAccountsCount !== 1 ? 's' : ''} sincronizada${syncedAccountsCount !== 1 ? 's' : ''})` : ''}: {getRelativeLastSyncedTime()}
+                <div className="flex flex-col sm:flex-row gap-4 items-stretch justify-between">
+                  {/* Left Column: Status & Sync controls */}
+                  <div className="space-y-2 flex-grow max-w-xs flex flex-col justify-between">
+                    <div className="space-y-0.5">
+                      <p className="text-[11px] text-emerald-600 font-extrabold flex items-center gap-1.5">
+                        <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                        ¡Todas las materias actualizadas!
                       </p>
-                    )}
+                      {lastSyncedTime && (
+                        <p className="text-[9px] text-slate-500 font-bold leading-normal">
+                          Última sincronización completa {syncedAccountsCount !== null ? `(${syncedAccountsCount} cuenta${syncedAccountsCount !== 1 ? 's' : ''} sincronizada${syncedAccountsCount !== 1 ? 's' : ''})` : ''}: {getRelativeLastSyncedTime()}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => startGlobalSync()}
+                      className="w-full py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-250 text-emerald-800 text-[10px] font-semibold rounded-lg cursor-pointer transition-all flex items-center justify-center space-x-1"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                      <span>Actualizar todo de nuevo</span>
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => startGlobalSync()}
-                    className="w-full py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-250 text-emerald-800 text-[10px] font-semibold rounded-lg cursor-pointer transition-all flex items-center justify-center space-x-1"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                    <span>Actualizar todo de nuevo</span>
-                  </button>
+
+                  {/* Right Column: Emoji Guide (Compact Table Style) */}
+                  <div className="grid grid-cols-2 gap-x-3.5 gap-y-1.5 text-[9px] font-bold text-gray-500 sm:border-l sm:border-gray-200/80 sm:pl-4 pt-3 sm:pt-0 border-t sm:border-t-0 border-gray-150/40 select-none shrink-0">
+                    <div className="flex items-center space-x-1.5 min-w-[100px]">
+                      <span className="text-xs">🔥</span>
+                      <span>Inminente {"(<30h)"}</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5 min-w-[100px]">
+                      <span className="text-xs">😄</span>
+                      <span className="text-emerald-600">Excelente (≥90%)</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-xs">💪</span>
+                      <span>Pendiente {"(<10d)"}</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-xs">🙂</span>
+                      <span className="text-blue-650">Aceptable (80-89%)</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-xs">⏱️</span>
+                      <span>Entregado {"(Sin nota)"}</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-xs">😢</span>
+                      <span className="text-amber-600">Regular (60-79%)</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-xs">☠️</span>
+                      <span>Vencido</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-xs">👎</span>
+                      <span className="text-rose-600">Reprobado {"(<60%)"}</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5 col-span-2 text-[8px] text-slate-400 font-extrabold uppercase tracking-wider pt-0.5 border-t border-gray-100/30">
+                      <span className="text-xs normal-case select-none">⚠️</span>
+                      <span>Cierre Atípico (Sin fecha)</span>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1241,6 +1387,8 @@ export default function App() {
               </p>
             </div>
           </div>
+
+
 
         </div>
 

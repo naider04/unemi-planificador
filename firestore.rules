@@ -1,0 +1,34 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // User caches associated by Moodle credentials composite keys (e.g. "a_username")
+    match /user_data/{userId} {
+      // Allowed since there is no Firebase Auth used, but fully validated for schema integrity
+      allow read: if true;
+      allow create, update: if isValidId(userId) 
+        && isValidUserCache(request.resource.data)
+        && (request.resource.data.get('lastSyncedTime', null) == null || request.resource.data.lastSyncedTime is int);
+      allow delete: if false;
+    }
+
+    // Helpers
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidUserCache(data) {
+      return data.keys().hasAll(['moodleUsername', 'moodleServer', 'tasks'])
+        && data.moodleUsername is string
+        && data.moodleUsername.size() <= 100
+        && data.moodleServer is string
+        && (data.moodleServer == 'a' || data.moodleServer == 'b')
+        && data.tasks is list
+        && data.tasks.size() <= 1200;
+    }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "entities": {
+    "TodoTask": {
+      "title": "TodoTask",
+      "description": "Represents a Moodle scraped activity or a manually entered task.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the task (manual or Moodle activity ID)" },
+        "title": { "type": "string", "description": "Name or title of the task" },
+        "courseId": { "type": "string", "description": "Associated course ID if applicable" },
+        "courseName": { "type": "string", "description": "Name of the associated course" },
+        "activityUrl": { "type": "string", "description": "Scraped Moodle activity URL if applicable" },
+        "type": { "type": "string", "enum": ["TAREA", "CUESTIONARIO", "ACTIVIDAD", "MANUAL"], "description": "The category of activity or manual task" },
+        "description": { "type": "string", "description": "Optional textual details or notes" },
+        "closureDate": { "type": "string", "format": "date-time", "description": "ISO date string of completion closure deadline" },
+        "aperture": { "type": "string", "description": "Opening date text" },
+        "apertureDateISO": { "type": "string", "format": "date-time", "description": "ISO date string of opening date" },
+        "completed": { "type": "boolean", "description": "Completion status of the task" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "status": { "type": "string", "description": "Scraped status of the activity" },
+        "grade": { "type": "string", "description": "Grade obtained in Moodle" },
+        "gradeOver": { "type": "string", "description": "Maximum possible grade in Moodle" },
+        "gradingStatus": { "type": "string", "description": "Moodle grading status text" },
+        "estado_calificacion": { "type": "string", "description": "Moodle localization string of grade state" },
+        "estado_entrega": { "type": "string", "description": "Moodle localization string of hand-in state" },
+        "comentario_calificador": { "type": "string", "description": "Feedback comments from the tutor" },
+        "advertencia_preguntas": { "type": "string", "description": "Warning message in quiz type tasks" },
+        "por_hacer_calificacion": { "type": "boolean", "description": "True if grade is set but pending review" },
+        "hecho_calificacion": { "type": "boolean", "description": "True if graded" },
+        "grupo": { "type": "string", "description": "Scraped student group details if any" },
+        "moodleUsername": { "type": "string", "description": "Username of the associated Moodle sync" },
+        "moodleServer": { "type": "string", "enum": ["a", "b"], "description": "Moodle server partition" },
+        "lastSyncedAt": { "type": "string", "format": "date-time", "description": "Timestamp when this individual task was synced" }
+      },
+      "required": ["id", "title", "type", "completed", "createdAt"]
+    },
+    "UserCache": {
+      "title": "UserCache",
+      "description": "Stores cached tasks and sync settings for a specific Moodle username & server.",
+      "type": "object",
+      "properties": {
+        "moodleUsername": { "type": "string", "description": "The Moodle account username" },
+        "moodleServer": { "type": "string", "enum": ["a", "b"], "description": "Moodle server partition" },
+        "tasks": {
+          "type": "array",
+          "description": "List of activities and manual tasks for this account"
+        },
+        "lastSyncedTime": { "type": "integer", "description": "Epoch timestamp of last full sync" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Instant of last mutation" }
+      },
+      "required": ["moodleUsername", "moodleServer", "tasks"]
+    }
+  },
+  "firestore": {
+    "/user_data/{userId}": {
+      "schema": "UserCache",
+      "description": "Collection mapping Moodle username-server pairs to their synced and manual activities."
+    }
+  }
+}
