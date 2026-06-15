@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Calendar, Layers, Lock, BookOpen, Award, CheckCircle2, 
-  Sparkles, Clock, AlertCircle, Bookmark, CheckSquare, Eye, RefreshCw, Download, BarChart3
+  Sparkles, Clock, AlertCircle, Bookmark, CheckSquare, Eye, RefreshCw, Download, BarChart3,
+  Bell, BellOff
 } from 'lucide-react';
 
-import { MoodleSession, TodoTask, Course } from './types';
+import { MoodleSession, TodoTask, Course, MoodleNotification } from './types';
 import LoginPanel from './components/LoginPanel';
 import MoodleBrowser from './components/MoodleBrowser';
 import ActivityTimeline from './components/ActivityTimeline';
@@ -102,6 +103,150 @@ export default function App() {
 
   const [syncingTaskId, setSyncingTaskId] = useState<string | null>(null);
   const [lastSyncedTime, setLastSyncedTime] = useState<number | null>(null);
+  
+  const [notifications, setNotifications] = useState<MoodleNotification[]>([]);
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+
+  const getRelativeNotifTime = (timestamp: number) => {
+    const diffMs = Date.now() - timestamp;
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'ahora';
+    if (diffMins < 60) return `hace ${diffMins}m`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `hace ${diffHours}h`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `hace ${diffDays}d`;
+  };
+
+  const markNotificationRead = (notifId: string) => {
+    setNotifications(prev => {
+      const updated = prev.map(n => n.id === notifId ? { ...n, read: true } : n);
+      localStorage.setItem('unemi_notifications', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const markAllNotificationsRead = () => {
+    setNotifications(prev => {
+      const updated = prev.map(n => ({ ...n, read: true }));
+      localStorage.setItem('unemi_notifications', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const clearAllNotifications = () => {
+    if (window.confirm('¿Seguro que deseas limpiar todas las notificaciones?')) {
+      setNotifications([]);
+      localStorage.setItem('unemi_notifications', JSON.stringify([]));
+    }
+  };
+
+  const detectAndGenerateNotifications = (
+    currentTasksList: TodoTask[],
+    incomingTasksList: TodoTask[]
+  ) => {
+    const newNotifications: MoodleNotification[] = [];
+    const now = Date.now();
+
+    // Only generate change/discovery notifications if there is already some data.
+    const isFirstTimeSync = currentTasksList.length === 0;
+
+    if (isFirstTimeSync) {
+      const accounts = Array.from(new Set(incomingTasksList.map(t => `${t.moodleServer === 'a' ? 'Aula A' : 'Aula B'}: ${t.moodleUsername}`)));
+      if (accounts.length > 0) {
+        newNotifications.push({
+          id: `first_sync_${now}`,
+          moodleUsername: incomingTasksList[0].moodleUsername || '',
+          moodleServer: incomingTasksList[0].moodleServer || 'a',
+          timestamp: now,
+          title: '🎉 Primera Sincronización',
+          message: `¡Se sincronizaron con éxito ${incomingTasksList.length} actividades de las cuentas: ${accounts.join(', ')}!`,
+          type: 'general',
+          read: false
+        });
+      }
+    } else {
+      incomingTasksList.forEach(incomingTask => {
+        const existingTask = currentTasksList.find(t => t.activityUrl === incomingTask.activityUrl);
+
+        if (!existingTask) {
+          newNotifications.push({
+            id: `new_task_${incomingTask.id || now}_${Math.random().toString(36).substr(2, 5)}`,
+            moodleUsername: incomingTask.moodleUsername || '',
+            moodleServer: incomingTask.moodleServer || 'a',
+            timestamp: now,
+            title: '🆕 Nueva Actividad Detectada',
+            message: `Nueva ${incomingTask.type.toLowerCase()}: "${incomingTask.title}" en la materia ${incomingTask.courseName || 'UNEMI'}.`,
+            type: 'new',
+            read: false,
+            activityUrl: incomingTask.activityUrl,
+            courseName: incomingTask.courseName
+          });
+        } else {
+          if (incomingTask.closureDate && existingTask.closureDate && incomingTask.closureDate !== existingTask.closureDate) {
+            const formatShortDate = (isoStr: string) => {
+              try {
+                const date = new Date(isoStr);
+                return date.toLocaleString('es-EC', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+              } catch {
+                return isoStr;
+              }
+            };
+            newNotifications.push({
+              id: `deadline_change_${incomingTask.id || now}_${Math.random().toString(36).substr(2, 5)}`,
+              moodleUsername: incomingTask.moodleUsername || '',
+              moodleServer: incomingTask.moodleServer || 'a',
+              timestamp: now,
+              title: '📅 Cambio de Deadline',
+              message: `El plazo de "${existingTask.title}" cambió de ${formatShortDate(existingTask.closureDate)} a ${formatShortDate(incomingTask.closureDate)}.`,
+              type: 'deadline',
+              read: false,
+              activityUrl: incomingTask.activityUrl,
+              courseName: existingTask.courseName
+            });
+          }
+
+          if (incomingTask.grade && incomingTask.grade !== existingTask.grade) {
+            newNotifications.push({
+              id: `grade_${incomingTask.id || now}_${Math.random().toString(36).substr(2, 5)}`,
+              moodleUsername: incomingTask.moodleUsername || '',
+              moodleServer: incomingTask.moodleServer || 'a',
+              timestamp: now,
+              title: '⭐ Nueva Calificación',
+              message: `Recibiste una nota para "${existingTask.title}": ${incomingTask.grade}/${incomingTask.gradeOver || '10'}.`,
+              type: 'grade',
+              read: false,
+              activityUrl: incomingTask.activityUrl,
+              courseName: existingTask.courseName
+            });
+          }
+
+          if (incomingTask.status && existingTask.status && incomingTask.status !== existingTask.status) {
+            newNotifications.push({
+              id: `status_${incomingTask.id || now}_${Math.random().toString(36).substr(2, 5)}`,
+              moodleUsername: incomingTask.moodleUsername || '',
+              moodleServer: incomingTask.moodleServer || 'a',
+              timestamp: now,
+              title: '🔄 Estado Actualizado',
+              message: `El estado de "${existingTask.title}" cambió de "${existingTask.status}" a "${incomingTask.status}".`,
+              type: 'status',
+              read: false,
+              activityUrl: incomingTask.activityUrl,
+              courseName: existingTask.courseName
+            });
+          }
+        }
+      });
+    }
+
+    if (newNotifications.length > 0) {
+      setNotifications(prev => {
+        const merged = [...newNotifications, ...prev];
+        localStorage.setItem('unemi_notifications', JSON.stringify(merged));
+        return merged;
+      });
+    }
+  };
 
   const session = sessions[activeSessionIndex] || null;
 
@@ -168,6 +313,18 @@ export default function App() {
         setSyncedAccountsCount(Number(cachedCount));
       }
 
+      // Load notifications cache
+      const cachedNotifications = localStorage.getItem('unemi_notifications');
+      let localNotifications: MoodleNotification[] = [];
+      if (cachedNotifications) {
+        try {
+          localNotifications = JSON.parse(cachedNotifications);
+        } catch (e) {
+          console.error('Error parsing local notifications:', e);
+        }
+      }
+      setNotifications(localNotifications);
+
       // Restore Global Sync State
       const cachedSync = localStorage.getItem('unemi_global_sync_state');
       if (cachedSync) {
@@ -184,12 +341,15 @@ export default function App() {
         if (loadedSessions.length === 0) {
           setTasks(localTasks);
           localStorage.setItem('unemi_tasks', JSON.stringify(localTasks));
+          setNotifications(localNotifications);
+          localStorage.setItem('unemi_notifications', JSON.stringify(localNotifications));
           setIsDbLoaded(true);
           return;
         }
 
         try {
           let mergedTasks = [...localTasks];
+          let mergedNotifications = [...localNotifications];
           let maxSyncTime = localSyncedTime;
 
           for (const s of loadedSessions) {
@@ -198,6 +358,21 @@ export default function App() {
               if (firestoreCache) {
                 if (firestoreCache.tasks && firestoreCache.tasks.length > 0) {
                   mergedTasks = mergeTasksLists(mergedTasks, firestoreCache.tasks);
+                }
+                if (firestoreCache.notifications && firestoreCache.notifications.length > 0) {
+                  firestoreCache.notifications.forEach(fn => {
+                    if (!mergedNotifications.some(mn => mn.id === fn.id)) {
+                      mergedNotifications.push(fn);
+                    } else {
+                      const existingIdx = mergedNotifications.findIndex(mn => mn.id === fn.id);
+                      if (existingIdx !== -1) {
+                        mergedNotifications[existingIdx] = {
+                          ...fn,
+                          read: mergedNotifications[existingIdx].read || fn.read
+                        };
+                      }
+                    }
+                  });
                 }
                 if (firestoreCache.lastSyncedTime && (!maxSyncTime || firestoreCache.lastSyncedTime > maxSyncTime)) {
                   maxSyncTime = firestoreCache.lastSyncedTime;
@@ -210,6 +385,8 @@ export default function App() {
 
           setTasks(mergedTasks);
           localStorage.setItem('unemi_tasks', JSON.stringify(mergedTasks));
+          setNotifications(mergedNotifications);
+          localStorage.setItem('unemi_notifications', JSON.stringify(mergedNotifications));
           if (maxSyncTime) {
             setLastSyncedTime(maxSyncTime);
             localStorage.setItem('unemi_last_global_sync_time', String(maxSyncTime));
@@ -217,6 +394,7 @@ export default function App() {
         } catch (err) {
           console.error("General error loading Firestore caches on startup:", err);
           setTasks(localTasks);
+          setNotifications(localNotifications);
         } finally {
           setIsDbLoaded(true);
         }
@@ -234,10 +412,10 @@ export default function App() {
   useEffect(() => {
     if (!isDbLoaded) return;
     sessions.forEach(s => {
-      saveUserCacheToFirestore(s.server, s.username, tasks, lastSyncedTime)
+      saveUserCacheToFirestore(s.server, s.username, tasks, lastSyncedTime, notifications)
         .catch(err => console.error(`Error auto-saving cache to Firestore for ${s.username}:`, err));
     });
-  }, [tasks, lastSyncedTime, sessions, isDbLoaded]);
+  }, [tasks, lastSyncedTime, sessions, isDbLoaded, notifications]);
 
   // Fetch courses cache sequentially once connected
   useEffect(() => {
@@ -538,6 +716,11 @@ export default function App() {
         // Save progress to local cache too
         localStorage.setItem('unemi_global_sync_state', JSON.stringify(nextState));
 
+        if (job.validSessionCount !== undefined) {
+          setSyncedAccountsCount(job.validSessionCount);
+          localStorage.setItem('unemi_synced_accounts_count', String(job.validSessionCount));
+        }
+
         // Merge task updates retrieved so far
         if (job.tasks && job.tasks.length > 0) {
           setTasks(prevTasks => {
@@ -565,6 +748,14 @@ export default function App() {
         setLastSyncedTime(finishedTime);
         localStorage.setItem('unemi_last_global_sync_time', String(finishedTime));
 
+        if (job.validSessionCount !== undefined) {
+          setSyncedAccountsCount(job.validSessionCount);
+          localStorage.setItem('unemi_synced_accounts_count', String(job.validSessionCount));
+        } else {
+          setSyncedAccountsCount(sessions.length);
+          localStorage.setItem('unemi_synced_accounts_count', String(sessions.length));
+        }
+
         setGlobalSync({
           status: 'completed',
           currentCourse: '',
@@ -588,6 +779,8 @@ export default function App() {
         // Process a final merge of all tasks
         if (job.tasks && job.tasks.length > 0) {
           setTasks(prevTasks => {
+            detectAndGenerateNotifications(prevTasks, job.tasks);
+
             const merged = [...prevTasks];
             job.tasks.forEach((srvTask: any) => {
               const matchIdx = merged.findIndex(t => t.activityUrl === srvTask.activityUrl);
@@ -927,6 +1120,71 @@ export default function App() {
             lastSyncedAt: new Date().toISOString()
           };
 
+          // Detect single task notification changes on manual/single sync
+          const singleNotifs: MoodleNotification[] = [];
+          const nowNotif = Date.now();
+          
+          if (updatedTask.closureDate && rawMatch.closureDate && updatedTask.closureDate !== rawMatch.closureDate) {
+            const formatShortDate = (isoStr: string) => {
+              try {
+                const date = new Date(isoStr);
+                return date.toLocaleString('es-EC', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+              } catch {
+                return isoStr;
+              }
+            };
+            singleNotifs.push({
+              id: `deadline_change_${updatedTask.id}_${nowNotif}`,
+              moodleUsername: updatedTask.moodleUsername || '',
+              moodleServer: updatedTask.moodleServer || 'a',
+              timestamp: nowNotif,
+              title: '📅 Cambio de Deadline',
+              message: `El plazo de "${updatedTask.title}" cambió de ${formatShortDate(rawMatch.closureDate)} a ${formatShortDate(updatedTask.closureDate)}.`,
+              type: 'deadline',
+              read: false,
+              activityUrl: updatedTask.activityUrl,
+              courseName: updatedTask.courseName
+            });
+          }
+
+          if (updatedTask.grade && updatedTask.grade !== rawMatch.grade) {
+            singleNotifs.push({
+              id: `grade_${updatedTask.id}_${nowNotif}`,
+              moodleUsername: updatedTask.moodleUsername || '',
+              moodleServer: updatedTask.moodleServer || 'a',
+              timestamp: nowNotif,
+              title: '⭐ Nueva Calificación',
+              message: `Recibiste una nota para "${updatedTask.title}": ${updatedTask.grade}/${updatedTask.gradeOver || '10'}.`,
+              type: 'grade',
+              read: false,
+              activityUrl: updatedTask.activityUrl,
+              courseName: updatedTask.courseName
+            });
+          }
+
+          if (updatedTask.status && rawMatch.status && updatedTask.status !== rawMatch.status) {
+            singleNotifs.push({
+              id: `status_${updatedTask.id}_${nowNotif}`,
+              moodleUsername: updatedTask.moodleUsername || '',
+              moodleServer: updatedTask.moodleServer || 'a',
+              timestamp: nowNotif,
+              title: '🔄 Estado Actualizado',
+              message: `El estado de "${updatedTask.title}" cambió de "${rawMatch.status}" a "${updatedTask.status}".`,
+              type: 'status',
+              read: false,
+              activityUrl: updatedTask.activityUrl,
+              courseName: updatedTask.courseName
+            });
+          }
+
+          if (singleNotifs.length > 0) {
+            setNotifications(prev => {
+              const merged = [...singleNotifs, ...prev];
+              localStorage.setItem('unemi_notifications', JSON.stringify(merged));
+              return merged;
+            });
+          }
+
           setTasks(prevTasks => {
             const copy = [...prevTasks];
             const matchIdx = copy.findIndex(t => t.id === taskId);
@@ -1062,8 +1320,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* Connection badge status */}
-          <div className="flex items-center space-x-3">
+          {/* Connection badge status & Notifications bell */}
+          <div className="flex items-center space-x-4">
             {sessions.length > 0 ? (
               <div className="hidden md:flex flex-wrap items-center gap-1.5">
                 {sessions.map((sess, idx) => (
@@ -1090,6 +1348,137 @@ export default function App() {
                 Moodle Desconectado
               </span>
             )}
+
+            {/* Notification Bell Icon & dropdown */}
+            <div className="relative">
+              <button 
+                type="button"
+                onClick={() => setIsNotifOpen(!isNotifOpen)}
+                className="relative p-2 text-gray-600 hover:text-blue-600 bg-gray-50 hover:bg-blue-100/50 rounded-xl transition-all border border-gray-100 cursor-pointer flex items-center justify-center focus:outline-hidden"
+                id="bell-icon-btn"
+                title="Notificaciones de cambios"
+              >
+                <Bell className={`w-4.5 h-4.5 ${notifications.some(n => !n.read) ? 'text-blue-600' : 'text-gray-500'}`} />
+                {notifications.some(n => !n.read) && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] bg-rose-500 text-[9px] font-bold text-white flex items-center justify-center px-1 rounded-full ring-2 ring-white animate-pulse shadow-xs">
+                    {notifications.filter(n => !n.read).length}
+                  </span>
+                )}
+              </button>
+
+              {/* Notifications Popover dropdown */}
+              {isNotifOpen && (
+                <div 
+                  id="notifications-popover-panel"
+                  className="absolute right-0 mt-2.5 w-80 md:w-96 bg-white border border-gray-150 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-3 duration-200"
+                >
+                  {/* Popover Header */}
+                  <div className="p-3 bg-gray-50/80 border-b border-gray-100 flex items-center justify-between">
+                    <div className="flex items-center space-x-1.5">
+                      <span className="p-1 px-1.5 bg-blue-100 text-blue-700 rounded-sm font-bold text-[9px] uppercase tracking-wider">UNEMI</span>
+                      <h4 className="text-xs font-extrabold text-gray-800">Alertas de Actividades</h4>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {notifications.some(n => !n.read) && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); markAllNotificationsRead(); }}
+                          className="text-[9px] text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer whitespace-nowrap"
+                        >
+                          Marcar leídas
+                        </button>
+                      )}
+                      {notifications.length > 0 && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); clearAllNotifications(); }}
+                          className="text-[9px] text-gray-400 hover:text-rose-600 font-bold hover:underline cursor-pointer whitespace-nowrap"
+                        >
+                          Limpiar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Popover List */}
+                  <div className="max-h-[300px] overflow-y-auto divide-y divide-gray-100">
+                    {notifications.length === 0 ? (
+                      <div className="p-8 text-center space-y-2">
+                        <div className="mx-auto w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center">
+                          <BellOff className="w-4 h-4 text-gray-400" />
+                        </div>
+                        <p className="text-[11px] text-gray-500 font-bold">¡Sin notificaciones!</p>
+                        <p className="text-[10px] text-gray-400 leading-normal">Aquí se anunciarán los cambios en tus materias cada vez que sincronices.</p>
+                      </div>
+                    ) : (
+                      notifications.map((notif) => {
+                        let icon = '📢';
+                        let bgClass = 'bg-blue-50/20';
+                        let borderLeft = 'border-l-blue-500';
+                        if (notif.type === 'new') {
+                          icon = '🆕';
+                          bgClass = 'bg-emerald-50/20';
+                          borderLeft = 'border-l-emerald-500';
+                        } else if (notif.type === 'deadline') {
+                          icon = '📅';
+                          bgClass = 'bg-amber-50/20';
+                          borderLeft = 'border-l-amber-500';
+                        } else if (notif.type === 'grade') {
+                          icon = '⭐';
+                          bgClass = 'bg-indigo-50/20';
+                          borderLeft = 'border-l-indigo-500';
+                        } else if (notif.type === 'status') {
+                          icon = '🔄';
+                          bgClass = 'bg-sky-50/20';
+                          borderLeft = 'border-l-sky-500';
+                        }
+
+                        return (
+                          <div 
+                            key={notif.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              markNotificationRead(notif.id);
+                              if (notif.activityUrl) {
+                                const matchingSessIdx = sessions.findIndex(s => s.username.toLowerCase() === notif.moodleUsername.toLowerCase() && s.server === notif.moodleServer);
+                                if (matchingSessIdx !== -1) {
+                                  setActiveSessionIndex(matchingSessIdx);
+                                  setMoodleNavigation({ courseId: '', activityUrl: notif.activityUrl });
+                                  setActiveTab('browser');
+                                  setIsNotifOpen(false);
+                                }
+                              }
+                            }}
+                            className={`p-3 flex items-start space-x-2.5 cursor-pointer hover:bg-gray-50 transition-all border-l-3 ${borderLeft} ${notif.read ? 'bg-white opacity-60' : bgClass}`}
+                          >
+                            <div className="text-sm shrink-0 select-none mt-0.5">{icon}</div>
+                            <div className="space-y-0.5 overflow-hidden min-w-0 flex-1">
+                              <p className={`text-[11px] leading-tight text-gray-800 ${notif.read ? 'font-medium' : 'font-extrabold'}`}>
+                                {notif.title}
+                              </p>
+                              <p className="text-[10px] text-gray-500 leading-snug break-words font-medium">
+                                {notif.message}
+                              </p>
+                              <div className="flex items-center space-x-1.5 text-[9px] font-bold text-gray-400 mt-1">
+                                <span>{getRelativeNotifTime(notif.timestamp)}</span>
+                                <span>•</span>
+                                <span className="uppercase text-[8px] bg-gray-100 text-gray-600 px-1 py-0.2 rounded-xs">
+                                  {notif.moodleServer === 'a' ? 'Aula A' : 'Aula B'}
+                                </span>
+                              </div>
+                            </div>
+                            {!notif.read && (
+                              <span className="w-1.5 h-1.5 bg-blue-600 rounded-full shrink-0 mt-1.5" />
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  <div className="p-2 border-t border-gray-100 bg-gray-50 text-center">
+                    <p className="text-[9px] text-gray-400 font-semibold">Alertas Inteligentes Moodle UNEMI</p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
         </div>

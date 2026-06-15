@@ -1,11 +1,13 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
-import { TodoTask } from './types';
+import { TodoTask, MoodleNotification } from './types';
 
 const app = initializeApp(firebaseConfig);
 // CRITICAL: The app will break without this line
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const db = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
+  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+  : getFirestore(app);
 
 export enum OperationType {
   CREATE = 'create',
@@ -49,6 +51,7 @@ export interface UserCachedData {
   moodleUsername: string;
   moodleServer: 'a' | 'b';
   tasks: TodoTask[];
+  notifications?: MoodleNotification[];
   lastSyncedTime: number | null;
   updatedAt: string;
 }
@@ -78,7 +81,8 @@ export async function saveUserCacheToFirestore(
   server: 'a' | 'b',
   username: string,
   tasks: TodoTask[],
-  lastSyncedTime: number | null
+  lastSyncedTime: number | null,
+  notifications?: MoodleNotification[]
 ): Promise<void> {
   const docKey = getUserDocKey(server, username);
   const path = `user_data/${docKey}`;
@@ -88,10 +92,16 @@ export async function saveUserCacheToFirestore(
     t.moodleUsername?.toLowerCase() === username.toLowerCase() && t.moodleServer === server
   );
 
+  // Filter only notifications that belong to this Moodle Account
+  const userNotifications = (notifications || []).filter(n =>
+    n.moodleUsername?.toLowerCase() === username.toLowerCase() && n.moodleServer === server
+  );
+
   const payload: UserCachedData = {
     moodleUsername: username,
     moodleServer: server,
     tasks: userTasks,
+    notifications: userNotifications,
     lastSyncedTime,
     updatedAt: new Date().toISOString()
   };

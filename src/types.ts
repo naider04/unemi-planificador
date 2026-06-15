@@ -108,3 +108,16 @@ export interface MoodleSession {
   cookies: string;
   expired?: boolean;
 }
+
+export interface MoodleNotification {
+  id: string;
+  moodleUsername: string;
+  moodleServer: 'a' | 'b';
+  timestamp: number;
+  title: string;
+  message: string;
+  type: 'new' | 'deadline' | 'status' | 'grade' | 'general';
+  read: boolean;
+  activityUrl?: string;
+  courseName?: string;
+}

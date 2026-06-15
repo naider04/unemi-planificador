@@ -1110,6 +1110,7 @@ interface SyncJob {
   lastActive: number;
   logs?: SyncLogEntry[];
   expiredSessions?: { username: string; server: 'a' | 'b' }[];
+  validSessionCount?: number;
 }
 
 const syncJobs = new Map<string, SyncJob>();
@@ -1227,6 +1228,8 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         invalidSessions.push(label);
       }
     }
+  
+    job.validSessionCount = validSessionCount;
 
     if (validSessionCount === 0) {
       addLog(job, 'error', `[SYNC_ABORT] CRITICAL_ERROR="Zero active sessions matched" | ATOMS_CHECKED=${sessions.length} | EXPIRED_ACCOUNTS="${invalidSessions.join(', ')}"`);

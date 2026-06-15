@@ -12,7 +12,9 @@ service cloud.firestore {
       allow read: if true;
       allow create, update: if isValidId(userId) 
         && isValidUserCache(request.resource.data)
-        && (request.resource.data.get('lastSyncedTime', null) == null || request.resource.data.lastSyncedTime is int);
+        && (request.resource.data.get('lastSyncedTime', null) == null 
+            || request.resource.data.get('lastSyncedTime', null) is int 
+            || request.resource.data.get('lastSyncedTime', null) is float);
       allow delete: if false;
     }
 
@@ -28,7 +30,8 @@ service cloud.firestore {
         && data.moodleServer is string
         && (data.moodleServer == 'a' || data.moodleServer == 'b')
         && data.tasks is list
-        && data.tasks.size() <= 1200;
+        && data.tasks.size() <= 1200
+        && (data.get('notifications', null) == null || data.notifications is list);
     }
   }
 }

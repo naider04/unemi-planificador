@@ -45,6 +45,10 @@
           "type": "array",
           "description": "List of activities and manual tasks for this account"
         },
+        "notifications": {
+          "type": "array",
+          "description": "List of notifications/announcements triggered by changes in activities"
+        },
         "lastSyncedTime": { "type": "integer", "description": "Epoch timestamp of last full sync" },
         "updatedAt": { "type": "string", "format": "date-time", "description": "Instant of last mutation" }
       },
