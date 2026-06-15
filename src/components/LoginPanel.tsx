@@ -152,8 +152,8 @@ export default function LoginPanel({
           <Shield className="w-5 h-5" />
         </div>
         <div>
-          <h2 className="text-base font-bold text-gray-900">Conectar Aula Virtual</h2>
-          <p className="text-xs text-gray-500">Accede de forma segura para sincronizar tus fechas y tareas.</p>
+          <h2 className="text-sm sm:text-base font-bold text-gray-900">Conectar Aula Virtual</h2>
+          <p className="hidden sm:block text-[10px] sm:text-xs text-gray-500">Accede de forma segura para sincronizar tus fechas y tareas.</p>
         </div>
       </div>
 
@@ -174,21 +174,21 @@ export default function LoginPanel({
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Server selection */}
         <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wider">Aula Virtual / Institución</label>
-          <div className="grid grid-cols-1 gap-2.5">
+          <label className="block text-[10px] sm:text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wider">Aula Virtual / Institución</label>
+          <div className="grid grid-cols-3 sm:grid-cols-1 gap-2">
             {platformOptions.map((opt) => (
               <button
                 key={opt.id}
                 id={`server-${opt.id}`}
                 type="button"
                 onClick={() => setServer(opt.id)}
-                className={`flex items-center space-x-3 p-3 rounded-xl text-xs font-medium border transition-all duration-150 text-left cursor-pointer ${
+                className={`flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1.5 sm:space-y-0 sm:space-x-3 p-2 sm:p-3 rounded-xl text-xs font-semibold border transition-all duration-150 text-center sm:text-left cursor-pointer flex-1 ${
                   server === opt.id
                     ? 'bg-blue-50/50 text-blue-900 border-blue-500 ring-2 ring-blue-100 shadow-xs'
                     : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
                 }`}
               >
-                <div className="w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center border border-gray-150 p-1 shrink-0">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-gray-50 flex items-center justify-center border border-gray-150 p-1 shrink-0">
                   <img
                     src={opt.logo}
                     alt={opt.name}
@@ -196,9 +196,12 @@ export default function LoginPanel({
                     className="w-full h-full object-contain"
                   />
                 </div>
-                <div className="flex-1">
-                  <span className="font-bold block text-gray-950">{opt.name}</span>
-                  <span className="text-[10px] text-gray-400 font-mono mt-0.5 block">
+                <div className="flex-1 min-w-0">
+                  <span className="font-bold block text-gray-950 truncate text-[10px] sm:text-xs">
+                    <span className="sm:hidden">{opt.id === 'a' ? 'UNEMI P/S' : opt.id === 'b' ? 'UNEMI Online' : 'UPSDT'}</span>
+                    <span className="hidden sm:inline">{opt.name}</span>
+                  </span>
+                  <span className="hidden sm:block text-[10px] text-gray-400 font-mono mt-0.5">
                     {opt.sub}
                   </span>
                 </div>

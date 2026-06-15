@@ -398,17 +398,17 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
                   <div className="text-right">
                     {course.percentage !== null ? (
                       <>
-                        <div className="flex items-baseline justify-end gap-1.5">
-                          <span className="text-xs font-mono font-bold text-gray-500">
+                        <div className="flex flex-col sm:flex-row items-end sm:items-baseline justify-end sm:gap-1.5">
+                          <span className="text-[9px] sm:text-xs font-mono text-gray-400 sm:font-bold">
                             {course.sumGrades.toFixed(2)} / {course.sumMaxGrades.toFixed(2)}
                           </span>
-                          <span className={`text-sm font-black ${
+                          <span className={`text-[11px] sm:text-sm font-black ${
                             isFailing ? 'text-rose-600' : isExcellent ? 'text-emerald-600' : 'text-blue-600'
                           }`}>
                             {course.percentage.toFixed(1)}%
                           </span>
                         </div>
-                        <p className="text-[9px] text-gray-400 mt-0.5">
+                        <p className="text-[9px] text-gray-450 mt-0.5">
                           {course.gradedTasksCount} calificado{course.gradedTasksCount !== 1 ? 's' : ''}
                         </p>
                       </>
@@ -486,21 +486,19 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
                                   <span className="text-[9px] text-gray-400 font-mono">
                                     Cerró: {new Date(taskItem.closureDate).toLocaleDateString('es-EC', { day: 'numeric', month: 'short' })}
                                   </span>
-                                )}
+                                ) || null}
                               </div>
                             </div>
 
-                            <div className="text-right shrink-0">
-                              <span className={`text-xs font-mono font-extrabold ${
-                                isTaskFailing ? 'text-rose-600' : 'text-gray-700'
-                              }`}>
-                                {taskItem.grade.toFixed(2)} / {taskItem.gradeOver.toFixed(2)}
-                              </span>
-                              <div className={`text-[10px] font-black mt-0.5 ${
+                            <div className="text-right shrink-0 flex flex-col items-end">
+                              <span className={`text-[10px] sm:text-xs font-black ${
                                 isTaskFailing ? 'text-rose-600' : 'text-emerald-600'
                               }`}>
                                 {taskItem.percentage.toFixed(1)}%
-                              </div>
+                              </span>
+                              <span className="text-[8.5px] sm:text-[9.5px] font-mono text-gray-400 font-medium">
+                                {taskItem.grade.toFixed(2)}/{taskItem.gradeOver.toFixed(2)}
+                              </span>
                             </div>
                           </div>
                         );

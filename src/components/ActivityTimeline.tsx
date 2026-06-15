@@ -519,18 +519,18 @@ export default function ActivityTimeline({
     <div id="timeline-card-wrapper" className="space-y-6">
       
       {/* 1. Header Toolbar Filters */}
-      <div className="bg-white border border-gray-100 rounded-3xl p-5 shadow-xs">
+      <div className="bg-white border border-gray-100 rounded-3xl p-4 sm:p-5 shadow-xs">
         
         {/* Core numbers */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between pb-4 mb-4 border-b border-gray-100 gap-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between pb-4 mb-4 border-b border-gray-100 gap-3">
           <div>
-            <h2 className="text-lg font-bold text-gray-900 flex items-center space-x-2">
+            <h2 className="text-sm sm:text-lg font-bold text-gray-900 flex items-center space-x-1.5 sm:space-x-2">
               <span>Agenda de Actividades</span>
-              <span className="text-xs font-mono font-bold bg-blue-50 text-blue-600 px-2.5 py-0.5 rounded-full">
+              <span className="text-[10px] sm:text-xs font-mono font-bold bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">
                 {pendingCount} pendientes
               </span>
             </h2>
-            <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
+            <p className="text-[10px] sm:text-xs text-gray-400 mt-0.5 leading-relaxed">
               Planifica tu semana. Las tareas de Moodle se sincronizan con su fecha de vencimiento real.
             </p>
           </div>
@@ -559,26 +559,11 @@ export default function ActivityTimeline({
                 <span>{confirmClear ? '¿CONFIRMAR VACIAR TODO?' : 'Vaciar Agenda'}</span>
               </button>
             )}
-
-            <button
-              id="btn-download-csv"
-              onClick={handleDownloadCSV}
-              disabled={tasks.filter(t => t.type !== 'MANUAL').length === 0}
-              className={`p-2 rounded-xl border flex items-center space-x-1 text-xs font-semibold transition-all ${
-                tasks.filter(t => t.type !== 'MANUAL').length === 0
-                  ? 'bg-gray-50 border-gray-150 text-gray-400 cursor-not-allowed opacity-60'
-                  : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100/50 cursor-pointer active:scale-[0.98]'
-              }`}
-              title="Descargar todas las actividades escaneadas de Moodle en formato CSV"
-            >
-              <Download className="w-4.5 h-4.5" />
-              <span>Descargar CSV</span>
-            </button>
             
             <button
               id="btn-add-manual-task"
               onClick={onOpenNewTaskModal}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs hover:shadow-sm flex items-center space-x-1.5 transition-all"
+              className="hidden sm:flex px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs hover:shadow-sm items-center space-x-1.5 transition-all"
             >
               <PlusCircle className="w-4 h-4" />
               <span>Nueva Actividad</span>
@@ -587,41 +572,26 @@ export default function ActivityTimeline({
         </div>
 
         {/* Dynamic Filters panel */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 pt-1">
-          {/* Search */}
-          <div className="md:col-span-4 relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-              <Search className="w-4 h-4" />
-            </div>
-            <input
-              id="task-search"
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar actividad o palabra clave..."
-              className="block w-full pl-9 pr-3 py-2 border border-gray-150 rounded-xl text-xs placeholder-gray-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-
+        <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 sm:gap-3 pt-1">
           {/* Accounts Multiselect Filter */}
-          <div className="md:col-span-3 relative" id="account-filter-container">
+          <div className="sm:col-span-5 relative" id="account-filter-container">
             <button
               type="button"
               onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
-              className="flex items-center justify-between w-full pl-9 pr-3 py-2 border border-gray-150 bg-white rounded-xl text-xs text-gray-700 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer text-left h-full"
+              className="flex items-center justify-between w-full pl-7 sm:pl-9 pr-2 sm:pr-3 py-1.5 sm:py-2 border border-gray-150 bg-white rounded-xl text-[10.5px] sm:text-xs text-gray-700 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer text-left h-full"
             >
-              <div className="flex items-center">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-                  <Filter className="w-4 h-4" />
+              <div className="flex items-center min-w-0">
+                <div className="absolute inset-y-0 left-0 pl-2.5 sm:pl-3 flex items-center pointer-events-none text-gray-400">
+                  <Filter className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                 </div>
                 <span className="truncate">
                   {selectedAccounts.length === 0 
-                    ? `Todas las Cuentas (${uniqueAccountCareers.length})` 
-                    : `${selectedAccounts.length} filtro${selectedAccounts.length > 1 ? 's' : ''} activo${selectedAccounts.length > 1 ? 's' : ''}`
+                    ? `Cuentas (${uniqueAccountCareers.length})` 
+                    : `${selectedAccounts.length} filtra.`
                   }
                 </span>
               </div>
-              <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+              <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0" />
             </button>
 
             {isAccountDropdownOpen && (
@@ -687,17 +657,17 @@ export default function ActivityTimeline({
           </div>
 
           {/* Subjects Filter */}
-          <div className="md:col-span-3 relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-              <Filter className="w-4 h-4" />
+          <div className="sm:col-span-4 relative">
+            <div className="absolute inset-y-0 left-0 pl-2.5 sm:pl-3 flex items-center pointer-events-none text-gray-400">
+              <Filter className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
             </div>
             <select
               id="task-subject-filter"
               value={selectedCourseId}
               onChange={(e) => setSelectedCourseId(e.target.value)}
-              className="block w-full pl-9 pr-3 py-2 border border-gray-150 rounded-xl text-xs text-gray-700 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              className="block w-full pl-7 sm:pl-9 pr-2 sm:pr-3 py-1.5 sm:py-2 border border-gray-150 bg-white rounded-xl text-[10.5px] sm:text-xs text-gray-700 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer h-full"
             >
-              <option value="all">Todas las Materias ({uniqueCourses.length})</option>
+              <option value="all">Materias ({uniqueCourses.length})</option>
               {uniqueCourses.map(([cid, cname]) => (
                 <option key={cid} value={cid}>{cname}</option>
               ))}
@@ -705,18 +675,18 @@ export default function ActivityTimeline({
           </div>
 
           {/* Hide Completed Selector */}
-          <div className="md:col-span-2 flex items-center justify-between md:justify-end px-1 gap-2">
-            <label className="text-xs text-gray-500 cursor-pointer select-none">Mostrar Completadas</label>
+          <div className="col-span-2 sm:col-span-3 flex items-center justify-between sm:justify-end px-1 gap-2 mt-1 sm:mt-0">
+            <label className="text-[10px] sm:text-xs text-gray-500 cursor-pointer select-none">Mostrar Completadas</label>
             <button
               id="toggle-show-completed"
               onClick={() => setShowCompleted(!showCompleted)}
-              className={`w-10 h-6 flex items-center rounded-full p-0.5 transition-colors duration-150 ${
+              className={`w-8 sm:w-10 h-5 sm:h-6 flex items-center rounded-full p-0.5 transition-colors duration-150 cursor-pointer ${
                 showCompleted ? 'bg-blue-600' : 'bg-gray-200'
               }`}
             >
               <div
-                className={`bg-white w-5 h-5 rounded-full shadow-xs transform duration-150 ${
-                  showCompleted ? 'translate-x-4' : 'translate-x-0'
+                className={`bg-white w-4 sm:w-5 h-4 sm:h-5 rounded-full shadow-xs transform duration-150 ${
+                  showCompleted ? 'translate-x-3 sm:translate-x-4' : 'translate-x-0'
                 }`}
               />
             </button>
@@ -799,17 +769,28 @@ export default function ActivityTimeline({
                       const completedCount = group.tasks.filter(t => t.completed).length;
                       const pendingCount = group.tasks.length - completedCount;
                       const weekEmojis = group.tasks.map(t => getTaskEmoji(t)).filter(e => e !== '');
+                      
+                      // Count occurrences of each emoji
+                      const emojiCounts: Record<string, number> = {};
+                      weekEmojis.forEach(e => {
+                        emojiCounts[e] = (emojiCounts[e] || 0) + 1;
+                      });
+                      
+                      const formattedEmojis = Object.entries(emojiCounts).map(([emoji, count]) => {
+                        return count > 1 ? `${emoji}x${count}` : emoji;
+                      });
+
                       return (
                         <div className="flex items-center space-x-1.5 shrink-0">
-                          {weekEmojis.length > 0 && (
-                            <span className="mr-1.5 text-xs select-none" title="Emojis en esta week">
-                              {weekEmojis.join(' ')}
+                          {formattedEmojis.length > 0 && (
+                            <span className="mr-1.5 text-[10.5px] sm:text-xs font-semibold select-none bg-gray-50/80 border border-gray-100 rounded-md px-1.5 py-0.5" title="Actividades por tipo en esta semana">
+                              {formattedEmojis.join(' ')}
                             </span>
                           )}
-                          <span className="text-[10px] font-bold bg-emerald-50/90 border border-emerald-250/25 text-emerald-700 px-2 py-0.5 rounded-md font-mono">
+                          <span className="hidden sm:inline-block text-[10px] font-bold bg-emerald-50/90 border border-emerald-250/25 text-emerald-700 px-2 py-0.5 rounded-md font-mono">
                             Enviadas: {completedCount}
                           </span>
-                          <span className="text-[10px] font-bold bg-slate-100 border border-slate-250/15 text-slate-600 px-2 py-0.5 rounded-md font-mono">
+                          <span className="hidden sm:inline-block text-[10px] font-bold bg-slate-100 border border-slate-250/15 text-slate-600 px-2 py-0.5 rounded-md font-mono">
                             No enviadas: {pendingCount}
                           </span>
                         </div>

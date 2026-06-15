@@ -783,11 +783,11 @@ export default function App() {
       return updated;
     });
 
-    let friendlyMsg = 'Tu sesión en el aula virtual ha expirado o se ha cerrado.';
+    let friendlyMsg = 'Sesión de Moodle expirada o cerrada.';
     if (rawMsg.toLowerCase().includes('fetch failed')) {
-      friendlyMsg = 'Sesión cerrada o error de conexión de red (Fetch failed). Vuelve a conectar tu cuenta para re-autenticarte.';
+      friendlyMsg = 'Conexión interrumpida (Fetch failed). Vuelve a conectar la cuenta para re-autenticar.';
     } else if (rawMsg) {
-      friendlyMsg = `Se interrumpió la conexión (${rawMsg}). Por favor, ingresa tus datos de acceso nuevamente en Moodle.`;
+      friendlyMsg = `Conexión interrumpida (${rawMsg}). Vuelve a conectar e iniciar sesión.`;
     }
 
     setPrefillLogin({
@@ -1788,17 +1788,17 @@ export default function App() {
         <div id="analytics-grid-row" className="bg-white border border-gray-150/40 rounded-3xl p-5 md:p-6 shadow-2xs grid grid-cols-1 md:grid-cols-12 gap-5 items-stretch">
           
           <div className="md:col-span-5 space-y-2.5 flex flex-col justify-center">
-            <div className="flex items-center space-x-1.5 text-blue-600 text-[11px] font-bold">
+            <div className="hidden sm:flex items-center space-x-1.5 text-blue-600 text-[11px] font-bold">
               <Sparkles className="w-3.5 h-3.5" />
               <span>Sincronizador Inteligente Multi-Cuenta</span>
             </div>
-            <h2 className="text-sm md:text-base font-extrabold text-gray-900 leading-snug">Sincronizador de Materias</h2>
+            <h2 className="hidden sm:block text-sm md:text-base font-extrabold text-gray-900 leading-snug">Sincronizador de Materias</h2>
             
             {/* Sync control block */}
             <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl space-y-2 shadow-2xs max-w-md w-full">
               {globalSync.status === 'idle' && (
                 <div className="space-y-1.5">
-                  <p className="text-[11px] text-gray-500 font-medium">Sincroniza todas las materias de tus {sessions.length} cuentas en segundo plano.</p>
+                  <p className="hidden sm:block text-[11px] text-gray-500 font-medium">Sincroniza todas las materias de tus {sessions.length} cuentas en segundo plano.</p>
                   <button
                     type="button"
                     onClick={() => startGlobalSync()}
@@ -2096,43 +2096,25 @@ export default function App() {
             </div>
 
             {/* Dos cuadros estadísticos con el mismo ancho */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full items-stretch animate-fade-in">
+            <div className="w-full animate-fade-in">
               {/* Stat 1: Completed Rate */}
-              <div className="bg-gray-50/50 border border-gray-100 rounded-2xl p-4 flex items-center space-x-4 h-full">
-                <div className={`p-3 rounded-xl shrink-0 ${percentComplete === 100 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50/60 text-blue-600'}`}>
-                  <Award className="w-5 h-5 stroke-[1.8]" />
+              <div className="bg-gray-50/50 border border-gray-100 rounded-2xl p-2.5 sm:p-4 flex items-center space-x-3 sm:space-x-4 h-full">
+                <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${percentComplete === 100 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50/60 text-blue-600'}`}>
+                  <Award className="w-4 h-4 sm:w-5 sm:h-5 stroke-[1.8]" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-baseline">
-                    <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Cumplimiento</span>
-                    <span className="text-xs font-bold text-gray-800">{percentComplete}%</span>
+                    <span className="hidden sm:inline text-[10px] uppercase font-bold text-gray-400 tracking-wider">Cumplimiento</span>
+                    <span className="text-xs font-mono font-bold text-gray-800">{percentComplete}%</span>
                   </div>
-                  <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden mt-1.5">
+                  <div className="w-full bg-gray-100 h-1.5 sm:h-2 rounded-full overflow-hidden mt-1 sm:mt-1.5">
                     <div 
                       className={`h-full rounded-full transition-all duration-300 ${percentComplete === 100 ? 'bg-emerald-500' : 'bg-blue-600'}`} 
                       style={{ width: `${percentComplete}%` }}
                     />
                   </div>
-                  <p className="text-[10px] text-gray-400 mt-1.5 leading-none">
+                  <p className="text-[9px] sm:text-[10px] text-gray-400 mt-1 sm:mt-1.5 leading-none">
                     {completedTasks} completadas • {pendingTasks} pendientes
-                  </p>
-                </div>
-              </div>
-
-              {/* Stat 2: Connection details */}
-              <div className="bg-gray-50/50 border border-gray-100 rounded-2xl p-4 flex items-center space-x-3 h-full">
-                <div className={`p-3 rounded-xl shrink-0 ${session ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50/70 text-amber-600'}`}>
-                  <BookOpen className="w-5 h-5 stroke-[1.8]" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Materia Mapeadas</p>
-                  <h3 className="text-sm font-bold text-gray-800 mt-0.5 truncate">
-                    {courses.length > 0 ? `${courses.length} cursos` : '0 materias'}
-                  </h3>
-                  <p className="text-[10px] text-gray-400 leading-none mt-1 truncate">
-                    {session 
-                      ? `Origen: ${session.server === 'upsdt' ? 'UPSDT' : (session.server === 'a' ? 'UNEMI Presencial/Semipresencial' : 'UNEMI Online')}` 
-                      : 'Conecta tu cuenta Moodle'}
                   </p>
                 </div>
               </div>
@@ -2143,19 +2125,19 @@ export default function App() {
         </div>
 
         {/* Tab selection controls */}
-        <div id="tab-controls-root" className="flex border-b border-gray-200 gap-x-2">
+        <div id="tab-controls-root" className="flex border-b border-gray-200 justify-between sm:justify-start gap-x-1 sm:gap-x-2">
           
           <button
             id="tab-agenda-btn"
             onClick={() => setActiveTab('agenda')}
-            className={`pb-2.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center space-x-1.5 ${
+            className={`pb-2.5 pt-2 px-2 sm:px-4 text-xs font-bold border-b-2 transition-all flex items-center justify-center sm:justify-start flex-1 sm:flex-none space-x-1.5 ${
               activeTab === 'agenda'
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
             }`}
           >
-            <Calendar className="w-4 h-4 shrink-0" />
-            <span>Mi Agenda ({totalTasks})</span>
+            <Calendar className="w-5 h-5 sm:w-4 sm:h-4 shrink-0" />
+            <span className="hidden sm:inline">Mi Agenda ({totalTasks})</span>
           </button>
 
           <button
@@ -2167,16 +2149,16 @@ export default function App() {
                 setActiveTab('browser');
               }
             }}
-            className={`pb-2.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center space-x-1.5 ${
+            className={`pb-2.5 pt-2 px-2 sm:px-4 text-xs font-bold border-b-2 transition-all flex items-center justify-center sm:justify-start flex-1 sm:flex-none space-x-1.5 ${
               activeTab === 'browser'
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
             }`}
           >
-            <BookOpen className="w-4 h-4 shrink-0" />
-            <span>Explorar Moodle</span>
+            <BookOpen className="w-5 h-5 sm:w-4 sm:h-4 shrink-0" />
+            <span className="hidden sm:inline">Explorar Moodle</span>
             {sessions.length === 0 && (
-              <span className="text-[9px] font-bold bg-amber-50 text-amber-600 border border-amber-100 rounded px-1 ml-1 scale-90">
+              <span className="hidden sm:inline text-[9px] font-bold bg-amber-50 text-amber-600 border border-amber-100 rounded px-1 ml-1 scale-90">
                 Bloqueado
               </span>
             )}
@@ -2185,27 +2167,27 @@ export default function App() {
           <button
             id="tab-login-btn"
             onClick={() => setActiveTab('login')}
-            className={`pb-2.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center space-x-1.5 ${
+            className={`pb-2.5 pt-2 px-2 sm:px-4 text-xs font-bold border-b-2 transition-all flex items-center justify-center sm:justify-start flex-1 sm:flex-none space-x-1.5 ${
               activeTab === 'login'
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
             }`}
           >
-            <Lock className="w-4 h-4 shrink-0" />
-            <span>{sessions.length > 0 ? `Mis Conexiones (${sessions.length})` : 'Conectar Moodle'}</span>
+            <Lock className="w-5 h-5 sm:w-4 sm:h-4 shrink-0" />
+            <span className="hidden sm:inline">{sessions.length > 0 ? `Mis Conexiones (${sessions.length})` : 'Conectar Moodle'}</span>
           </button>
 
           <button
             id="tab-stats-btn"
             onClick={() => setActiveTab('stats')}
-            className={`pb-2.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center space-x-1.5 ${
+            className={`pb-2.5 pt-2 px-2 sm:px-4 text-xs font-bold border-b-2 transition-all flex items-center justify-center sm:justify-start flex-1 sm:flex-none space-x-1.5 ${
               activeTab === 'stats'
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
             }`}
           >
-            <BarChart3 className="w-4 h-4 shrink-0" />
-            <span>Mis Stats</span>
+            <BarChart3 className="w-5 h-5 sm:w-4 sm:h-4 shrink-0" />
+            <span className="hidden sm:inline">Mis Stats</span>
           </button>
 
         </div>
