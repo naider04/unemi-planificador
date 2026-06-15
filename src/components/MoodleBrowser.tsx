@@ -17,6 +17,7 @@ interface MoodleBrowserProps {
   onClearNavigationTrigger?: () => void;
   onNavigateToAgendaActivity?: (activityUrl: string) => void;
   onSessionError?: (session: MoodleSession, message: string) => void;
+  onGoToConnections?: () => void;
 }
 
 const isStatusSubmitted = (estadoEntrega: string | null | undefined): boolean => {
@@ -48,7 +49,8 @@ export default function MoodleBrowser({
   navigationTrigger,
   onClearNavigationTrigger,
   onNavigateToAgendaActivity,
-  onSessionError
+  onSessionError,
+  onGoToConnections
 }: MoodleBrowserProps) {
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
@@ -707,6 +709,34 @@ export default function MoodleBrowser({
     return acc;
   }, {});
 
+  if (session.expired) {
+    return (
+      <div className="bg-white border border-gray-150/45 rounded-3xl p-10 text-center max-w-lg mx-auto shadow-xs flex flex-col justify-center items-center my-6 space-y-5 animate-fade-in w-full col-span-12">
+        <div className="p-4 bg-amber-50 rounded-full text-amber-500 animate-pulse">
+          <AlertTriangle className="w-10 h-10" />
+        </div>
+        <div>
+          <h3 className="text-base font-bold text-gray-900 mb-2">Conexión Expirada</h3>
+          <p className="text-xs text-gray-500 max-w-sm leading-relaxed mx-auto">
+            La sesión del aula virtual para la cuenta <strong className="font-mono text-gray-800">{session.username}</strong> ({session.server === 'a' ? 'Aula Grado A' : 'Aula Grado B'}) ha caducado o requiere re-autenticación.
+          </p>
+        </div>
+        <div className="w-full pt-1">
+          <button
+            onClick={() => {
+              if (onGoToConnections) {
+                onGoToConnections();
+              }
+            }}
+            className="w-full inline-flex items-center justify-center space-x-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer active:scale-[0.98]"
+          >
+            <span>Ir a Reconectar Cuenta</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div id="moodle-browser-container" className="grid grid-cols-1 lg:grid-cols-12 gap-6">
       
@@ -783,8 +813,34 @@ export default function MoodleBrowser({
             </div>
 
             {error && (
-              <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-4 text-xs text-red-700">
-                {error}
+              <div className="bg-red-50 border border-red-155/70 rounded-2xl p-4 mb-4 text-xs text-red-700 space-y-3 shadow-3xs">
+                <div className="flex items-start space-x-2.5">
+                  <AlertTriangle className="w-4.5 h-4.5 text-red-500 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-extrabold text-red-800">Error de Conexión</p>
+                    <p className="leading-relaxed opacity-90">{error}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 pt-1 font-sans">
+                  <button
+                    type="button"
+                    onClick={fetchCourses}
+                    className="px-3.5 py-1.5 bg-white border border-red-200 hover:bg-red-50 text-red-700 font-bold rounded-xl transition-colors cursor-pointer"
+                  >
+                    Reintentar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onGoToConnections) {
+                        onGoToConnections();
+                      }
+                    }}
+                    className="px-3.5 py-1.5 bg-red-650 hover:bg-red-700 text-white font-bold rounded-xl transition-colors cursor-pointer"
+                  >
+                    Reconectar o Añadir Cuenta
+                  </button>
+                </div>
               </div>
             )}
 
@@ -796,9 +852,22 @@ export default function MoodleBrowser({
                 ))}
               </div>
             ) : courses.length === 0 ? (
-              <div className="text-center py-10 px-4">
-                <BookOpen className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-                <p className="text-xs text-gray-500">No se detectaron materias. Presiona refrescar o reconecta tu cuenta.</p>
+              <div className="text-center py-10 px-4 space-y-4">
+                <BookOpen className="w-8 h-8 text-gray-300 mx-auto mb-1 animate-pulse" />
+                <p className="text-xs text-gray-500 max-w-xs mx-auto leading-relaxed">
+                  No se encontraron materias cargadas. Si tienes un error de red o de clave, puedes reconectar o añadir tu cuenta.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onGoToConnections) {
+                      onGoToConnections();
+                    }
+                  }}
+                  className="inline-flex items-center space-x-1 px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 text-xs font-bold rounded-xl transition-all cursor-pointer"
+                >
+                  <span>Reconectar / Añadir Cuenta</span>
+                </button>
               </div>
             ) : (
               <div className="space-y-4">

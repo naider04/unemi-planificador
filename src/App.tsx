@@ -826,7 +826,7 @@ export default function App() {
             server: firstExpired?.server || sessions[0]?.server || 'a',
             errorMsg: 'Las cuentas o sesiones conectadas han expirado o se cerraron. Por favor ingresa tus datos de acceso en "Conectar Moodle" para continuar.'
           });
-          setActiveTab('login');
+          // Do not automatically redirect to Connections tab to avoid breaking the user's focus
           setGlobalSync({
             status: 'failed',
             currentCourse: 'Sesiones expiradas',
@@ -1200,7 +1200,7 @@ export default function App() {
         const data = await res.json().catch(() => ({}));
         const errStr = data.error || '';
         if (errStr.includes('sesión') || errStr.includes('sesion') || errStr.includes('expiró') || errStr.includes('expirada') || errStr.includes('inválida') || errStr.includes('invalida') || res.status === 401) {
-          handleSessionError(sess, errStr || 'La sesión expiró.', true);
+          handleSessionError(sess, errStr || 'La sesión expiró.', false);
         } else {
           alert('No se pudo actualizar de forma remota la actividad seleccionada.');
         }
@@ -2003,6 +2003,7 @@ export default function App() {
                       setActiveTab('agenda');
                     }}
                     onSessionError={(sess, msg) => handleSessionError(sess, msg, false)}
+                    onGoToConnections={() => setActiveTab('login')}
                   />
                 </div>
               ))}
