@@ -98,13 +98,13 @@ export interface TodoTask {
   hecho_calificacion?: boolean;
   grupo?: string | null;
   moodleUsername?: string | null;
-  moodleServer?: 'a' | 'b' | null;
+  moodleServer?: 'a' | 'b' | 'upsdt' | null;
   lastSyncedAt?: string;
 }
 
 export interface MoodleSession {
   username: string;
-  server: 'a' | 'b';
+  server: 'a' | 'b' | 'upsdt';
   cookies: string;
   expired?: boolean;
 }
@@ -112,7 +112,7 @@ export interface MoodleSession {
 export interface MoodleNotification {
   id: string;
   moodleUsername: string;
-  moodleServer: 'a' | 'b';
+  moodleServer: 'a' | 'b' | 'upsdt';
   timestamp: number;
   title: string;
   message: string;

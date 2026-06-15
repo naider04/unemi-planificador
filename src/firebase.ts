@@ -43,13 +43,13 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 /**
  * Creates a unique key for the combined Moodle server and username to use as document ID
  */
-export function getUserDocKey(server: 'a' | 'b', username: string): string {
+export function getUserDocKey(server: 'a' | 'b' | 'upsdt', username: string): string {
   return `${server}_${username.trim().toLowerCase()}`;
 }
 
 export interface UserCachedData {
   moodleUsername: string;
-  moodleServer: 'a' | 'b';
+  moodleServer: 'a' | 'b' | 'upsdt';
   tasks: TodoTask[];
   notifications?: MoodleNotification[];
   lastSyncedTime: number | null;
@@ -59,7 +59,7 @@ export interface UserCachedData {
 /**
  * Fetch a user's combined activities/tasks data Cache from Firestore
  */
-export async function fetchUserCacheFromFirestore(server: 'a' | 'b', username: string): Promise<UserCachedData | null> {
+export async function fetchUserCacheFromFirestore(server: 'a' | 'b' | 'upsdt', username: string): Promise<UserCachedData | null> {
   const docKey = getUserDocKey(server, username);
   const path = `user_data/${docKey}`;
   try {
@@ -78,7 +78,7 @@ export async function fetchUserCacheFromFirestore(server: 'a' | 'b', username: s
  * Save user's activities/tasks data Cache to Firestore
  */
 export async function saveUserCacheToFirestore(
-  server: 'a' | 'b',
+  server: 'a' | 'b' | 'upsdt',
   username: string,
   tasks: TodoTask[],
   lastSyncedTime: number | null,

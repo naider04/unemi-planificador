@@ -113,7 +113,9 @@ app.post('/api/moodle/login', async (req, res) => {
     return res.status(400).json({ error: 'Faltan credenciales o servidor' });
   }
 
-  const base = server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec';
+  const base = server === 'upsdt'
+    ? 'https://aulas.upsdt.edu.ec'
+    : (server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
 
   try {
     const loginUrl = `${base}/login/index.php`;
@@ -249,7 +251,9 @@ app.post('/api/moodle/courses', async (req, res) => {
     return res.status(400).json({ error: 'Falta sesión o servidor' });
   }
 
-  const base = server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec';
+  const base = server === 'upsdt'
+    ? 'https://aulas.upsdt.edu.ec'
+    : (server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
 
   try {
     const dashboardHtml = await fetchMoodleHtml(`${base}/my/`, moodleSession);
@@ -295,7 +299,9 @@ app.post('/api/moodle/course-activities', async (req, res) => {
     return res.status(400).json({ error: 'Falta sesión, servidor o URL del curso' });
   }
 
-  const base = server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec';
+  const base = server === 'upsdt'
+    ? 'https://aulas.upsdt.edu.ec'
+    : (server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
 
   try {
     const courseHtml = await fetchMoodleHtml(courseUrl, moodleSession);
@@ -1109,7 +1115,7 @@ interface SyncJob {
   error?: string;
   lastActive: number;
   logs?: SyncLogEntry[];
-  expiredSessions?: { username: string; server: 'a' | 'b' }[];
+  expiredSessions?: { username: string; server: 'a' | 'b' | 'upsdt' }[];
   validSessionCount?: number;
 }
 
@@ -1168,7 +1174,10 @@ async function runBackgroundSync(key: string, sessions: any[]) {
   if (!job) return;
 
   try {
-    const baseUrls = sessions.map(s => s.server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
+    const baseUrls = sessions.map(s => {
+      if (s.server === 'upsdt') return 'https://aulas.upsdt.edu.ec';
+      return s.server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec';
+    });
     
     // Step 1: Map all courses for each active session
     job.currentCourse = 'Verificando sesiones...';
@@ -1215,7 +1224,10 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         const lowerMsg = (e.message || '').toLowerCase();
         const isSessionExpired = lowerMsg.includes('expiró') || lowerMsg.includes('expirada') || lowerMsg.includes('expirado') || lowerMsg.includes('inválida') || lowerMsg.includes('invalida') || lowerMsg.includes('sesión') || lowerMsg.includes('sesion');
         
-        const label = `${sess.username} (${sess.server === 'a' ? 'Aula Grado A' : 'Aula Grado B'})`;
+        const platformName = sess.server === 'upsdt'
+          ? 'UPSDT'
+          : (sess.server === 'a' ? 'UNEMI presencial/semipresencial' : 'UNEMI online');
+        const label = `${sess.username} (${platformName})`;
         if (!job.expiredSessions) job.expiredSessions = [];
         job.expiredSessions.push({ username: sess.username, server: sess.server });
         

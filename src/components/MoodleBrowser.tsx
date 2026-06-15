@@ -459,7 +459,7 @@ export default function MoodleBrowser({
       return;
     }
 
-    setSyncProgress({ current: 0, total: courses.length, label: 'Mapeando materias de UNEMI en paralelo...' });
+    setSyncProgress({ current: 0, total: courses.length, label: 'Mapeando materias de Moodle en paralelo...' });
     const globalImportedList: TodoTask[] = [];
 
     try {
@@ -893,7 +893,7 @@ export default function MoodleBrowser({
                   title="Sincronizar tareas y exámenes de todas las materias de forma automática"
                 >
                   <Sparkles className={`w-3.5 h-3.5 animate-pulse ${confirmSyncAll ? 'text-white' : 'text-amber-300'}`} />
-                  <span>{confirmSyncAll ? '¿CONFIRMAR ESCANEO EN MILES DE AULAS UNEMI?' : 'Sincronizar Todas las Materias'}</span>
+                  <span>{confirmSyncAll ? '¿CONFIRMAR ESCANEO EN TODAS LAS MATERIAS?' : 'Sincronizar Todas las Materias'}</span>
                 </button>
 
                 <div className="space-y-1.5 max-h-[380px] overflow-y-auto pr-1">
@@ -1334,7 +1334,7 @@ export default function MoodleBrowser({
                           className="py-2 border border-gray-200 hover:bg-gray-50 text-gray-700 bg-white rounded-xl text-xs font-semibold flex items-center justify-center space-x-1 transition-all"
                         >
                           <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                          <span className="truncate">Abrir en UNEMI</span>
+                          <span className="truncate">Abrir en el Aula</span>
                         </a>
                         <button
                           id="view-moodle-html"

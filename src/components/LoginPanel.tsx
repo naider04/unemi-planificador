@@ -7,9 +7,30 @@ interface LoginPanelProps {
   activeSession: MoodleSession | null;
   onLogout: () => void;
   prefillUsername?: string;
-  prefillServer?: 'a' | 'b';
+  prefillServer?: 'a' | 'b' | 'upsdt';
   loginErrorMessage?: string | null;
 }
+
+const platformOptions = [
+  {
+    id: 'a' as const,
+    name: 'UNEMI presencial/semipresencial',
+    logo: '/aula-unemi.png',
+    sub: 'aulagradoa.unemi.edu.ec'
+  },
+  {
+    id: 'b' as const,
+    name: 'UNEMI online',
+    logo: '/aula-unemi.png',
+    sub: 'aulagradob.unemi.edu.ec'
+  },
+  {
+    id: 'upsdt' as const,
+    name: 'UPSDT',
+    logo: '/aula-upsdt.png',
+    sub: 'aulas.upsdt.edu.ec'
+  }
+];
 
 export default function LoginPanel({ 
   onLoginSuccess, 
@@ -21,7 +42,7 @@ export default function LoginPanel({
 }: LoginPanelProps) {
   const [username, setUsername] = useState(prefillUsername);
   const [password, setPassword] = useState('');
-  const [server, setServer] = useState<'a' | 'b'>(prefillServer);
+  const [server, setServer] = useState<'a' | 'b' | 'upsdt'>(prefillServer);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(loginErrorMessage);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -53,7 +74,7 @@ export default function LoginPanel({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !password) {
-      setError('Por favor, ingresa tu usuario y contraseña de UNEMI.');
+      setError('Por favor, ingresa tu usuario y contraseña.');
       return;
     }
 
@@ -91,6 +112,7 @@ export default function LoginPanel({
   };
 
   if (activeSession) {
+    const matchedOpt = platformOptions.find(o => o.id === activeSession.server);
     return (
       <div id="login-panel-connected" className="bg-white border border-gray-100 rounded-2xl p-6 shadow-xs">
         <div className="flex items-start justify-between">
@@ -106,7 +128,7 @@ export default function LoginPanel({
               <div className="flex items-center space-x-1.5 mt-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wider">
-                  {activeSession.server === 'a' ? 'Aula Grado A' : 'Aula Grado B'}
+                  {matchedOpt ? matchedOpt.name : activeSession.server.toUpperCase()}
                 </span>
               </div>
             </div>
@@ -130,8 +152,8 @@ export default function LoginPanel({
           <Shield className="w-5 h-5" />
         </div>
         <div>
-          <h2 className="text-base font-bold text-gray-900">Conectar Aula Virtual UNEMI</h2>
-          <p className="text-xs text-gray-500">Accede de forma segura para sincronizar tus fechados y tareas.</p>
+          <h2 className="text-base font-bold text-gray-900">Conectar Aula Virtual</h2>
+          <p className="text-xs text-gray-500">Accede de forma segura para sincronizar tus fechas y tareas.</p>
         </div>
       </div>
 
@@ -150,42 +172,44 @@ export default function LoginPanel({
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Server Toggle */}
+        {/* Server selection */}
         <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wider">Servidor Aula</label>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              id="server-a"
-              type="button"
-              onClick={() => setServer('a')}
-              className={`flex items-center justify-center space-x-1.5 py-2.5 px-4 rounded-xl text-xs font-medium border transition-all duration-150 ${
-                server === 'a'
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-100'
-                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-              }`}
-            >
-              <Server className="w-3.5 h-3.5" />
-              <span>Aula Grado A</span>
-            </button>
-            <button
-              id="server-b"
-              type="button"
-              onClick={() => setServer('b')}
-              className={`flex items-center justify-center space-x-1.5 py-2.5 px-4 rounded-xl text-xs font-medium border transition-all duration-150 ${
-                server === 'b'
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-100'
-                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-              }`}
-            >
-              <Server className="w-3.5 h-3.5" />
-              <span>Aula Grado B</span>
-            </button>
+          <label className="block text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wider">Aula Virtual / Institución</label>
+          <div className="grid grid-cols-1 gap-2.5">
+            {platformOptions.map((opt) => (
+              <button
+                key={opt.id}
+                id={`server-${opt.id}`}
+                type="button"
+                onClick={() => setServer(opt.id)}
+                className={`flex items-center space-x-3 p-3 rounded-xl text-xs font-medium border transition-all duration-150 text-left cursor-pointer ${
+                  server === opt.id
+                    ? 'bg-blue-50/50 text-blue-900 border-blue-500 ring-2 ring-blue-100 shadow-xs'
+                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <div className="w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center border border-gray-150 p-1 shrink-0">
+                  <img
+                    src={opt.logo}
+                    alt={opt.name}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+                <div className="flex-1">
+                  <span className="font-bold block text-gray-950">{opt.name}</span>
+                  <span className="text-[10px] text-gray-400 font-mono mt-0.5 block">
+                    {opt.sub}
+                  </span>
+                </div>
+              </button>
+            ))}
           </div>
         </div>
 
         {/* Username */}
         <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wider">Usuario UNEMI</label>
+          <label className="block text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wider">Usuario / Correo</label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
               <User className="w-4 h-4" />

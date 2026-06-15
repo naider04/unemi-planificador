@@ -64,7 +64,7 @@ export default function App() {
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
   const [moodleNavigation, setMoodleNavigation] = useState<{ courseId: string; activityUrl: string } | null>(null);
   const [agendaNavigation, setAgendaNavigation] = useState<string | null>(null);
-  const [prefillLogin, setPrefillLogin] = useState<{ username: string; server: 'a' | 'b'; errorMsg: string } | null>(null);
+  const [prefillLogin, setPrefillLogin] = useState<{ username: string; server: 'a' | 'b' | 'upsdt'; errorMsg: string } | null>(null);
   const [timelineFilterCourseId, setTimelineFilterCourseId] = useState<string | null>(null);
   const [syncedAccountsCount, setSyncedAccountsCount] = useState<number | null>(null);
   const [isVerifyingSessions, setIsVerifyingSessions] = useState<boolean>(false);
@@ -79,7 +79,7 @@ export default function App() {
     queue: {
       sessionIndex: number;
       username: string;
-      server: 'a' | 'b';
+      server: 'a' | 'b' | 'upsdt';
       courseId: string;
       courseName: string;
       activityUrl: string;
@@ -177,7 +177,7 @@ export default function App() {
             moodleServer: incomingTask.moodleServer || 'a',
             timestamp: now,
             title: '🆕 Nueva Actividad Detectada',
-            message: `Nueva ${incomingTask.type.toLowerCase()}: "${incomingTask.title}" en la materia ${incomingTask.courseName || 'UNEMI'}.`,
+            message: `Nueva ${incomingTask.type.toLowerCase()}: "${incomingTask.title}" en la materia ${incomingTask.courseName || 'Moodle'}.`,
             type: 'new',
             read: false,
             activityUrl: incomingTask.activityUrl,
@@ -561,11 +561,11 @@ export default function App() {
       return updated;
     });
 
-    let friendlyMsg = 'Tu sesión en el aula virtual de UNEMI ha expirado o se ha cerrado.';
+    let friendlyMsg = 'Tu sesión en el aula virtual ha expirado o se ha cerrado.';
     if (rawMsg.toLowerCase().includes('fetch failed')) {
       friendlyMsg = 'Sesión cerrada o error de conexión de red (Fetch failed). Vuelve a conectar tu cuenta para re-autenticarte.';
     } else if (rawMsg) {
-      friendlyMsg = `Se interrumpió la conexión (${rawMsg}). Por favor, ingresa tus datos de acceso nuevamente en el Classroom de UNEMI.`;
+      friendlyMsg = `Se interrumpió la conexión (${rawMsg}). Por favor, ingresa tus datos de acceso nuevamente en Moodle.`;
     }
 
     setPrefillLogin({
@@ -1316,8 +1316,8 @@ export default function App() {
               <Calendar className="w-5 h-5 stroke-[2.2]" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-gray-900 leading-tight">UNEMI Agenda</h1>
-              <p className="text-[10px] text-gray-400 font-medium">Gestor de Aula Grado UNEMI</p>
+              <h1 className="text-sm font-bold text-gray-900 leading-tight">Moodle Agenda</h1>
+              <p className="text-[10px] text-gray-400 font-medium">Gestor de Aula Virtual Moodle</p>
             </div>
           </div>
 
@@ -1340,7 +1340,7 @@ export default function App() {
                     title={`Hacer activo: ${sess.username}`}
                   >
                     <span className={`w-1.5 h-1.5 rounded-full ${idx === activeSessionIndex ? 'bg-blue-500 animate-pulse' : 'bg-gray-400'}`}></span>
-                    <span>{sess.username} ({sess.server === 'a' ? 'Aula A' : 'Aula B'})</span>
+                    <span>{sess.username} ({sess.server === 'upsdt' ? 'UPSDT' : (sess.server === 'a' ? 'UNEMI P/S' : 'UNEMI Online')})</span>
                   </div>
                 ))}
               </div>
@@ -1376,7 +1376,7 @@ export default function App() {
                   {/* Popover Header */}
                   <div className="p-3 bg-gray-50/80 border-b border-gray-100 flex items-center justify-between">
                     <div className="flex items-center space-x-1.5">
-                      <span className="p-1 px-1.5 bg-blue-100 text-blue-700 rounded-sm font-bold text-[9px] uppercase tracking-wider">UNEMI</span>
+                      <span className="p-1 px-1.5 bg-blue-100 text-blue-700 rounded-sm font-bold text-[9px] uppercase tracking-wider">Moodle</span>
                       <h4 className="text-xs font-extrabold text-gray-800">Alertas de Actividades</h4>
                     </div>
                     <div className="flex items-center space-x-2">
@@ -1462,7 +1462,7 @@ export default function App() {
                                 <span>{getRelativeNotifTime(notif.timestamp)}</span>
                                 <span>•</span>
                                 <span className="uppercase text-[8px] bg-gray-100 text-gray-600 px-1 py-0.2 rounded-xs">
-                                  {notif.moodleServer === 'a' ? 'Aula A' : 'Aula B'}
+                                  {notif.moodleServer === 'upsdt' ? 'UPSDT' : (notif.moodleServer === 'a' ? 'UNEMI P/S' : 'UNEMI Online')}
                                 </span>
                               </div>
                             </div>
@@ -1475,7 +1475,7 @@ export default function App() {
                     )}
                   </div>
                   <div className="p-2 border-t border-gray-100 bg-gray-50 text-center">
-                    <p className="text-[9px] text-gray-400 font-semibold">Alertas Inteligentes Moodle UNEMI</p>
+                    <p className="text-[9px] text-gray-400 font-semibold">Alertas Inteligentes Moodle</p>
                   </div>
                 </div>
               )}
@@ -1685,7 +1685,7 @@ export default function App() {
                       )}
                     </p>
                     <p className="text-[10px] text-slate-500 leading-normal bg-rose-50/70 border border-rose-100 rounded-xl p-2.5 font-medium">
-                      {globalSync.currentActivity || 'No se pudo contactar con las aulas virtuales de UNEMI.'}
+                      {globalSync.currentActivity || 'No se pudo contactar con las aulas virtuales.'}
                     </p>
                   </div>
                   <div className="flex space-x-1.5 pt-0.5">
@@ -1833,7 +1833,9 @@ export default function App() {
                     {courses.length > 0 ? `${courses.length} cursos` : '0 materias'}
                   </h3>
                   <p className="text-[10px] text-gray-400 leading-none mt-1 truncate">
-                    {session ? 'Origen: Aula Virtual UNEMI' : 'Conecta tu cuenta Moodle'}
+                    {session 
+                      ? `Origen: ${session.server === 'upsdt' ? 'UPSDT' : (session.server === 'a' ? 'UNEMI Presencial/Semipresencial' : 'UNEMI Online')}` 
+                      : 'Conecta tu cuenta Moodle'}
                   </p>
                 </div>
               </div>
@@ -1967,7 +1969,7 @@ export default function App() {
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
                     <span className="truncate max-w-[120px] font-mono">{sess.username}</span>
                     <span className="text-[9px] opacity-75 font-mono px-1 bg-black/10 rounded uppercase">
-                      {sess.server === 'a' ? 'A' : 'B'}
+                      {sess.server === 'upsdt' ? 'UPSDT' : (sess.server === 'a' ? 'UNEMI P/S' : 'UNEMI Online')}
                     </span>
                   </button>
                 ))}
@@ -2047,7 +2049,7 @@ export default function App() {
                           <div className="min-w-0">
                             <p className="text-xs font-bold text-gray-800 truncate font-mono">{sess.username}</p>
                             <p className="text-[10px] text-gray-400 capitalize">
-                              {sess.server === 'a' ? 'Aula Grado A' : 'Aula Grado B'}{' '}
+                              {sess.server === 'upsdt' ? 'UPSDT' : (sess.server === 'a' ? 'UNEMI Presencial/Semipresencial' : 'UNEMI Online')}{' '}
                               {sess.expired ? (
                                 <span className="text-rose-500 font-semibold">(Sesión Expirada)</span>
                               ) : (

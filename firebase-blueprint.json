@@ -29,7 +29,7 @@
         "hecho_calificacion": { "type": "boolean", "description": "True if graded" },
         "grupo": { "type": "string", "description": "Scraped student group details if any" },
         "moodleUsername": { "type": "string", "description": "Username of the associated Moodle sync" },
-        "moodleServer": { "type": "string", "enum": ["a", "b"], "description": "Moodle server partition" },
+        "moodleServer": { "type": "string", "enum": ["a", "b", "upsdt"], "description": "Moodle server partition" },
         "lastSyncedAt": { "type": "string", "format": "date-time", "description": "Timestamp when this individual task was synced" }
       },
       "required": ["id", "title", "type", "completed", "createdAt"]
@@ -40,7 +40,7 @@
       "type": "object",
       "properties": {
         "moodleUsername": { "type": "string", "description": "The Moodle account username" },
-        "moodleServer": { "type": "string", "enum": ["a", "b"], "description": "Moodle server partition" },
+        "moodleServer": { "type": "string", "enum": ["a", "b", "upsdt"], "description": "Moodle server partition" },
         "tasks": {
           "type": "array",
           "description": "List of activities and manual tasks for this account"
