@@ -106,6 +106,7 @@ export default function App() {
   
   const [notifications, setNotifications] = useState<MoodleNotification[]>([]);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [showSyncLogs, setShowSyncLogs] = useState(false);
 
   const getRelativeNotifTime = (timestamp: number) => {
     const diffMs = Date.now() - timestamp;
@@ -1519,8 +1520,19 @@ export default function App() {
               {globalSync.status === 'syncing' && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-extrabold text-blue-600 uppercase tracking-wider animate-pulse">Sincronizando...</span>
-                    <span className="text-[11px] font-mono font-bold text-gray-600">{globalSync.processedCount} de {globalSync.totalCount || '?'}</span>
+                    <div className="flex items-center space-x-1.5 min-w-0">
+                      <span className="text-[10px] font-extrabold text-blue-600 uppercase tracking-wider shrink-0 animate-pulse">Sincronizando...</span>
+                      {globalSync.logs && globalSync.logs.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowSyncLogs(!showSyncLogs)}
+                          className="text-[9px] text-gray-400 hover:text-gray-600 font-bold hover:underline cursor-pointer focus:outline-hidden shrink-0 normal-case"
+                        >
+                          {showSyncLogs ? '(ocultar)' : '(ver proceso)'}
+                        </button>
+                      )}
+                    </div>
+                    <span className="text-[11px] font-mono font-bold text-gray-600 shrink-0">{globalSync.processedCount} de {globalSync.totalCount || '?'}</span>
                   </div>
                   <div className="w-full bg-blue-100/40 h-1.5 rounded-full overflow-hidden">
                     <div 
@@ -1554,8 +1566,19 @@ export default function App() {
               {globalSync.status === 'paused' && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-extrabold text-amber-600 uppercase">Sincronización Pausada</span>
-                    <span className="font-mono text-gray-500">{globalSync.processedCount} de {globalSync.totalCount}</span>
+                    <div className="flex items-center space-x-1.5 min-w-0">
+                      <span className="font-extrabold text-amber-600 uppercase shrink-0">Sincronización Pausada</span>
+                      {globalSync.logs && globalSync.logs.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowSyncLogs(!showSyncLogs)}
+                          className="text-[9px] text-gray-400 hover:text-gray-600 font-bold hover:underline cursor-pointer focus:outline-hidden shrink-0 normal-case"
+                        >
+                          {showSyncLogs ? '(ocultar)' : '(ver proceso)'}
+                        </button>
+                      )}
+                    </div>
+                    <span className="font-mono text-gray-500 shrink-0">{globalSync.processedCount} de {globalSync.totalCount}</span>
                   </div>
                   <button
                     type="button"
@@ -1578,7 +1601,18 @@ export default function App() {
               {globalSync.status === 'interrupted' && (
                 <div className="space-y-2">
                   <div className="space-y-1">
-                    <p className="text-[11px] text-red-600 font-extrabold flex items-center gap-1">⚠️ ¡Sincronización Interrumpida!</p>
+                    <p className="text-[11px] text-red-600 font-extrabold flex items-center gap-1.5">
+                      <span>⚠️ ¡Sincronización Interrumpida!</span>
+                      {globalSync.logs && globalSync.logs.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowSyncLogs(!showSyncLogs)}
+                          className="text-[9px] text-gray-400 normal-case hover:text-gray-600 font-bold hover:underline cursor-pointer focus:outline-hidden"
+                        >
+                          {showSyncLogs ? '(ocultar proceso)' : '(ver proceso)'}
+                        </button>
+                      )}
+                    </p>
                     <p className="text-[10px] text-gray-500 leading-normal">Se detectó que la sincronización previa fue interrumpida. Puedes reanudarla desde donde se quedó para ahorrar tiempo.</p>
                   </div>
                   <div className="flex space-x-1.5 pt-1">
@@ -1604,9 +1638,18 @@ export default function App() {
               {globalSync.status === 'completed' && (
                 <div className="space-y-2 text-left">
                   <div className="space-y-1">
-                    <p className="text-[11px] text-emerald-600 font-extrabold flex items-center gap-1.5">
+                    <p className="text-[11px] text-emerald-600 font-extrabold flex items-center gap-1.5 font-sans leading-none">
                       <span className="inline-block w-2 bg-emerald-500 rounded-full animate-pulse h-2 shrink-0" />
-                      ¡Todas las materias actualizadas!
+                      <span>¡Todas las materias actualizadas!</span>
+                      {globalSync.logs && globalSync.logs.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowSyncLogs(!showSyncLogs)}
+                          className="text-[9px] text-gray-450 normal-case hover:text-gray-600 font-bold hover:underline cursor-pointer focus:outline-hidden ml-1"
+                        >
+                          {showSyncLogs ? '(ocultar)' : '(ver proceso)'}
+                        </button>
+                      )}
                     </p>
                     {lastSyncedTime && (
                       <p className="text-[9px] text-slate-500 font-bold leading-normal">
@@ -1628,11 +1671,20 @@ export default function App() {
               {globalSync.status === 'failed' && (
                 <div className="space-y-2">
                   <div className="space-y-1">
-                    <p className="text-[11px] text-rose-600 font-extrabold flex items-center gap-1">
+                    <p className="text-[11px] text-rose-600 font-extrabold flex items-center gap-1.5 leading-none">
                       <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
                       <span>Sincronización Fallida</span>
+                      {globalSync.logs && globalSync.logs.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowSyncLogs(!showSyncLogs)}
+                          className="text-[9px] text-gray-400 normal-case hover:text-gray-600 font-bold hover:underline cursor-pointer focus:outline-hidden ml-1"
+                        >
+                          {showSyncLogs ? '(ocultar)' : '(ver proceso)'}
+                        </button>
+                      )}
                     </p>
-                    <p className="text-[10px] text-slate-605 leading-normal bg-rose-50/70 border border-rose-100 rounded-xl p-2.5 font-medium">
+                    <p className="text-[10px] text-slate-500 leading-normal bg-rose-50/70 border border-rose-100 rounded-xl p-2.5 font-medium">
                       {globalSync.currentActivity || 'No se pudo contactar con las aulas virtuales de UNEMI.'}
                     </p>
                   </div>
@@ -1657,7 +1709,7 @@ export default function App() {
               )}
               
               {/* Registro de rendimiento y tiempos detailed container */}
-              {globalSync.logs && globalSync.logs.length > 0 && (
+              {showSyncLogs && globalSync.logs && globalSync.logs.length > 0 && (
                 <div className="mt-3.5 p-3 bg-slate-900 border border-slate-950 text-slate-100 rounded-2xl shadow-inner space-y-2 font-mono text-[10px]">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                     <span className="font-extrabold text-[9px] text-slate-400 flex items-center gap-1.5">
