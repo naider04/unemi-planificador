@@ -886,7 +886,7 @@ export default function App() {
     let timer: any = null;
 
     const tick = async () => {
-      const savedKey = localStorage.getItem('unemi_sync_key') || (sessions.length > 0 ? sessions.map(s => s.username.toLowerCase()).sort().join('_') : null);
+      const savedKey = localStorage.getItem('unemi_sync_key') || (sessions.length > 0 ? sessions.map(s => `${s.server}_${s.username.trim().toLowerCase()}`).sort().join('_') : null);
       if (!savedKey) {
         setGlobalSync(prev => ({ ...prev, status: 'idle' }));
         return;
@@ -919,7 +919,7 @@ export default function App() {
     setSyncedAccountsCount(sessions.length);
     localStorage.setItem('unemi_synced_accounts_count', String(sessions.length));
 
-    const key = sessions.map(s => s.username.toLowerCase()).sort().join('_');
+    const key = sessions.map(s => `${s.server}_${s.username.trim().toLowerCase()}`).sort().join('_');
     localStorage.setItem('unemi_sync_key', key);
 
     setGlobalSync({
@@ -982,7 +982,7 @@ export default function App() {
   };
 
   const cancelGlobalSync = async () => {
-    const key = sessions.map(s => s.username.toLowerCase()).sort().join('_');
+    const key = sessions.map(s => `${s.server}_${s.username.trim().toLowerCase()}`).sort().join('_');
     localStorage.removeItem('unemi_sync_key');
     setGlobalSync({
       status: 'idle',

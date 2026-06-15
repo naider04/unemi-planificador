@@ -88,17 +88,18 @@ export async function saveUserCacheToFirestore(
   const path = `user_data/${docKey}`;
   
   // Filter only tasks that belong to this Moodle Account (including associated manual tasks)
+  const normalizedUsername = username.trim().toLowerCase();
   const userTasks = tasks.filter(t => 
-    t.moodleUsername?.toLowerCase() === username.toLowerCase() && t.moodleServer === server
+    t.moodleUsername?.trim().toLowerCase() === normalizedUsername && t.moodleServer === server
   );
 
   // Filter only notifications that belong to this Moodle Account
   const userNotifications = (notifications || []).filter(n =>
-    n.moodleUsername?.toLowerCase() === username.toLowerCase() && n.moodleServer === server
+    n.moodleUsername?.trim().toLowerCase() === normalizedUsername && n.moodleServer === server
   );
 
   const payload: UserCachedData = {
-    moodleUsername: username,
+    moodleUsername: username.trim(),
     moodleServer: server,
     tasks: userTasks,
     notifications: userNotifications,

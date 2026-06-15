@@ -2050,7 +2050,7 @@ app.post('/api/moodle/sync/start', async (req, res) => {
     return res.status(400).json({ error: 'Faltan conexiones de Moodle para iniciar sincronización' });
   }
 
-  const key = sessions.map(s => s.username.toLowerCase()).sort().join('_');
+  const key = sessions.map(s => `${s.server}_${s.username.trim().toLowerCase()}`).sort().join('_');
   
   let existingJob = syncJobs.get(key);
   if (!existingJob) {
