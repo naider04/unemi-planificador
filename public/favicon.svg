@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+
+  <!-- Main body -->
+  <rect x="96" y="120"
+        width="320"
+        height="296"
+        rx="42"
+        fill="#ffffff"
+        stroke="#1F3B5B"
+        stroke-width="24"/>
+
+  <!-- Header -->
+  <rect x="96" y="120"
+        width="320"
+        height="82"
+        rx="42"
+        fill="#1F3B5B"/>
+
+  <!-- Rings -->
+  <rect x="150" y="70"
+        width="36"
+        height="80"
+        rx="18"
+        fill="#F58200"/>
+
+  <rect x="326" y="70"
+        width="36"
+        height="80"
+        rx="18"
+        fill="#F58200"/>
+
+  <!-- Task dots -->
+  <circle cx="165" cy="255" r="12" fill="#F58200"/>
+  <circle cx="165" cy="310" r="12" fill="#F58200"/>
+
+  <!-- Lines -->
+  <rect x="195" y="245" width="145" height="18" rx="9" fill="#D6DCE4"/>
+  <rect x="195" y="300" width="110" height="18" rx="9" fill="#D6DCE4"/>
+
+  <!-- Large check -->
+  <path
+    d="M180 355 L235 405 L340 285"
+    fill="none"
+    stroke="#F58200"
+    stroke-width="26"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+
+</svg>
