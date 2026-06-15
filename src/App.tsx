@@ -103,10 +103,229 @@ export default function App() {
 
   const [syncingTaskId, setSyncingTaskId] = useState<string | null>(null);
   const [lastSyncedTime, setLastSyncedTime] = useState<number | null>(null);
+  const [syncQueue, setSyncQueue] = useState<MoodleSession[][]>([]);
   
   const [notifications, setNotifications] = useState<MoodleNotification[]>([]);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [showSyncLogs, setShowSyncLogs] = useState(false);
+
+  const updateLastSyncedTimeAndHistory = (time: number) => {
+    setLastSyncedTime(time);
+    localStorage.setItem('unemi_last_global_sync_time', String(time));
+    localStorage.setItem('unemi_sync_reminder_history', JSON.stringify({
+      sent3: false,
+      sent7: false,
+      lastSyncRef: time
+    }));
+  };
+
+  const requestNotificationPermission = async () => {
+    if (!('Notification' in window)) return false;
+    if (Notification.permission === 'default') {
+      const permission = await Notification.requestPermission();
+      return permission === 'granted';
+    }
+    return Notification.permission === 'granted';
+  };
+
+  const triggerNativeNotification = (title: string, body: string, id: string) => {
+    const cachedSent = localStorage.getItem('unemi_local_notifs_sent');
+    let sentList: string[] = [];
+    if (cachedSent) {
+      try {
+        sentList = JSON.parse(cachedSent);
+      } catch {
+        sentList = [];
+      }
+    }
+
+    if (sentList.includes(id)) {
+      return;
+    }
+
+    sentList.push(id);
+    localStorage.setItem('unemi_local_notifs_sent', JSON.stringify(sentList));
+
+    const now = Date.now();
+    setNotifications(prev => {
+      const isDouble = prev.some(n => n.id === id);
+      if (isDouble) return prev;
+      const newNotif: MoodleNotification = {
+        id,
+        moodleUsername: sessions[activeSessionIndex]?.username || 'Sistema',
+        moodleServer: sessions[activeSessionIndex]?.server || 'a',
+        timestamp: now,
+        title,
+        message: body,
+        type: 'status',
+        read: false
+      };
+      const updated = [newNotif, ...prev];
+      localStorage.setItem('unemi_notifications', JSON.stringify(updated));
+      return updated;
+    });
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification(title, {
+          body,
+          icon: '/aula-unemi.png'
+        });
+      } catch (e) {
+        console.error('Failed to trigger window Notification:', e);
+      }
+    }
+  };
+
+  const isTodayValue = (isoString: string | null) => {
+    if (!isoString) return false;
+    try {
+      const date = new Date(isoString);
+      const today = new Date();
+      return date.getFullYear() === today.getFullYear() &&
+             date.getMonth() === today.getMonth() &&
+             date.getDate() === today.getDate();
+    } catch {
+      return false;
+    }
+  };
+
+  const checkAndTriggerOfflineNotifications = () => {
+    if (!isDbLoaded) return;
+    
+    const now = Date.now();
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    
+    const isPending = (t: TodoTask) => {
+      if (t.completed) return false;
+      if (isStatusSubmittedLocal(t.status)) return false;
+      if (isStatusSubmittedLocal(t.estado_entrega)) return false;
+      return true;
+    };
+
+    tasks.forEach(task => {
+      if (!task.closureDate) return;
+      const taskDate = new Date(task.closureDate);
+      const timeDiff = taskDate.getTime() - now;
+
+      // 1. "Test de ____ vence hoy a las ___" (solo para cuestionarios)
+      const isQuiz = task.type === 'CUESTIONARIO' || 
+                     /quiz|cuestionario|examen|evalua|lecci/i.test(task.title);
+      
+      const isToday = isTodayValue(task.closureDate);
+
+      if (isQuiz && isToday && isPending(task) && timeDiff > 0) {
+        const timeStr = taskDate.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const notifId = `local_quiz_today_${task.id}_${task.closureDate}`;
+        triggerNativeNotification(
+          '🏁 Examen/Test vence hoy',
+          `Test de "${task.type === 'CUESTIONARIO' ? task.title : (task.courseName || '')}" vence hoy a las ${timeStr}.`,
+          notifId
+        );
+      }
+
+      // 2. 3 hours before: "____ vence hoy y no ha sido entregada aun"
+      // strictly for non-quizzes, non-group activities
+      const isGroup = task.grupo && task.grupo.trim() !== '' && 
+                      !task.grupo.toLowerCase().includes('no tiene');
+      
+      if (!isQuiz && !isGroup && isToday && isPending(task) && timeDiff > 0 && timeDiff <= 3 * 60 * 60 * 1000) {
+        const notifId = `local_warn_3h_${task.id}_${task.closureDate}`;
+        triggerNativeNotification(
+          '⚠️ Entrega pendiente hoy',
+          `La actividad "${task.title}" vence hoy y no ha sido entregada aún.`,
+          notifId
+        );
+      }
+    });
+
+    // 3. Every Sunday send a weekly summary
+    if (today.getDay() === 0) {
+      const sundayKey = `sunday_summary_${todayStr}`;
+      
+      const cachedSent = localStorage.getItem('unemi_local_notifs_sent');
+      let sentList: string[] = [];
+      if (cachedSent) {
+        try { sentList = JSON.parse(cachedSent); } catch { sentList = []; }
+      }
+
+      if (!sentList.includes(sundayKey)) {
+        const nextWeekStart = new Date();
+        nextWeekStart.setDate(nextWeekStart.getDate() + 1); // Monday
+        nextWeekStart.setHours(0, 0, 0, 0);
+
+        const nextWeekEnd = new Date(nextWeekStart);
+        nextWeekEnd.setDate(nextWeekEnd.getDate() + 6); // next Sunday
+        nextWeekEnd.setHours(23, 59, 59, 999);
+
+        let testsCount = 0;
+        let tasksCount = 0;
+
+        tasks.forEach(task => {
+          if (!task.closureDate || !isPending(task)) return;
+          const taskDate = new Date(task.closureDate);
+          if (taskDate >= nextWeekStart && taskDate <= nextWeekEnd) {
+            const isQuiz = task.type === 'CUESTIONARIO' || 
+                           /quiz|cuestionario|examen|evalua|lecci/i.test(task.title);
+            if (isQuiz) {
+              testsCount++;
+            } else {
+              tasksCount++;
+            }
+          }
+        });
+
+        if (testsCount > 0 || tasksCount > 0) {
+          triggerNativeNotification(
+            '📅 Resumen semanal de pendientes',
+            `Tienes ${tasksCount} tareas y ${testsCount} tests para la próxima semana.`,
+            sundayKey
+          );
+        }
+      }
+    }
+
+    // 4. "Sincroniza tus actividades: No has sincronizado tus actividades desde hace [int] dias"
+    if (lastSyncedTime) {
+      let tracker = { sent3: false, sent7: false, lastSyncRef: lastSyncedTime };
+      const cachedTracker = localStorage.getItem('unemi_sync_reminder_history');
+      if (cachedTracker) {
+        try {
+          tracker = JSON.parse(cachedTracker);
+        } catch {
+          tracker = { sent3: false, sent7: false, lastSyncRef: lastSyncedTime };
+        }
+      }
+      
+      if (tracker.lastSyncRef !== lastSyncedTime) {
+        tracker.lastSyncRef = lastSyncedTime;
+        tracker.sent3 = false;
+        tracker.sent7 = false;
+        localStorage.setItem('unemi_sync_reminder_history', JSON.stringify(tracker));
+      }
+
+      const daysDiff = (now - lastSyncedTime) / (1000 * 60 * 60 * 24);
+      
+      if (daysDiff >= 3 && daysDiff < 7 && !tracker.sent3) {
+        tracker.sent3 = true;
+        localStorage.setItem('unemi_sync_reminder_history', JSON.stringify(tracker));
+        triggerNativeNotification(
+          '🔄 Recordatorio de Sincronización',
+          `Sincroniza tus actividades: No has sincronizado tus actividades desde hace 3 días.`,
+          `sync_reminder_3d_${lastSyncedTime}`
+        );
+      } else if (daysDiff >= 7 && !tracker.sent7) {
+        tracker.sent7 = true;
+        localStorage.setItem('unemi_sync_reminder_history', JSON.stringify(tracker));
+        triggerNativeNotification(
+          '🔄 Recordatorio de Sincronización',
+          `Sincroniza tus actividades: No has sincronizado tus actividades desde hace 7 días.`,
+          `sync_reminder_7d_${lastSyncedTime}`
+        );
+      }
+    }
+  };
 
   const getRelativeNotifTime = (timestamp: number) => {
     const diffMs = Date.now() - timestamp;
@@ -533,6 +752,9 @@ export default function App() {
     } catch (err) {
       console.error(`Error loading database cache for ${newSession.username} on login:`, err);
     }
+
+    // Automatically trigger background global sync on login / reconnect
+    startGlobalSync(updatedSessions);
   };
 
   const handleLogout = () => {
@@ -746,8 +968,7 @@ export default function App() {
         return true;
       } else if (job.status === 'completed') {
         const finishedTime = Date.now();
-        setLastSyncedTime(finishedTime);
-        localStorage.setItem('unemi_last_global_sync_time', String(finishedTime));
+        updateLastSyncedTimeAndHistory(finishedTime);
 
         if (job.validSessionCount !== undefined) {
           setSyncedAccountsCount(job.validSessionCount);
@@ -910,16 +1131,22 @@ export default function App() {
   }, [globalSync.status, sessions]);
 
   // Trigger server-side background sync
-  const startGlobalSync = async () => {
-    if (sessions.length === 0) {
+  const startGlobalSync = async (sessionsToSync?: MoodleSession[]) => {
+    const list = sessionsToSync || sessions;
+    if (list.length === 0) {
       alert('Por favor conecta al menos una cuenta de Moodle para poder sincronizar.');
       return;
     }
 
-    setSyncedAccountsCount(sessions.length);
-    localStorage.setItem('unemi_synced_accounts_count', String(sessions.length));
+    if (globalSync.status === 'syncing') {
+      setSyncQueue(prev => [...prev, list]);
+      return;
+    }
 
-    const key = sessions.map(s => `${s.server}_${s.username.trim().toLowerCase()}`).sort().join('_');
+    setSyncedAccountsCount(list.length);
+    localStorage.setItem('unemi_synced_accounts_count', String(list.length));
+
+    const key = list.map(s => `${s.server}_${s.username.trim().toLowerCase()}`).sort().join('_');
     localStorage.setItem('unemi_sync_key', key);
 
     setGlobalSync({
@@ -945,7 +1172,7 @@ export default function App() {
       const res = await fetch(`${apiBase}/api/moodle/sync/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessions })
+        body: JSON.stringify({ sessions: list })
       });
 
       if (!res.ok) {
@@ -1005,6 +1232,48 @@ export default function App() {
       // Ignored silently
     }
   };
+
+  // FIFO Queue to schedule sync requests sequentially when the status is not 'syncing'
+  useEffect(() => {
+    if (globalSync.status !== 'syncing' && syncQueue.length > 0) {
+      const nextSessions = syncQueue[0];
+      setSyncQueue(prev => prev.slice(1));
+      
+      const timer = setTimeout(() => {
+        startGlobalSync(nextSessions);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [globalSync.status, syncQueue]);
+
+  // Set up tracking tracker on startup or change
+  useEffect(() => {
+    if (lastSyncedTime) {
+      const cached = localStorage.getItem('unemi_sync_reminder_history');
+      if (!cached) {
+        localStorage.setItem('unemi_sync_reminder_history', JSON.stringify({
+          sent3: false,
+          sent7: false,
+          lastSyncRef: lastSyncedTime
+        }));
+      }
+    }
+  }, [lastSyncedTime]);
+
+  // Run offline notification checks whenever tasks or sync time updates
+  useEffect(() => {
+    if (isDbLoaded && tasks.length > 0) {
+      checkAndTriggerOfflineNotifications();
+    }
+  }, [tasks, lastSyncedTime, isDbLoaded]);
+
+  // Tick every 60 seconds to execute offline notification alerts calculations automatically
+  useEffect(() => {
+    const interval = setInterval(() => {
+      checkAndTriggerOfflineNotifications();
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [tasks, lastSyncedTime, isDbLoaded]);
 
   const handleUpdateSingleTask = async (taskId: string) => {
     const rawMatch = tasks.find(t => t.id === taskId);
@@ -1398,6 +1667,34 @@ export default function App() {
                       )}
                     </div>
                   </div>
+
+                  {('Notification' in window) && (
+                    <div className="p-2.5 bg-blue-50/70 border-b border-blue-100 flex items-center justify-between text-[11px] text-blue-800 font-bold px-3">
+                      <span>🔔 Notificaciones integradas</span>
+                      {Notification.permission === 'granted' ? (
+                        <span className="text-[10px] text-emerald-600 bg-emerald-100/50 px-2 py-0.5 rounded-full font-extrabold select-none">
+                          Activadas
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            const granted = await requestNotificationPermission();
+                            if (granted) {
+                              alert('¡Notificaciones del navegador activadas!');
+                            } else {
+                              alert('Por favor, habilita las notificaciones en el candado de la URL de tu navegador.');
+                            }
+                            setTimeTick(t => t + 1);
+                          }}
+                          className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-[10px] font-bold shadow-xs cursor-pointer select-none whitespace-nowrap transition-all"
+                        >
+                          Habilitar
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {/* Popover List */}
                   <div className="max-h-[300px] overflow-y-auto divide-y divide-gray-100">
