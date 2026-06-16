@@ -390,13 +390,26 @@ export default function App() {
         const existingTask = currentTasksList.find(t => t.activityUrl === incomingTask.activityUrl);
 
         if (!existingTask) {
+          const formatClosureDate = (isoStr?: string | null) => {
+            if (!isoStr) return 'Sin fecha de cierre';
+            try {
+              const d = new Date(isoStr);
+              if (isNaN(d.getTime())) return 'Sin fecha de cierre';
+              return d.toLocaleString('es-EC', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+            } catch {
+              return 'Sin fecha de cierre';
+            }
+          };
+
+          const formattedClosureDate = formatClosureDate(incomingTask.closureDate);
+
           newNotifications.push({
             id: `new_task_${incomingTask.id || now}_${Math.random().toString(36).substr(2, 5)}`,
             moodleUsername: incomingTask.moodleUsername || '',
             moodleServer: incomingTask.moodleServer || 'a',
             timestamp: now,
             title: '🆕 Nueva Actividad Detectada',
-            message: `Nueva ${incomingTask.type.toLowerCase()}: "${incomingTask.title}" en la materia ${incomingTask.courseName || 'Moodle'}.`,
+            message: `Materia: ${incomingTask.courseName || 'Moodle'}\nCierre: ${formattedClosureDate}`,
             type: 'new',
             read: false,
             activityUrl: incomingTask.activityUrl,
@@ -1736,13 +1749,12 @@ export default function App() {
                               e.stopPropagation();
                               markNotificationRead(notif.id);
                               if (notif.activityUrl) {
-                                const matchingSessIdx = sessions.findIndex(s => s.username.toLowerCase() === notif.moodleUsername.toLowerCase() && s.server === notif.moodleServer);
-                                if (matchingSessIdx !== -1) {
-                                  setActiveSessionIndex(matchingSessIdx);
-                                  setMoodleNavigation({ courseId: '', activityUrl: notif.activityUrl });
-                                  setActiveTab('browser');
-                                  setIsNotifOpen(false);
-                                }
+                                setAgendaNavigation(null);
+                                setTimeout(() => {
+                                  setAgendaNavigation(notif.activityUrl);
+                                }, 20);
+                                setActiveTab('agenda');
+                                setIsNotifOpen(false);
                               }
                             }}
                             className={`p-3 flex items-start space-x-2.5 cursor-pointer hover:bg-gray-50 transition-all border-l-3 ${borderLeft} ${notif.read ? 'bg-white opacity-60' : bgClass}`}
@@ -1752,13 +1764,11 @@ export default function App() {
                               <p className={`text-[11px] leading-tight text-gray-800 ${notif.read ? 'font-medium' : 'font-extrabold'}`}>
                                 {notif.title}
                               </p>
-                              <p className="text-[10px] text-gray-500 leading-snug break-words font-medium">
+                              <p className="text-[10px] text-gray-500 leading-snug break-words font-medium whitespace-pre-line">
                                 {notif.message}
                               </p>
                               <div className="flex items-center space-x-1.5 text-[9px] font-bold text-gray-400 mt-1">
-                                <span>{getRelativeNotifTime(notif.timestamp)}</span>
-                                <span>•</span>
-                                <span className="uppercase text-[8px] bg-gray-100 text-gray-600 px-1 py-0.2 rounded-xs">
+                                <span className="uppercase text-[8px] bg-gray-100 text-gray-600 px-1 py-0.2 rounded-sm font-semibold">
                                   {notif.moodleServer === 'upsdt' ? 'UPSDT' : (notif.moodleServer === 'a' ? 'UNEMI P/S' : 'UNEMI Online')}
                                 </span>
                               </div>
