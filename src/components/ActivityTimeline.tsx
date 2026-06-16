@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Clock, CheckCircle, Trash2, Calendar, FileText, Square, CheckSquare, Search, 
   ChevronRight, ChevronDown, Filter, EyeOff, LayoutGrid, ListFilter, AlertCircle, PlusCircle, CheckSquare2,
-  Download, RefreshCw, Eye
+  Download, RefreshCw, Eye, BookOpen
 } from 'lucide-react';
 import { TodoTask } from '../types';
 
@@ -804,7 +804,7 @@ export default function ActivityTimeline({
                       {group.mondaySort === 9999999999999 ? (
                         group.tasks.map((task) => {
                           const remaining = getRemainingTime(task.closureDate, task.completed);
-                          const isClickable = !!(task.activityUrl && onNavigateToMoodleActivity);
+                          const isClickable = !!(task.activityUrl && onViewHtml);
                           
                           return (
                             <div key={task.id} id={`timeline-row-${task.id}`} className="relative group">
@@ -818,8 +818,8 @@ export default function ActivityTimeline({
 
                               <div 
                                 onClick={() => {
-                                  if (isClickable) {
-                                    onNavigateToMoodleActivity(task.courseId || '', task.activityUrl || '');
+                                  if (isClickable && onViewHtml) {
+                                    onViewHtml(task);
                                   }
                                 }}
                                 className={`bg-white border rounded-2xl p-4 md:p-5 shadow-2xs hover:shadow-xs transition-all duration-205 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
@@ -977,17 +977,17 @@ export default function ActivityTimeline({
                                     {/* Action Links/Buttons for HTML raw parsing and single task refresh */}
                                     {task.type !== 'MANUAL' && (
                                       <div className="flex items-center space-x-1">
-                                        {onViewHtml && (
+                                        {onNavigateToMoodleActivity && (
                                           <button
                                             type="button"
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              onViewHtml(task);
+                                              onNavigateToMoodleActivity(task.courseId || '', task.activityUrl || '');
                                             }}
-                                            className="bg-slate-50 hover:bg-slate-100/90 text-slate-500 hover:text-slate-800 border border-slate-200 p-1 rounded-lg transition-all cursor-pointer"
-                                            title="Ver HTML en nueva pestaña"
+                                            className="bg-slate-50 hover:bg-slate-100/90 text-slate-500 hover:text-blue-600 border border-slate-200 hover:border-blue-200 p-1 rounded-lg transition-all cursor-pointer"
+                                            title="Explorar en Moodle"
                                           >
-                                            <Eye className="w-3 h-3 shrink-0" />
+                                            <BookOpen className="w-3 h-3 shrink-0" />
                                           </button>
                                         )}
                                       </div>
@@ -1095,15 +1095,15 @@ export default function ActivityTimeline({
                                     <div className="bg-white border border-gray-100 rounded-2xl shadow-3xs overflow-hidden divide-y divide-gray-100/80">
                                       {day.tasks.map((task) => {
                                         const remaining = getRemainingTime(task.closureDate, task.completed);
-                                        const isClickable = !!(task.activityUrl && onNavigateToMoodleActivity);
+                                        const isClickable = !!(task.activityUrl && onViewHtml);
                                         
                                         return (
                                           <div 
                                             key={task.id} 
                                             id={`timeline-row-${task.id}`}
                                             onClick={() => {
-                                              if (isClickable) {
-                                                onNavigateToMoodleActivity(task.courseId || '', task.activityUrl || '');
+                                              if (isClickable && onViewHtml) {
+                                                onViewHtml(task);
                                               }
                                             }}
                                             className={`p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all duration-205 ${
@@ -1112,7 +1112,7 @@ export default function ActivityTimeline({
                                                 : 'hover:bg-slate-50/40'
                                             } ${
                                               isClickable 
-                                                ? 'cursor-pointer' 
+                                                ? 'cursor-pointer hover:border-blue-300 hover:bg-blue-50/5' 
                                                 : ''
                                             }`}
                                           >
@@ -1272,17 +1272,17 @@ export default function ActivityTimeline({
                                                 {/* Action Links/Buttons for HTML raw parsing and single task refresh */}
                                                 {task.type !== 'MANUAL' && (
                                                   <div className="flex items-center space-x-1">
-                                                    {onViewHtml && (
+                                                    {onNavigateToMoodleActivity && (
                                                       <button
                                                         type="button"
                                                         onClick={(e) => {
                                                           e.stopPropagation();
-                                                          onViewHtml(task);
+                                                          onNavigateToMoodleActivity(task.courseId || '', task.activityUrl || '');
                                                         }}
-                                                        className="bg-slate-50 hover:bg-slate-100/90 text-slate-500 hover:text-slate-800 border border-slate-200 p-1 rounded-lg transition-all cursor-pointer"
-                                                        title="Ver HTML en nueva pestaña"
+                                                        className="bg-slate-50 hover:bg-slate-100/90 text-slate-500 hover:text-blue-600 border border-slate-200 hover:border-blue-200 p-1 rounded-lg transition-all cursor-pointer"
+                                                        title="Explorar en Moodle"
                                                       >
-                                                        <Eye className="w-3 h-3 shrink-0" />
+                                                        <BookOpen className="w-3 h-3 shrink-0" />
                                                       </button>
                                                     )}
                                                   </div>
