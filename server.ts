@@ -1091,6 +1091,222 @@ app.post('/api/moodle/download-raw', async (req, res) => {
   }
 });
 
+// 6. API: Proxy Moodle pages and inject Developer Event Log tracker
+app.all('/api/moodle/proxy', async (req, res) => {
+  const { url, server, username, session } = req.query;
+  if (!url || !server || !session) {
+    return res.status(400).send('Faltan parámetros requeridos (url, server, session)');
+  }
+
+  const base = server === 'upsdt'
+    ? 'https://aulas.upsdt.edu.ec'
+    : (server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
+
+  const targetUrl = String(url).startsWith('http') ? String(url) : new URL(String(url), base).toString();
+
+  try {
+    // Forward the POST or GET request
+    const fetchOptions: any = {
+      method: req.method,
+      headers: {
+        'User-Agent': UA,
+        'Cookie': String(session),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+      },
+      redirect: 'manual'
+    };
+
+    if (req.method === 'POST' && req.body && Object.keys(req.body).length > 0) {
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries(req.body)) {
+        params.append(k, String(v));
+      }
+      fetchOptions.body = params.toString();
+      fetchOptions.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    }
+
+    const response = await fetch(targetUrl, fetchOptions);
+
+    // If redirected, handle redirection internally by proxying the redirected URL
+    const status = response.status;
+    const isRedirect = status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+    if (isRedirect) {
+      const location = response.headers.get('location');
+      if (location) {
+        const nextUrl = location.startsWith('http') ? location : new URL(location, targetUrl).toString();
+        // Redirect the client's iframe to our proxy endpoint with the new URL
+        const proxiedRedirect = `/api/moodle/proxy?url=${encodeURIComponent(nextUrl)}&server=${server}&username=${username}&session=${encodeURIComponent(String(session))}`;
+        return res.redirect(proxiedRedirect);
+      }
+    }
+
+    if (!response.ok) {
+      return res.status(response.status).send(`Error de Moodle original: HTTP ${response.status}`);
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('text/html')) {
+      // For images, PDFs or other files, we pipe them directly back to the client
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      res.setHeader('Content-Type', contentType);
+      return res.send(buffer);
+    }
+
+    const rawHtml = await response.text();
+    const $ = cheerio.load(rawHtml);
+
+    // Helpers to resolve relative URLs to absolute Moodle URLs
+    const resolveUrl = (href: string) => {
+      if (!href) return '';
+      if (href.startsWith('http://') || href.startsWith('https://')) return href;
+      if (href.startsWith('//')) return 'https:' + href;
+      return new URL(href, targetUrl).toString();
+    };
+
+    // 1. Rewrite assets
+    $('link[href]').each((_, el) => {
+      const href = $(el).attr('href');
+      if (href) $(el).attr('href', resolveUrl(href));
+    });
+
+    $('script[src]').each((_, el) => {
+      const src = $(el).attr('src');
+      if (src) $(el).attr('src', resolveUrl(src));
+    });
+
+    $('img[src]').each((_, el) => {
+      const src = $(el).attr('src');
+      if (src) $(el).attr('src', resolveUrl(src));
+    });
+
+    // 2. Rewrite links so they stay in proxy
+    $('a[href]').each((_, el) => {
+      const href = $(el).attr('href');
+      if (!href) return;
+      if (href.startsWith('#') || href.startsWith('javascript:')) return;
+
+      const absolute = resolveUrl(href);
+      if (absolute.includes('unemi.edu.ec') || absolute.includes('upsdt.edu.ec')) {
+        const proxiedHref = `/api/moodle/proxy?url=${encodeURIComponent(absolute)}&server=${server}&username=${username}&session=${encodeURIComponent(String(session))}`;
+        $(el).attr('href', proxiedHref);
+      } else {
+        $(el).attr('href', absolute);
+        $(el).attr('target', '_blank');
+      }
+    });
+
+    // 3. Rewrite form actions
+    $('form[action]').each((_, el) => {
+      const action = $(el).attr('action');
+      if (!action) return;
+      const absolute = resolveUrl(action);
+      if (absolute.includes('unemi.edu.ec') || absolute.includes('upsdt.edu.ec')) {
+        const proxiedAction = `/api/moodle/proxy?url=${encodeURIComponent(absolute)}&server=${server}&username=${username}&session=${encodeURIComponent(String(session))}`;
+        $(el).attr('action', proxiedAction);
+      } else {
+        $(el).attr('action', absolute);
+      }
+    });
+
+    // 4. Inject script to log element/button clicks and file metadata selection back to our React parent
+    $('body').append(`
+      <script>
+      (function() {
+        function logEvent(type, data) {
+          try {
+            window.parent.postMessage({
+              source: 'moodle-proxy',
+              type: type,
+              data: data,
+              timestamp: new Date().toISOString()
+            }, '*');
+          } catch(e) {
+            console.error('Error postMessage:', e);
+          }
+        }
+
+        // On load
+        logEvent('page_load', {
+          url: window.location.href,
+          title: document.title
+        });
+
+        // Click interceptor (including normal forms, links, buttons)
+        document.addEventListener('click', function(e) {
+          const target = e.target;
+          if (!target) return;
+          const clickable = target.closest('a, button, input[type="submit"], input[type="button"], .btn');
+          if (clickable) {
+            const tag = clickable.tagName.toLowerCase();
+            const text = clickable.textContent ? clickable.textContent.trim().substring(0, 80) : '';
+            const id = clickable.id || '';
+            const className = clickable.className || '';
+            const href = clickable.getAttribute('href') || '';
+            const value = clickable.value || '';
+            
+            logEvent('click', {
+              tag: tag,
+              text: text || value || '(Sin texto visible)',
+              id: id,
+              className: className,
+              href: href
+            });
+          }
+        }, true);
+
+        // File selection event
+        document.addEventListener('change', function(e) {
+          const target = e.target;
+          if (!target || target.tagName.toLowerCase() !== 'input' || target.type !== 'file') return;
+          const files = target.files;
+          if (files && files.length > 0) {
+            const filesList = [];
+            for (let i = 0; i < files.length; i++) {
+              filesList.push({
+                name: files[i].name,
+                size: files[i].size,
+                type: files[i].type || 'desconocido'
+              });
+            }
+            logEvent('file_selected', {
+              inputName: target.name || target.id || 'archivo',
+              files: filesList
+            });
+          }
+        }, true);
+      })();
+      </script>
+    `);
+
+    res.send($.html());
+  } catch (err: any) {
+    res.status(500).send(`
+      <html>
+        <head>
+          <style>
+            body { font-family: system-ui, -apple-system, sans-serif; background: #fafafa; color: #374151; padding: 2rem; }
+            .error-card { background: #fee2e2; border: 1px solid #fecaca; border-radius: 12px; padding: 1.5rem; max-width: 500px; margin: 0 auto; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+            h2 { color: #dc2626; margin-top: 0; font-size: 1.25rem; }
+            p { font-size: 0.875rem; line-height: 1.5; }
+            button { background: #dc2626; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.875rem; margin-top: 1rem; }
+            button:hover { background: #b91c1c; }
+          </style>
+        </head>
+        <body>
+          <div class="error-card">
+            <h2>Error de Carga en Moodle Proxy</h2>
+            <p>No se pudo intermediar la página seleccionada de Moodle. Esto suele deberse a que el servidor de Moodle rechazó la consulta o la sesión expiró.</p>
+            <p style="font-family: monospace; background: rgba(0,0,0,0.05); padding: 0.5rem; border-radius: 4px; overflow-x: auto; font-size: 11px;">${err.message}</p>
+            <button onclick="window.location.reload()">Reintentar Carga</button>
+          </div>
+        </body>
+      </html>
+    `);
+  }
+});
+
 // --- SERVER-SIDE RESUMABLE BACKGROUND SYNC SYSTEM ---
 const DATA_DIR = path.join(process.cwd(), 'data');
 if (!fs.existsSync(DATA_DIR)) {

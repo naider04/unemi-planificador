@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Calendar, Layers, Lock, BookOpen, Award, CheckCircle2, 
   Sparkles, Clock, AlertCircle, Bookmark, CheckSquare, Eye, RefreshCw, Download, BarChart3,
-  Bell, BellOff
+  Bell, BellOff, Terminal, Cpu, Trash2, ArrowLeft, ArrowRight, ExternalLink, Globe
 } from 'lucide-react';
 
 import { MoodleSession, TodoTask, Course, MoodleNotification } from './types';
@@ -60,7 +60,63 @@ export default function App() {
   const [isDbLoaded, setIsDbLoaded] = useState<boolean>(false);
   const [tasks, setTasks] = useState<TodoTask[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
-  const [activeTab, setActiveTab] = useState<'agenda' | 'browser' | 'login' | 'stats'>('agenda');
+  const [activeTab, setActiveTab] = useState<'agenda' | 'browser' | 'login' | 'stats' | 'developer'>('agenda');
+
+  // Developer Log State
+  const [devLogs, setDevLogs] = useState<{
+    id: string;
+    timestamp: string;
+    type: string;
+    data: any;
+  }[]>(() => {
+    try {
+      const cached = localStorage.getItem('moodle_dev_logs');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('moodle_dev_logs', JSON.stringify(devLogs));
+  }, [devLogs]);
+
+  // Listener for events sent by the proxied iframe
+  useEffect(() => {
+    const handleMoodleProxyMessage = (e: MessageEvent) => {
+      if (e.data && e.data.source === 'moodle-proxy') {
+        const { type, data, timestamp } = e.data;
+        const newLog = {
+          id: `${Date.now()}-${Math.random()}`,
+          timestamp: timestamp || new Date().toISOString(),
+          type,
+          data
+        };
+        setDevLogs(prev => [newLog, ...prev]);
+      }
+    };
+    window.addEventListener('message', handleMoodleProxyMessage);
+    return () => window.removeEventListener('message', handleMoodleProxyMessage);
+  }, []);
+  // Developer Sandboxed Browser States
+  const [devSessionIndex, setDevSessionIndex] = useState<number>(0);
+  const [devBrowserUrl, setDevBrowserUrl] = useState<string>('');
+  const [devIframeKey, setDevIframeKey] = useState<number>(0);
+
+  // Sync state between accounts list changes and developer view
+  useEffect(() => {
+    if (sessions.length > 0) {
+      const activeIdx = devSessionIndex < sessions.length ? devSessionIndex : 0;
+      const sess = sessions[activeIdx];
+      if (sess && !devBrowserUrl) {
+        const base = sess.server === 'upsdt'
+          ? 'https://aulas.upsdt.edu.ec'
+          : (sess.server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
+        setDevBrowserUrl(`${base}/my/`);
+      }
+    }
+  }, [sessions, devSessionIndex]);
+
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
   const [moodleNavigation, setMoodleNavigation] = useState<{ courseId: string; activityUrl: string } | null>(null);
   const [agendaNavigation, setAgendaNavigation] = useState<string | null>(null);
@@ -2200,6 +2256,19 @@ export default function App() {
             <span className="hidden sm:inline">Mis Stats</span>
           </button>
 
+          <button
+            id="tab-developer-btn"
+            onClick={() => setActiveTab('developer')}
+            className={`pb-2.5 pt-2 px-2 sm:px-4 text-xs font-bold border-b-2 transition-all flex items-center justify-center sm:justify-start flex-1 sm:flex-none space-x-1.5 ${
+              activeTab === 'developer'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
+            }`}
+          >
+            <Terminal className="w-5 h-5 sm:w-4 sm:h-4 shrink-0 font-bold" />
+            <span className="hidden sm:inline">Developer</span>
+          </button>
+
         </div>
 
         {/* Workspace Display */}
@@ -2422,6 +2491,298 @@ export default function App() {
                 setActiveTab('agenda');
               }}
             />
+          )}
+
+          {/* TAB 5: DEVELOPER SANDBOX & TRACKER LOGS */}
+          {activeTab === 'developer' && (
+            <div className="space-y-6">
+              <div className="bg-gradient-to-r from-gray-900 to-slate-800 rounded-3xl p-6 text-white shadow-md">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center space-x-2.5">
+                      <div className="p-2 bg-blue-500/20 text-blue-300 rounded-xl">
+                        <Terminal className="w-5 h-5" />
+                      </div>
+                      <h2 className="text-lg font-bold tracking-tight">Developer Sandbox & Tracker Logs</h2>
+                    </div>
+                    <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                      Explora Moodle interactivamente a través de nuestro proxy de seguridad. Todas tus interacciones (clicks en botones, enlaces, y metadatos de archivos que cargues) se registrarán en tiempo real en la consola de eventos para su análisis técnico.
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-3.5">
+                    <button
+                      onClick={() => {
+                        if (confirm('¿Estás seguro de que deseas limpiar el historial de logs de eventos?')) {
+                          setDevLogs([]);
+                        }
+                      }}
+                      className="flex items-center space-x-2 text-xs font-semibold bg-white/10 hover:bg-white/20 text-white rounded-xl py-2 px-4 border border-white/15 hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer"
+                      title="Borrar todos los eventos registrados"
+                    >
+                      <Trash2 className="w-4 h-4 text-rose-300" />
+                      <span>Limpiar Logs</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {sessions.length === 0 ? (
+                <div className="bg-white border border-gray-150-40 p-10 rounded-3xl text-center shadow-xs">
+                  <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <Lock className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-sm font-bold text-gray-800 mb-1">Sin Conexiones Activas de Moodle</h3>
+                  <p className="text-xs text-gray-400 max-w-sm mx-auto mb-6">
+                    Esta sección requiere un navegador de Moodle conectado. Ve a la sección de Conexión de Moodle para iniciar sesión con tus credenciales.
+                  </p>
+                  <button
+                    onClick={() => setActiveTab('login')}
+                    className="inline-flex items-center space-x-2 text-xs font-bold bg-blue-600 text-white rounded-xl py-2.5 px-6 hover:bg-blue-700 transition"
+                  >
+                    <span>Conectar Moodle Ahora</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                  
+                  {/* Left Column: Interactive Sandboxed Browser Frame */}
+                  <div className="lg:col-span-7 bg-white border border-gray-200/60 rounded-3xl overflow-hidden shadow-xs flex flex-col h-[750px]">
+                    
+                    {/* Browser Address Bar & Controls */}
+                    <div className="p-4 bg-gray-50/70 border-b border-gray-200/60 flex flex-col gap-3 min-w-0">
+                      
+                      <div className="flex flex-wrap items-center justify-between gap-2.5">
+                        <div className="flex items-center space-x-2.5 min-w-0">
+                          <label className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">
+                            Sesión Activa:
+                          </label>
+                          <select
+                            value={devSessionIndex}
+                            onChange={(e) => {
+                              const idx = parseInt(e.target.value, 10);
+                              setDevSessionIndex(idx);
+                              const sess = sessions[idx];
+                              if (sess) {
+                                const base = sess.server === 'upsdt'
+                                  ? 'https://aulas.upsdt.edu.ec'
+                                  : (sess.server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
+                                setDevBrowserUrl(`${base}/my/`);
+                                setDevIframeKey(k => k + 1); // reload iframe
+                              }
+                            }}
+                            className="text-xs font-mono font-semibold bg-white border border-gray-200 rounded-xl py-1 px-3 focus:outline-none focus:border-blue-500"
+                          >
+                            {sessions.map((sess, idx) => (
+                              <option key={idx} value={idx}>
+                                {sess.username} ({sess.server === 'upsdt' ? 'UPSDT' : sess.server === 'a' ? 'UNEMI P/S' : 'UNEMI Online'})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        
+                        <div className="flex items-center space-x-1.5 shrink-0">
+                          <button
+                            onClick={() => {
+                              const s = sessions[devSessionIndex] || sessions[0];
+                              if (s) {
+                                const base = s.server === 'upsdt'
+                                  ? 'https://aulas.upsdt.edu.ec'
+                                  : (s.server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
+                                setDevBrowserUrl(`${base}/my/`);
+                                setDevIframeKey(k => k + 1);
+                              }
+                            }}
+                            className="bg-white hover:bg-gray-100 text-gray-500 border border-gray-200 hover:text-gray-800 p-2 rounded-xl transition cursor-pointer"
+                            title="Ir al home dashboard (/my/)"
+                          >
+                            <Globe className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setDevIframeKey(k => k + 1)}
+                            className="bg-white hover:bg-gray-100 text-gray-500 border border-gray-200 hover:text-gray-800 p-2 rounded-xl transition cursor-pointer"
+                            title="Recargar página"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* URL input field */}
+                      <div className="flex items-center bg-white border border-gray-200 rounded-xl p-1.5 shadow-3xs min-w-0">
+                        <span className="p-1 px-2.5 text-[10px] font-bold text-gray-400 font-mono bg-gray-50 rounded-lg select-none shrink-0 mr-2">
+                          PROXY HTTP
+                        </span>
+                        <input
+                          type="text"
+                          value={devBrowserUrl}
+                          onChange={(e) => setDevBrowserUrl(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              setDevIframeKey(k => k + 1);
+                            }
+                          }}
+                          className="flex-1 text-xs font-mono text-gray-700 bg-transparent py-1 focus:outline-none placeholder-gray-300 min-w-0"
+                          placeholder="https://aulagradoa.unemi.edu.ec/my/"
+                        />
+                        <button
+                          onClick={() => setDevIframeKey(k => k + 1)}
+                          className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] rounded-lg px-3 py-1.5 cursor-pointer"
+                        >
+                          Ir
+                        </button>
+                      </div>
+
+                    </div>
+
+                    {/* IFrame area */}
+                    <div className="flex-1 w-full bg-gray-100/50 relative">
+                      {sessions[devSessionIndex] ? (
+                        <iframe
+                          key={`${devSessionIndex}-${devIframeKey}`}
+                          src={`/api/moodle/proxy?url=${encodeURIComponent(devBrowserUrl)}&server=${sessions[devSessionIndex].server}&username=${sessions[devSessionIndex].username}&session=${encodeURIComponent(sessions[devSessionIndex].cookies)}`}
+                          className="w-full h-full border-none"
+                          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+                        />
+                      ) : (
+                        <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-gray-400">
+                          <p className="text-xs">Cargando navegador proxy de Moodle...</p>
+                        </div>
+                      )}
+                    </div>
+
+                  </div>
+
+                  {/* Right Column: Actividades/Clicks logs terminal panel */}
+                  <div className="lg:col-span-5 bg-white border border-gray-200/60 rounded-3xl overflow-hidden shadow-xs flex flex-col h-[750px]">
+                    
+                    {/* Panel Header */}
+                    <div className="p-4 bg-gray-50/70 border-b border-gray-200/60 flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-2.5 h-2.5 bg-emerald-500 animate-pulse rounded-full" />
+                        <h3 className="text-xs font-extrabold uppercase tracking-widest text-gray-500">Log de Eventos Detectados</h3>
+                      </div>
+                      <span className="text-[10px] font-mono font-extrabold bg-blue-50 text-blue-600 border border-blue-100 px-2 py-0.5 rounded-lg shrink-0">
+                        {devLogs.length} eventos
+                      </span>
+                    </div>
+
+                    {/* Filters & Actions */}
+                    <div className="p-3 bg-white/70 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[10px] text-gray-400 font-medium">Interacciones del usuario registradas:</p>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(JSON.stringify(devLogs, null, 2));
+                          alert('Logs copiados al portapapeles con éxito.');
+                        }}
+                        className="text-[10px] font-bold text-gray-650 hover:bg-gray-100 px-2.5 py-1 rounded-lg border border-gray-200 shrink-0 transition cursor-pointer"
+                      >
+                        Copiar JSON
+                      </button>
+                    </div>
+
+                    {/* Logs Streams */}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3 font-mono text-[11px] bg-slate-950 text-slate-200">
+                      {devLogs.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-500">
+                          <Cpu className="w-10 h-10 mb-2 opacity-30 animate-pulse text-gray-400" />
+                          <p className="text-[11px] font-medium font-sans">Esperando interacciones en el navegador...</p>
+                          <p className="text-[10px] font-sans mt-1 max-w-[200px]">Haz click en materias, botones u opte por subir archivos para ver el log en vivo.</p>
+                        </div>
+                      ) : (
+                        devLogs.map((log) => {
+                          const timeStr = new Date(log.timestamp).toLocaleTimeString();
+                          
+                          // Format details per event type
+                          if (log.type === 'page_load') {
+                            return (
+                              <div key={log.id} className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sky-400 font-bold">[PAGE_LOAD]</span>
+                                  <span className="text-slate-500 text-[9px]">{timeStr}</span>
+                                </div>
+                                <p className="font-bold text-slate-100 font-sans">{log.data.title || '(Sin título)'}</p>
+                                <p className="text-[10px] text-slate-400 truncate select-all">{log.data.url}</p>
+                              </div>
+                            );
+                          }
+
+                          if (log.type === 'click') {
+                            return (
+                              <div key={log.id} className="p-2.5 rounded-xl bg-slate-900 border border-lime-950/40 space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-amber-400 font-bold">[CLICK]</span>
+                                  <span className="text-slate-500 text-[9px]">{timeStr}</span>
+                                </div>
+                                <div className="grid grid-cols-4 gap-x-1 gap-y-0.5 text-[10px] leading-relaxed">
+                                  <span className="text-slate-500 font-bold">Elemento:</span>
+                                  <span className="col-span-3 text-slate-100 font-bold">
+                                    &lt;{log.data.tag}&gt; {log.data.text}
+                                  </span>
+                                  {log.data.id && (
+                                    <>
+                                      <span className="text-slate-500">ID:</span>
+                                      <span className="col-span-3 text-yellow-200">{log.data.id}</span>
+                                    </>
+                                  )}
+                                  {log.data.className && (
+                                    <>
+                                      <span className="text-slate-500">Clase:</span>
+                                      <span className="col-span-3 text-slate-400 truncate">{log.data.className}</span>
+                                    </>
+                                  )}
+                                  {log.data.href && (
+                                    <>
+                                      <span className="text-slate-500">Href:</span>
+                                      <span className="col-span-3 text-blue-400 truncate select-all">{log.data.href}</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          if (log.type === 'file_selected') {
+                            return (
+                              <div key={log.id} className="p-2.5 rounded-xl bg-slate-900 border border-emerald-950 space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-emerald-400 font-bold flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping" />
+                                    [FICHERO_DETECTADO]
+                                  </span>
+                                  <span className="text-slate-500 text-[9px]">{timeStr}</span>
+                                </div>
+                                <p className="text-[10px] text-slate-400">
+                                  Campo: <span className="font-bold text-slate-300 font-mono">{log.data.inputName}</span>
+                                </p>
+                                <div className="space-y-1">
+                                  {log.data.files && log.data.files.map((file: any, fIdx: number) => {
+                                    const sizeMb = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+                                    return (
+                                      <div key={fIdx} className="bg-emerald-950/20 border border-emerald-800/40 p-2 rounded-lg space-y-0.5">
+                                        <p className="text-emerald-300 font-bold break-all font-sans">{file.name}</p>
+                                        <div className="flex items-center justify-between text-[9px] text-emerald-400/80 font-mono">
+                                          <span>Tamaño: {sizeMb}</span>
+                                          <span>Tipo: {file.type}</span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          return null;
+                        })
+                      )}
+                    </div>
+
+                  </div>
+
+                </div>
+              )}
+
+            </div>
           )}
 
         </div>
