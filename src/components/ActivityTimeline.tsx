@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Clock, CheckCircle, Trash2, Calendar, FileText, Square, CheckSquare, Search, 
   ChevronRight, ChevronDown, Filter, EyeOff, LayoutGrid, ListFilter, AlertCircle, PlusCircle, CheckSquare2,
-  Download, RefreshCw, Eye, BookOpen
+  Download, RefreshCw, Eye, BookOpen, Terminal
 } from 'lucide-react';
 import { TodoTask } from '../types';
 
@@ -985,9 +985,9 @@ export default function ActivityTimeline({
                                               onNavigateToMoodleActivity(task.courseId || '', task.activityUrl || '');
                                             }}
                                             className="bg-slate-50 hover:bg-slate-100/90 text-slate-500 hover:text-blue-600 border border-slate-200 hover:border-blue-200 p-1 rounded-lg transition-all cursor-pointer"
-                                            title="Explorar en Moodle"
+                                            title="Abrir en Developer Sandbox"
                                           >
-                                            <BookOpen className="w-3 h-3 shrink-0" />
+                                            <Terminal className="w-3 h-3 shrink-0" />
                                           </button>
                                         )}
                                       </div>
@@ -1280,9 +1280,9 @@ export default function ActivityTimeline({
                                                           onNavigateToMoodleActivity(task.courseId || '', task.activityUrl || '');
                                                         }}
                                                         className="bg-slate-50 hover:bg-slate-100/90 text-slate-500 hover:text-blue-600 border border-slate-200 hover:border-blue-200 p-1 rounded-lg transition-all cursor-pointer"
-                                                        title="Explorar en Moodle"
+                                                        title="Abrir en Developer Sandbox"
                                                       >
-                                                        <BookOpen className="w-3 h-3 shrink-0" />
+                                                        <Terminal className="w-3 h-3 shrink-0" />
                                                       </button>
                                                     )}
                                                   </div>

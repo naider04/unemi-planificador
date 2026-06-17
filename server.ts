@@ -1227,6 +1227,40 @@ app.all('/api/moodle/proxy', async (req, res) => {
           }
         }
 
+        // Auto-close 'undefined' YUI alerts in Moodle
+        function autoCloseUndefinedDialogs() {
+          try {
+            const widgets = document.querySelectorAll('.yui3-widget, .yui3-panel, .moodle-dialogue, .modal');
+            widgets.forEach(widget => {
+              const textContent = widget.textContent || '';
+              if (textContent.toLowerCase().includes('undefined')) {
+                const closeBtn = widget.querySelector('.closebutton, .yui3-button.closebutton, [data-role="close"]');
+                if (closeBtn) {
+                  closeBtn.click();
+                }
+              }
+            });
+
+            const closeButtons = document.querySelectorAll('.yui3-button.closebutton, .yui3-button .closebutton, button.closebutton');
+            closeButtons.forEach(btn => {
+              const parentPanel = btn.closest('.yui3-widget, .yui3-panel, .moodle-dialogue, .modal');
+              if (parentPanel) {
+                const panelText = parentPanel.textContent || '';
+                if (panelText.toLowerCase().includes('undefined')) {
+                  btn.click();
+                }
+              } else {
+                if (document.body && document.body.textContent && document.body.textContent.includes('undefined')) {
+                  btn.click();
+                }
+              }
+            });
+          } catch (e) {
+            console.error('Error auto-closing:', e);
+          }
+        }
+        setInterval(autoCloseUndefinedDialogs, 300);
+
         // On load
         logEvent('page_load', {
           url: window.location.href,

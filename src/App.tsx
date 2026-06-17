@@ -2289,10 +2289,12 @@ export default function App() {
                   );
                   if (sIdx !== -1) {
                     setActiveSessionIndex(sIdx);
+                    setDevSessionIndex(sIdx);
                   }
                 }
-                setMoodleNavigation({ courseId, activityUrl });
-                setActiveTab('browser');
+                setDevBrowserUrl(activityUrl);
+                setDevIframeKey(k => k + 1);
+                setActiveTab('developer');
               }}
               onClearAgenda={onClearAgenda}
               navigationTrigger={agendaNavigation}
