@@ -125,45 +125,82 @@ export default function App() {
   const [syncedAccountsCount, setSyncedAccountsCount] = useState<number | null>(null);
   const [isVerifyingSessions, setIsVerifyingSessions] = useState<boolean>(false);
 
-  // Global Sync State
-  const [globalSync, setGlobalSync] = useState<{
-    status: 'idle' | 'syncing' | 'paused' | 'interrupted' | 'completed' | 'failed';
+  // Account Sync State for each account individually
+  const [accountSyncs, setAccountSyncs] = useState<Record<string, {
+    status: 'idle' | 'syncing' | 'paused' | 'waiting' | 'interrupted' | 'completed' | 'failed';
     currentCourse: string;
     currentActivity: string;
     processedCount: number;
     totalCount: number;
-    queue: {
-      sessionIndex: number;
-      username: string;
-      server: 'a' | 'b' | 'upsdt';
-      courseId: string;
-      courseName: string;
-      activityUrl: string;
-      type: 'TAREA' | 'CUESTIONARIO';
-      activityName: string;
-    }[];
     logs?: {
       timestamp: string;
       type: 'info' | 'success' | 'warn' | 'error' | 'performance';
       message: string;
       durationMs?: number;
     }[];
-  }>({
-    status: 'idle',
-    currentCourse: '',
-    currentActivity: '',
-    processedCount: 0,
-    totalCount: 0,
-    queue: []
+  }>>(() => {
+    try {
+      const cached = localStorage.getItem('unemi_account_sync_states');
+      return cached ? JSON.parse(cached) : {};
+    } catch {
+      return {};
+    }
   });
+
+  const getAccountSyncState = (sess: MoodleSession) => {
+    const key = `${sess.server}_${sess.username.trim().toLowerCase()}`;
+    return accountSyncs[key] || {
+      status: 'idle',
+      currentCourse: '',
+      currentActivity: '',
+      processedCount: 0,
+      totalCount: 0,
+      logs: []
+    };
+  };
+
+  const updateAccountSyncState = (sess: MoodleSession, newState: Partial<{
+    status: 'idle' | 'syncing' | 'paused' | 'waiting' | 'interrupted' | 'completed' | 'failed';
+    currentCourse: string;
+    currentActivity: string;
+    processedCount: number;
+    totalCount: number;
+    logs?: {
+      timestamp: string;
+      type: 'info' | 'success' | 'warn' | 'error' | 'performance';
+      message: string;
+      durationMs?: number;
+    }[];
+  }>) => {
+    const key = `${sess.server}_${sess.username.trim().toLowerCase()}`;
+    setAccountSyncs(prev => {
+      const updated = {
+        ...prev,
+        [key]: {
+          ...(prev[key] || {
+            status: 'idle',
+            currentCourse: '',
+            currentActivity: '',
+            processedCount: 0,
+            totalCount: 0,
+            logs: []
+          }),
+          ...newState
+        }
+      };
+      localStorage.setItem('unemi_account_sync_states', JSON.stringify(updated));
+      return updated;
+    });
+  };
 
   const [syncingTaskId, setSyncingTaskId] = useState<string | null>(null);
   const [lastSyncedTime, setLastSyncedTime] = useState<number | null>(null);
-  const [syncQueue, setSyncQueue] = useState<MoodleSession[][]>([]);
+  const [syncQueue, setSyncQueue] = useState<MoodleSession[]>([]);
   
   const [notifications, setNotifications] = useState<MoodleNotification[]>([]);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [showSyncLogs, setShowSyncLogs] = useState(false);
+  const [showLogsAccountKey, setShowLogsAccountKey] = useState<string | null>(null);
 
   const updateLastSyncedTimeAndHistory = (time: number) => {
     setLastSyncedTime(time);
@@ -614,16 +651,7 @@ export default function App() {
       }
       setNotifications(localNotifications);
 
-      // Restore Global Sync State
-      const cachedSync = localStorage.getItem('unemi_global_sync_state');
-      if (cachedSync) {
-        try {
-          const parsed = JSON.parse(cachedSync);
-          setGlobalSync(parsed);
-        } catch (e) {
-          console.error('Error recovering global sync state cache:', e);
-        }
-      }
+
 
       // Load user caches from Firestore
       const loadAllFirestoreCaches = async () => {
@@ -984,8 +1012,12 @@ export default function App() {
       }
 
       const data = await res.json();
+      const matchSess = sessions.find(s => `${s.server}_${s.username.trim().toLowerCase()}` === key);
+
       if (!data.job) {
-        setGlobalSync(prev => ({ ...prev, status: 'idle' }));
+        if (matchSess) {
+          updateAccountSyncState(matchSess, { status: 'idle' });
+        }
         return false;
       }
 
@@ -999,14 +1031,12 @@ export default function App() {
           currentActivity: job.currentActivity || 'Buscando actividades...',
           processedCount: job.processedCount,
           totalCount: job.totalCount,
-          queue: [] as any[],
           logs: job.logs || []
         };
 
-        setGlobalSync(nextState);
-
-        // Save progress to local cache too
-        localStorage.setItem('unemi_global_sync_state', JSON.stringify(nextState));
+        if (matchSess) {
+          updateAccountSyncState(matchSess, nextState);
+        }
 
         if (job.validSessionCount !== undefined) {
           setSyncedAccountsCount(job.validSessionCount);
@@ -1047,25 +1077,18 @@ export default function App() {
           localStorage.setItem('unemi_synced_accounts_count', String(sessions.length));
         }
 
-        setGlobalSync({
-          status: 'completed',
+        const nextState = {
+          status: 'completed' as const,
           currentCourse: '',
           currentActivity: '',
           processedCount: job.totalCount,
           totalCount: job.totalCount,
-          queue: [],
           logs: job.logs || []
-        });
+        };
 
-        localStorage.setItem('unemi_global_sync_state', JSON.stringify({
-          status: 'completed',
-          currentCourse: '',
-          currentActivity: '',
-          processedCount: job.totalCount,
-          totalCount: job.totalCount,
-          queue: [],
-          logs: job.logs || []
-        }));
+        if (matchSess) {
+          updateAccountSyncState(matchSess, nextState);
+        }
 
         // Process a final merge of all tasks
         if (job.tasks && job.tasks.length > 0) {
@@ -1089,7 +1112,10 @@ export default function App() {
             return merged;
           });
         }
-        localStorage.removeItem('unemi_sync_key');
+        const currentActiveSyncKey = localStorage.getItem('unemi_sync_key');
+        if (currentActiveSyncKey === key) {
+          localStorage.removeItem('unemi_sync_key');
+        }
         return false;
       } else if (job.status === 'failed') {
         const errMsg = job.error || '';
@@ -1105,7 +1131,10 @@ export default function App() {
             localStorage.setItem('unemi_sessions', JSON.stringify(updated));
             return updated;
           });
-          localStorage.removeItem('unemi_sync_key');
+          const currentActiveSyncKey = localStorage.getItem('unemi_sync_key');
+          if (currentActiveSyncKey === key) {
+            localStorage.removeItem('unemi_sync_key');
+          }
           
           const firstExpired = expiredList.length > 0
             ? sessions.find(s => expiredList.some((e: any) => e.username.toLowerCase() === s.username.toLowerCase() && e.server === s.server))
@@ -1116,51 +1145,47 @@ export default function App() {
             server: firstExpired?.server || sessions[0]?.server || 'a',
             errorMsg: 'Las cuentas o sesiones conectadas han expirado o se cerraron. Por favor ingresa tus datos de acceso en "Conectar Moodle" para continuar.'
           });
-          // Do not automatically redirect to Connections tab to avoid breaking the user's focus
-          setGlobalSync({
-            status: 'failed',
+          
+          const nextState = {
+            status: 'failed' as const,
             currentCourse: 'Sesiones expiradas',
             currentActivity: errMsg,
             processedCount: job.processedCount,
             totalCount: job.totalCount,
-            queue: [],
             logs: job.logs || []
-          });
-          localStorage.setItem('unemi_global_sync_state', JSON.stringify({
-            status: 'failed',
-            currentCourse: 'Sesiones expiradas',
-            currentActivity: errMsg,
-            processedCount: job.processedCount,
-            totalCount: job.totalCount,
-            queue: [],
-            logs: job.logs || []
-          }));
+          };
+
+          if (matchSess) {
+            updateAccountSyncState(matchSess, nextState);
+          }
           return false;
         }
 
-        setGlobalSync({
-          status: 'failed',
+        const nextState = {
+          status: 'failed' as const,
           currentCourse: 'Sincronización interrumpida',
           currentActivity: job.error || 'Ocurrió un error en la conexión',
           processedCount: job.processedCount,
           totalCount: job.totalCount,
-          queue: [],
           logs: job.logs || []
-        });
-        localStorage.setItem('unemi_global_sync_state', JSON.stringify({
-          status: 'failed',
-          currentCourse: 'Terminado con error',
-          currentActivity: job.error || 'Error',
-          processedCount: job.processedCount,
-          totalCount: job.totalCount,
-          queue: [],
-          logs: job.logs || []
-        }));
-        localStorage.removeItem('unemi_sync_key');
+        };
+
+        if (matchSess) {
+          updateAccountSyncState(matchSess, nextState);
+        }
+        const currentActiveSyncKey = localStorage.getItem('unemi_sync_key');
+        if (currentActiveSyncKey === key) {
+          localStorage.removeItem('unemi_sync_key');
+        }
         return false;
       } else {
-        setGlobalSync(prev => ({ ...prev, status: 'idle' }));
-        localStorage.removeItem('unemi_sync_key');
+        if (matchSess) {
+          updateAccountSyncState(matchSess, { status: 'idle' });
+        }
+        const currentActiveSyncKey = localStorage.getItem('unemi_sync_key');
+        if (currentActiveSyncKey === key) {
+          localStorage.removeItem('unemi_sync_key');
+        }
         return false;
       }
     } catch (err) {
@@ -1175,21 +1200,21 @@ export default function App() {
     let active = true;
     let timer: any = null;
 
-    const tick = async () => {
-      const savedKey = localStorage.getItem('unemi_sync_key') || (sessions.length > 0 ? sessions.map(s => `${s.server}_${s.username.trim().toLowerCase()}`).sort().join('_') : null);
-      if (!savedKey) {
-        setGlobalSync(prev => ({ ...prev, status: 'idle' }));
-        return;
-      }
+    const syncingAccount = sessions.find(s => {
+      const sKey = `${s.server}_${s.username.trim().toLowerCase()}`;
+      return accountSyncs[sKey]?.status === 'syncing';
+    });
 
-      const shouldContinue = await pollBackgroundSync(savedKey);
+    const tick = async () => {
+      if (!syncingAccount) return;
+      const sKey = `${syncingAccount.server}_${syncingAccount.username.trim().toLowerCase()}`;
+      const shouldContinue = await pollBackgroundSync(sKey);
       if (active && shouldContinue) {
         timer = setTimeout(tick, 2000);
       }
     };
 
-    // If syncing on mount/state update, run the ticker
-    if (globalSync.status === 'syncing') {
+    if (syncingAccount) {
       tick();
     }
 
@@ -1197,7 +1222,7 @@ export default function App() {
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, [globalSync.status, sessions]);
+  }, [accountSyncs, sessions]);
 
   // Trigger server-side background sync
   const startGlobalSync = async (sessionsToSync?: MoodleSession[]) => {
@@ -1207,41 +1232,78 @@ export default function App() {
       return;
     }
 
-    if (globalSync.status === 'syncing') {
-      setSyncQueue(prev => [...prev, list]);
+    if (list.length > 1) {
+      // Add all of them to the sync queue if they aren't already queued or syncing
+      setSyncQueue(prev => {
+        const updated = [...prev];
+        list.forEach(s => {
+          const isAlreadyQueued = updated.some(q => q.username.toLowerCase() === s.username.toLowerCase() && q.server === s.server);
+          const sKey = `${s.server}_${s.username.trim().toLowerCase()}`;
+          const currentStatus = accountSyncs[sKey]?.status;
+          const isAlreadySyncing = currentStatus === 'syncing';
+          
+          if (!isAlreadyQueued && !isAlreadySyncing) {
+            updated.push(s);
+            // Mark its status as 'waiting' immediately!
+            updateAccountSyncState(s, {
+              status: 'waiting',
+              currentCourse: 'Esperando turno...',
+              currentActivity: 'En cola para sincronización...',
+              processedCount: 0,
+              totalCount: 0,
+              logs: []
+            });
+          }
+        });
+        return updated;
+      });
       return;
     }
 
-    setSyncedAccountsCount(list.length);
-    localStorage.setItem('unemi_synced_accounts_count', String(list.length));
+    // If it's a single session
+    const singleSession = list[0];
+    const sKey = `${singleSession.server}_${singleSession.username.trim().toLowerCase()}`;
 
-    const key = list.map(s => `${s.server}_${s.username.trim().toLowerCase()}`).sort().join('_');
-    localStorage.setItem('unemi_sync_key', key);
+    // Check if another account is currently syncing
+    const isAnySyncing = Object.keys(accountSyncs).some(k => accountSyncs[k]?.status === 'syncing');
+    if (isAnySyncing) {
+      // Mark as waiting and add to queue if not already there
+      setSyncQueue(prev => {
+        const isAlreadyQueued = prev.some(q => q.username.toLowerCase() === singleSession.username.toLowerCase() && q.server === singleSession.server);
+        if (!isAlreadyQueued) {
+          updateAccountSyncState(singleSession, {
+            status: 'waiting',
+            currentCourse: 'Esperando turno...',
+            currentActivity: 'En cola para sincronización...',
+            processedCount: 0,
+            totalCount: 0,
+            logs: []
+          });
+          return [...prev, singleSession];
+        }
+        return prev;
+      });
+      return;
+    }
 
-    setGlobalSync({
+    // Start sync for this single session!
+    updateAccountSyncState(singleSession, {
       status: 'syncing',
       currentCourse: 'Enviando petición...',
-      currentActivity: 'Iniciando el scraping de todas tus materias...',
+      currentActivity: 'Iniciando el scraping de tu cuenta...',
       processedCount: 0,
       totalCount: 0,
-      queue: []
+      logs: []
     });
 
-    localStorage.setItem('unemi_global_sync_state', JSON.stringify({
-      status: 'syncing',
-      currentCourse: 'Mapeando materias...',
-      currentActivity: 'Conectando con aulas virtuales...',
-      processedCount: 0,
-      totalCount: 0,
-      queue: []
-    }));
+    localStorage.setItem('unemi_sync_key', sKey);
 
     try {
       const apiBase = import.meta.env.VITE_API_URL || '';
       const res = await fetch(`${apiBase}/api/moodle/sync/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessions: list })
+        body: JSON.stringify({ sessions: [singleSession] })
       });
 
       if (!res.ok) {
@@ -1253,67 +1315,65 @@ export default function App() {
         pollBackgroundSync(data.key);
       }
     } catch (err: any) {
-      setGlobalSync({
+      updateAccountSyncState(singleSession, {
         status: 'failed',
         currentCourse: 'Sincronización interrumpida',
         currentActivity: err.message || 'Error al conectar con la API de sincronización',
         processedCount: 0,
-        totalCount: 0,
-        queue: []
+        totalCount: 0
       });
-      localStorage.setItem('unemi_global_sync_state', JSON.stringify({
-        status: 'failed',
-        currentCourse: 'Terminado con error',
-        currentActivity: err.message || 'Error',
-        processedCount: 0,
-        totalCount: 0,
-        queue: []
-      }));
     }
   };
 
-  const pauseGlobalSync = () => {
-    // Standard pause mapped to cancel to avoid blocking, since background processing is server side
-    cancelGlobalSync();
+  const pauseGlobalSync = (sess: MoodleSession) => {
+    cancelGlobalSync(sess);
   };
 
-  const cancelGlobalSync = async () => {
-    const key = sessions.map(s => `${s.server}_${s.username.trim().toLowerCase()}`).sort().join('_');
-    localStorage.removeItem('unemi_sync_key');
-    setGlobalSync({
+  const cancelGlobalSync = async (sess: MoodleSession) => {
+    const sKey = `${sess.server}_${sess.username.trim().toLowerCase()}`;
+    
+    // Remove from queue if it is there
+    setSyncQueue(prev => prev.filter(q => q.username.toLowerCase() !== sess.username.toLowerCase() || q.server !== sess.server));
+
+    updateAccountSyncState(sess, {
       status: 'idle',
       currentCourse: '',
       currentActivity: '',
       processedCount: 0,
       totalCount: 0,
-      queue: []
+      logs: []
     });
-    localStorage.removeItem('unemi_global_sync_state');
+
+    const currentActiveSyncKey = localStorage.getItem('unemi_sync_key');
+    if (currentActiveSyncKey === sKey) {
+      localStorage.removeItem('unemi_sync_key');
+    }
 
     try {
       const apiBase = import.meta.env.VITE_API_URL || '';
       await fetch(`${apiBase}/api/moodle/sync/cancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key })
+        body: JSON.stringify({ key: sKey })
       });
     } catch (e) {
       // Ignored silently
     }
   };
 
-  // FIFO Queue to schedule sync requests sequentially when the status is not 'syncing'
+  // FIFO Queue to schedule sync requests sequentially when no account is actively syncing
   useEffect(() => {
-    if (globalSync.status !== 'syncing' && syncQueue.length > 0) {
-      const nextSessions = syncQueue[0];
+    const isAnySyncing = Object.keys(accountSyncs).some(k => accountSyncs[k]?.status === 'syncing');
+    if (!isAnySyncing && syncQueue.length > 0) {
+      const nextSession = syncQueue[0];
       setSyncQueue(prev => prev.slice(1));
       
       const timer = setTimeout(() => {
-        startGlobalSync(nextSessions);
+        startGlobalSync([nextSession]);
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [globalSync.status, syncQueue]);
+  }, [accountSyncs, syncQueue]);
 
   // Set up tracking tracker on startup or change
   useEffect(() => {
@@ -1661,26 +1721,29 @@ export default function App() {
 
           {/* Connection badge status & Notifications bell */}
           <div className="flex items-center space-x-4">
-            {sessions.length > 0 ? (
+            {sessions.filter(s => !s.expired).length > 0 ? (
               <div className="hidden md:flex flex-wrap items-center gap-1.5">
-                {sessions.map((sess, idx) => (
-                  <div 
-                    key={idx}
-                    onClick={() => {
-                      setActiveSessionIndex(idx);
-                      setActiveTab('browser');
-                    }}
-                    className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border cursor-pointer select-none transition-all ${
-                      idx === activeSessionIndex
-                        ? 'bg-blue-50 text-blue-700 border-blue-200'
-                        : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
-                    }`}
-                    title={`Hacer activo: ${sess.username}`}
-                  >
-                    <span className={`w-1.5 h-1.5 rounded-full ${idx === activeSessionIndex ? 'bg-blue-500 animate-pulse' : 'bg-gray-400'}`}></span>
-                    <span>{sess.username} ({sess.server === 'upsdt' ? 'UPSDT' : (sess.server === 'a' ? 'UNEMI P/S' : 'UNEMI Online')})</span>
-                  </div>
-                ))}
+                {sessions.map((sess, idx) => {
+                  if (sess.expired) return null;
+                  return (
+                    <div 
+                      key={idx}
+                      onClick={() => {
+                        setActiveSessionIndex(idx);
+                        setActiveTab('browser');
+                      }}
+                      className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border cursor-pointer select-none transition-all ${
+                        idx === activeSessionIndex
+                          ? 'bg-blue-50 text-blue-700 border-blue-200'
+                          : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
+                      }`}
+                      title={`Hacer activo: ${sess.username}`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${idx === activeSessionIndex ? 'bg-blue-500 animate-pulse' : 'bg-gray-400'}`}></span>
+                      <span>{sess.username} ({sess.server === 'upsdt' ? 'UPSDT' : (sess.server === 'a' ? 'UNEMI P/S' : 'UNEMI Online')})</span>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <span className="hidden md:flex items-center space-x-1 text-xs text-gray-400 bg-gray-50 border border-gray-100 px-3 py-1 rounded-full">
@@ -1860,254 +1923,174 @@ export default function App() {
             </div>
             <h2 className="hidden sm:block text-sm md:text-base font-extrabold text-gray-900 leading-snug">Sincronizador de Materias</h2>
             
-            {/* Sync control block */}
-            <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl space-y-2 shadow-2xs max-w-md w-full">
-              {globalSync.status === 'idle' && (
-                <div className="space-y-1.5">
-                  <p className="hidden sm:block text-[11px] text-gray-500 font-medium">Sincroniza todas las materias de tus {sessions.length} cuentas en segundo plano.</p>
-                  <button
-                    type="button"
-                    onClick={() => startGlobalSync()}
-                    disabled={sessions.length === 0}
-                    className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 transition-all shadow-xs active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5 text-white shrink-0" />
-                    <span>Sincronizar Todas las Materias</span>
-                  </button>
-                  {sessions.length === 0 && (
-                    <p className="text-[9px] text-rose-500 font-bold text-center">⚠️ Conecta una cuenta para habilitar la sincronización.</p>
-                  )}
+            {/* Sync control block duplicated/mapped per account */}
+            <div className="space-y-3 max-w-md w-full">
+              {sessions.filter(s => !s.expired).length === 0 ? (
+                <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-center">
+                  <p className="text-[11px] text-rose-500 font-bold">⚠️ Conecta una cuenta para habilitar la sincronización.</p>
                 </div>
-              )}
+              ) : (
+                sessions.filter(s => !s.expired).map((sess) => {
+                  const sState = getAccountSyncState(sess);
+                  const sKey = `${sess.server}_${sess.username.trim().toLowerCase()}`;
+                  const isQueued = syncQueue.some(q => q.username.toLowerCase() === sess.username.toLowerCase() && q.server === sess.server);
 
-              {globalSync.status === 'syncing' && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-1.5 min-w-0">
-                      <span className="text-[10px] font-extrabold text-blue-600 uppercase tracking-wider shrink-0 animate-pulse">Sincronizando...</span>
-                      {globalSync.logs && globalSync.logs.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setShowSyncLogs(!showSyncLogs)}
-                          className="text-[9px] text-gray-400 hover:text-gray-600 font-bold hover:underline cursor-pointer focus:outline-hidden shrink-0 normal-case"
-                        >
-                          {showSyncLogs ? '(ocultar)' : '(ver proceso)'}
-                        </button>
-                      )}
-                    </div>
-                    <span className="text-[11px] font-mono font-bold text-gray-600 shrink-0">{globalSync.processedCount} de {globalSync.totalCount || '?'}</span>
-                  </div>
-                  <div className="w-full bg-blue-100/40 h-1.5 rounded-full overflow-hidden">
-                    <div 
-                      className="bg-blue-600 h-full rounded-full transition-all duration-300"
-                      style={{ width: `${globalSync.totalCount > 0 ? (globalSync.processedCount / globalSync.totalCount) * 100 : 10}%` }}
-                    />
-                  </div>
-                  <div className="text-[10px] text-gray-500 leading-tight space-y-0.5">
-                    <p className="font-semibold text-gray-700 truncate">Materia: <span className="font-extrabold text-slate-800">{globalSync.currentCourse || 'Descubriendo...'}</span></p>
-                    <p className="italic truncate text-slate-500">Detalle: {globalSync.currentActivity || 'Buscando actividades...'}</p>
-                  </div>
-                  <div className="flex space-x-1.5 pt-1">
-                    <button
-                      type="button"
-                      onClick={pauseGlobalSync}
-                      className="flex-1 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-[10px] font-bold rounded-lg cursor-pointer transition-all text-center"
-                    >
-                      Pausar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={cancelGlobalSync}
-                      className="flex-1 py-1 bg-red-50 hover:bg-red-100 border border-red-200 text-red-800 text-[10px] font-bold rounded-lg cursor-pointer transition-all text-center"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {globalSync.status === 'paused' && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <div className="flex items-center space-x-1.5 min-w-0">
-                      <span className="font-extrabold text-amber-600 uppercase shrink-0">Sincronización Pausada</span>
-                      {globalSync.logs && globalSync.logs.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setShowSyncLogs(!showSyncLogs)}
-                          className="text-[9px] text-gray-400 hover:text-gray-600 font-bold hover:underline cursor-pointer focus:outline-hidden shrink-0 normal-case"
-                        >
-                          {showSyncLogs ? '(ocultar)' : '(ver proceso)'}
-                        </button>
-                      )}
-                    </div>
-                    <span className="font-mono text-gray-500 shrink-0">{globalSync.processedCount} de {globalSync.totalCount}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => startGlobalSync()}
-                    className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-bold flex items-center justify-center space-x-1.5 cursor-pointer transition-all"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5 shrink-0" />
-                    <span>Reanudar Sincronización</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={cancelGlobalSync}
-                    className="w-full py-1 border border-red-200 text-red-600 hover:bg-red-50 text-[9px] font-bold rounded-lg cursor-pointer text-center"
-                  >
-                    Reiniciar de Cero
-                  </button>
-                </div>
-              )}
-
-              {globalSync.status === 'interrupted' && (
-                <div className="space-y-2">
-                  <div className="space-y-1">
-                    <p className="text-[11px] text-red-600 font-extrabold flex items-center gap-1.5">
-                      <span>⚠️ ¡Sincronización Interrumpida!</span>
-                      {globalSync.logs && globalSync.logs.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setShowSyncLogs(!showSyncLogs)}
-                          className="text-[9px] text-gray-400 normal-case hover:text-gray-600 font-bold hover:underline cursor-pointer focus:outline-hidden"
-                        >
-                          {showSyncLogs ? '(ocultar proceso)' : '(ver proceso)'}
-                        </button>
-                      )}
-                    </p>
-                    <p className="text-[10px] text-gray-500 leading-normal">Se detectó que la sincronización previa fue interrumpida. Puedes reanudarla desde donde se quedó para ahorrar tiempo.</p>
-                  </div>
-                  <div className="flex space-x-1.5 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => startGlobalSync()}
-                      className="flex-grow py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-extrabold rounded-lg flex items-center justify-center space-x-1 cursor-pointer transition-all shadow-2xs"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5 shrink-0" />
-                      <span>Reanudar ({globalSync.processedCount} / {globalSync.totalCount})</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={cancelGlobalSync}
-                      className="py-1.5 px-3 border border-red-200 text-red-700 hover:bg-red-50 text-[10px] font-bold rounded-lg cursor-pointer transition-all"
-                    >
-                      Reiniciar
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {globalSync.status === 'completed' && (
-                <div className="space-y-2 text-left">
-                  <div className="space-y-1">
-                    <p className="text-[11px] text-emerald-600 font-extrabold flex items-center gap-1.5 font-sans leading-none">
-                      <span className="inline-block w-2 bg-emerald-500 rounded-full animate-pulse h-2 shrink-0" />
-                      <span>¡Todas las materias actualizadas!</span>
-                      {globalSync.logs && globalSync.logs.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setShowSyncLogs(!showSyncLogs)}
-                          className="text-[9px] text-gray-450 normal-case hover:text-gray-600 font-bold hover:underline cursor-pointer focus:outline-hidden ml-1"
-                        >
-                          {showSyncLogs ? '(ocultar)' : '(ver proceso)'}
-                        </button>
-                      )}
-                    </p>
-                    {lastSyncedTime && (
-                      <p className="text-[9px] text-slate-500 font-bold leading-normal">
-                        Última sincronización completa {syncedAccountsCount !== null ? `(${syncedAccountsCount} cuenta${syncedAccountsCount !== 1 ? 's' : ''} sincronizada${syncedAccountsCount !== 1 ? 's' : ''})` : ''}: {getRelativeLastSyncedTime()}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => startGlobalSync()}
-                    className="w-full py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-[10px] font-bold rounded-xl cursor-pointer transition-all flex items-center justify-center space-x-1.5"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                    <span>Actualizar todo de nuevo</span>
-                  </button>
-                </div>
-              )}
-
-              {globalSync.status === 'failed' && (
-                <div className="space-y-2">
-                  <div className="space-y-1">
-                    <p className="text-[11px] text-rose-600 font-extrabold flex items-center gap-1.5 leading-none">
-                      <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-                      <span>Sincronización Fallida</span>
-                      {globalSync.logs && globalSync.logs.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setShowSyncLogs(!showSyncLogs)}
-                          className="text-[9px] text-gray-400 normal-case hover:text-gray-600 font-bold hover:underline cursor-pointer focus:outline-hidden ml-1"
-                        >
-                          {showSyncLogs ? '(ocultar)' : '(ver proceso)'}
-                        </button>
-                      )}
-                    </p>
-                    <p className="text-[10px] text-slate-500 leading-normal bg-rose-50/70 border border-rose-100 rounded-xl p-2.5 font-medium">
-                      {globalSync.currentActivity || 'No se pudo contactar con las aulas virtuales.'}
-                    </p>
-                  </div>
-                  <div className="flex space-x-1.5 pt-0.5">
-                    <button
-                      type="button"
-                      onClick={() => startGlobalSync()}
-                      className="flex-grow py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-extrabold rounded-lg flex items-center justify-center space-x-1 cursor-pointer transition-all shadow-2xs"
-                    >
-                      <RefreshCw className="w-3 h-3 shrink-0" />
-                      <span>Reintentar</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={cancelGlobalSync}
-                      className="py-1.5 px-3 border border-gray-200 text-gray-700 hover:bg-gray-50 text-[10px] font-bold rounded-lg cursor-pointer transition-all"
-                    >
-                      Cerrar
-                    </button>
-                  </div>
-                </div>
-              )}
-              
-              {/* Registro de rendimiento y tiempos detailed container */}
-              {showSyncLogs && globalSync.logs && globalSync.logs.length > 0 && (
-                <div className="mt-3.5 p-3 bg-slate-900 border border-slate-950 text-slate-100 rounded-2xl shadow-inner space-y-2 font-mono text-[10px]">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                    <span className="font-extrabold text-[9px] text-slate-400 flex items-center gap-1.5">
-                      <span className="inline-block w-2 bg-blue-500 rounded-full animate-ping h-2 shrink-0" />
-                      REGISTRO DE RENDIMIENTO
-                    </span>
-                    <span className="text-[9px] text-slate-500 font-extrabold">
-                      {globalSync.logs.length} ENTRADAS
-                    </span>
-                  </div>
-                  <div className="max-h-36 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-slate-800 scrolling-touch pr-1">
-                    {globalSync.logs.map((log, idx) => {
-                      let badgeColor = "text-blue-400 bg-blue-950/40";
-                      if (log.type === 'success') { badgeColor = "text-emerald-400 bg-emerald-950/40"; }
-                      if (log.type === 'warn') { badgeColor = "text-amber-400 bg-amber-950/30"; }
-                      if (log.type === 'error') { badgeColor = "text-rose-400 bg-rose-950/40"; }
-                      if (log.type === 'performance') { badgeColor = "text-purple-400 bg-purple-950/30"; }
-
-                      return (
-                        <div key={idx} className="flex items-start space-x-1.5 py-0.5 border-b border-slate-800/10 last:border-0 leading-normal">
-                          <span className="text-slate-500 shrink-0 font-light select-none">{log.timestamp}</span>
-                          <span className={`px-1 rounded-sm text-[8px] font-bold tracking-wider shrink-0 select-none uppercase ${badgeColor}`}>
-                            {log.type}
+                  return (
+                    <div key={sKey} className="p-3.5 bg-slate-50 border border-slate-250/60 rounded-2xl space-y-2 shadow-2xs">
+                      {/* Account header */}
+                      <div className="flex items-center justify-between border-b border-gray-150/40 pb-1.5">
+                        <div className="flex items-center space-x-1.5 min-w-0">
+                          <span className="text-[10px] font-extrabold text-slate-700 truncate">
+                            {sess.username} ({sess.server === 'upsdt' ? 'UPSDT' : (sess.server === 'a' ? 'UNEMI P/S' : 'UNEMI Online')})
                           </span>
-                          <span className="flex-1 text-slate-300 font-sans break-words whitespace-pre-wrap">{log.message}</span>
-                          {log.durationMs !== undefined && (
-                            <span className="px-1 py-0.5 rounded-sm bg-slate-800/80 text-[8.5px] font-bold text-amber-500 shrink-0 select-none">
-                              {log.durationMs >= 1000 ? `${(log.durationMs / 1000).toFixed(2)}s` : `${log.durationMs}ms`}
+                        </div>
+                        <div className="flex items-center space-x-1.5 shrink-0">
+                          {sState.logs && sState.logs.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setShowLogsAccountKey(showLogsAccountKey === sKey ? null : sKey)}
+                              className="text-[9px] text-gray-400 hover:text-gray-600 font-bold hover:underline cursor-pointer focus:outline-hidden normal-case"
+                            >
+                              {showLogsAccountKey === sKey ? '(ocultar)' : '(ver proceso)'}
+                            </button>
+                          )}
+                          {sState.status === 'syncing' && (
+                            <span className="text-[9px] bg-blue-100 text-blue-800 font-extrabold px-1.5 py-0.5 rounded-full animate-pulse">
+                              Sincronizando
+                            </span>
+                          )}
+                          {sState.status === 'waiting' && (
+                            <span className="text-[9px] bg-amber-100 text-amber-800 font-extrabold px-1.5 py-0.5 rounded-full">
+                              En cola
+                            </span>
+                          )}
+                          {sState.status === 'completed' && (
+                            <span className="text-[9px] bg-emerald-100 text-emerald-800 font-extrabold px-1.5 py-0.5 rounded-full">
+                              Al día
+                            </span>
+                          )}
+                          {sState.status === 'failed' && (
+                            <span className="text-[9px] bg-red-100 text-red-800 font-extrabold px-1.5 py-0.5 rounded-full">
+                              Fallido
+                            </span>
+                          )}
+                          {sState.status === 'idle' && !isQueued && (
+                            <span className="text-[9px] bg-gray-150 text-gray-700 font-bold px-1.5 py-0.5 rounded-full">
+                              Inactivo
                             </span>
                           )}
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                      </div>
+
+                      {/* Status display */}
+                      {sState.status === 'idle' && (
+                        <div className="space-y-1.5">
+                          <button
+                            type="button"
+                            onClick={() => startGlobalSync([sess])}
+                            className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold flex items-center justify-center space-x-1.5 transition-all shadow-xs active:scale-[0.98] cursor-pointer"
+                          >
+                            <RefreshCw className="w-3 h-3 text-white shrink-0" />
+                            <span>Sincronizar esta cuenta</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {(sState.status === 'syncing' || sState.status === 'waiting') && (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="font-semibold text-slate-500">Progreso materias</span>
+                            <span className="font-mono font-bold text-gray-600">{sState.processedCount} de {sState.totalCount || '?'}</span>
+                          </div>
+                          <div className="w-full bg-blue-100/40 h-1.5 rounded-full overflow-hidden">
+                            <div 
+                              className="bg-blue-600 h-full rounded-full transition-all duration-300"
+                              style={{ width: `${sState.totalCount > 0 ? (sState.processedCount / sState.totalCount) * 100 : 10}%` }}
+                            />
+                          </div>
+                          <div className="text-[10px] text-gray-500 leading-tight space-y-0.5">
+                            <p className="font-semibold text-gray-700 truncate">Materia: <span className="font-extrabold text-slate-800">{sState.currentCourse || 'Conectando...'}</span></p>
+                            <p className="italic truncate text-slate-500">Detalle: {sState.currentActivity || 'Buscando actividades...'}</p>
+                          </div>
+                          <div className="flex space-x-1.5 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => cancelGlobalSync(sess)}
+                              className="flex-grow py-1 bg-red-50 hover:bg-red-100 border border-red-200 text-red-800 text-[10px] font-bold rounded-lg cursor-pointer transition-all text-center"
+                            >
+                              Cancelar Sincronización
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {sState.status === 'completed' && (
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] text-emerald-600 font-bold">✓ ¡Materias actualizadas con éxito!</p>
+                          <button
+                            type="button"
+                            onClick={() => startGlobalSync([sess])}
+                            className="w-full py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-[10px] font-bold rounded-lg cursor-pointer transition-all flex items-center justify-center space-x-1"
+                          >
+                            <RefreshCw className="w-3 h-3 text-emerald-700 shrink-0" />
+                            <span>Actualizar de nuevo</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {sState.status === 'failed' && (
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] text-rose-500 font-bold truncate">Error: {sState.currentActivity || 'Error de conexión'}</p>
+                          <div className="flex space-x-1.5">
+                            <button
+                              type="button"
+                              onClick={() => startGlobalSync([sess])}
+                              className="flex-1 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold rounded-lg cursor-pointer transition-all text-center"
+                            >
+                              Reintentar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => cancelGlobalSync(sess)}
+                              className="flex-1 py-1 bg-gray-100 hover:bg-gray-200 text-gray-750 text-[10px] font-bold rounded-lg cursor-pointer transition-all text-center"
+                            >
+                              Cerrar
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Render specific account logs if opened */}
+                      {showLogsAccountKey === sKey && sState.logs && sState.logs.length > 0 && (
+                        <div className="mt-2.5 p-2.5 bg-slate-900 border border-slate-950 text-slate-100 rounded-xl shadow-inner space-y-1.5 font-mono text-[9px] max-h-36 overflow-y-auto">
+                          <div className="flex items-center justify-between border-b border-slate-800 pb-1">
+                            <span className="font-extrabold text-[8px] text-slate-400">REGISTRO DE PROCESO</span>
+                            <span className="text-[8px] text-slate-500">{sState.logs.length} ENTRADAS</span>
+                          </div>
+                          <div className="space-y-1">
+                            {sState.logs.map((log, idx) => {
+                              let badgeColor = "text-blue-400 bg-blue-950/40";
+                              if (log.type === 'success') { badgeColor = "text-emerald-400 bg-emerald-950/40"; }
+                              if (log.type === 'warn') { badgeColor = "text-amber-400 bg-amber-950/30"; }
+                              if (log.type === 'error') { badgeColor = "text-rose-400 bg-rose-950/40"; }
+                              if (log.type === 'performance') { badgeColor = "text-purple-400 bg-purple-950/30"; }
+
+                              return (
+                                <div key={idx} className="flex items-start space-x-1 py-0.5 leading-normal">
+                                  <span className="text-slate-500 shrink-0 font-light select-none">{log.timestamp}</span>
+                                  <span className={`px-1 rounded-sm text-[7px] font-bold shrink-0 select-none uppercase ${badgeColor}`}>
+                                    {log.type}
+                                  </span>
+                                  <span className="flex-1 text-slate-300 font-sans break-words whitespace-pre-wrap">{log.message}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
