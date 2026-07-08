@@ -812,6 +812,28 @@ export default function App() {
 
   // 2. State Actions handlers
   const handleLoginSuccess = async (newSession: MoodleSession) => {
+    // 1. Async fetch and merge this user's cache from Firestore immediately on login BEFORE state updates
+    let fetchedTasks: TodoTask[] = [];
+    let fetchedNotifications: MoodleNotification[] = [];
+    let fetchedSyncedTime: number | null = null;
+
+    try {
+      const firestoreCache = await fetchUserCacheFromFirestore(newSession.server, newSession.username);
+      if (firestoreCache) {
+        if (firestoreCache.tasks && firestoreCache.tasks.length > 0) {
+          fetchedTasks = firestoreCache.tasks;
+        }
+        if (firestoreCache.notifications && firestoreCache.notifications.length > 0) {
+          fetchedNotifications = firestoreCache.notifications;
+        }
+        if (firestoreCache.lastSyncedTime) {
+          fetchedSyncedTime = firestoreCache.lastSyncedTime;
+        }
+      }
+    } catch (err) {
+      console.error(`Error loading database cache for ${newSession.username} on login:`, err);
+    }
+
     const existsIdx = sessions.findIndex(
       s => s.username.toLowerCase() === newSession.username.toLowerCase() && s.server === newSession.server
     );
@@ -829,25 +851,46 @@ export default function App() {
       s => s.username.toLowerCase() === newSession.username.toLowerCase() && s.server === newSession.server
     );
     setActiveSessionIndex(idx !== -1 ? idx : updatedSessions.length - 1);
-    setActiveTab('browser'); // take them to Moodle browser immediately
+    
+    // Switch tab to login to stay on "Mis conexiones" tab (no auto-redirect to browser)
+    setActiveTab('login');
     setPrefillLogin(null); // Clear any active reconnect/prefill error values
 
-    // Async fetch and merge this user's cache from Firestore immediately on login
-    try {
-      const firestoreCache = await fetchUserCacheFromFirestore(newSession.server, newSession.username);
-      if (firestoreCache && firestoreCache.tasks && firestoreCache.tasks.length > 0) {
-        setTasks(prevTasks => {
-          const merged = mergeTasksLists(prevTasks, firestoreCache.tasks);
-          localStorage.setItem('unemi_tasks', JSON.stringify(merged));
-          return merged;
+    // 2. Merge and set fetched tasks
+    if (fetchedTasks.length > 0) {
+      setTasks(prevTasks => {
+        const merged = mergeTasksLists(prevTasks, fetchedTasks);
+        localStorage.setItem('unemi_tasks', JSON.stringify(merged));
+        return merged;
+      });
+    }
+
+    // 3. Merge and set fetched notifications
+    if (fetchedNotifications.length > 0) {
+      setNotifications(prevNotifs => {
+        const merged = [...prevNotifs];
+        fetchedNotifications.forEach(fn => {
+          if (!merged.some(mn => mn.id === fn.id)) {
+            merged.push(fn);
+          } else {
+            const existingIdx = merged.findIndex(mn => mn.id === fn.id);
+            if (existingIdx !== -1) {
+              merged[existingIdx] = {
+                ...fn,
+                read: merged[existingIdx].read || fn.read
+              };
+            }
+          }
         });
-        if (firestoreCache.lastSyncedTime && (!lastSyncedTime || firestoreCache.lastSyncedTime > lastSyncedTime)) {
-          setLastSyncedTime(firestoreCache.lastSyncedTime);
-          localStorage.setItem('unemi_last_global_sync_time', String(firestoreCache.lastSyncedTime));
-        }
-      }
-    } catch (err) {
-      console.error(`Error loading database cache for ${newSession.username} on login:`, err);
+        localStorage.setItem('unemi_notifications', JSON.stringify(merged));
+        return merged;
+      });
+    }
+
+    // 4. Update last synced time
+    if (fetchedSyncedTime && (!lastSyncedTime || fetchedSyncedTime > lastSyncedTime)) {
+      setLastSyncedTime(fetchedSyncedTime);
+      localStorage.setItem('unemi_last_global_sync_time', String(fetchedSyncedTime));
     }
 
     // Automatically trigger background global sync on login / reconnect
@@ -1196,33 +1239,28 @@ export default function App() {
   };
 
   // Poll loop mechanism
+  const syncingAccountKey = Object.keys(accountSyncs).find(k => accountSyncs[k]?.status === 'syncing') || null;
+
   useEffect(() => {
     let active = true;
     let timer: any = null;
 
-    const syncingAccount = sessions.find(s => {
-      const sKey = `${s.server}_${s.username.trim().toLowerCase()}`;
-      return accountSyncs[sKey]?.status === 'syncing';
-    });
+    if (!syncingAccountKey) return;
 
     const tick = async () => {
-      if (!syncingAccount) return;
-      const sKey = `${syncingAccount.server}_${syncingAccount.username.trim().toLowerCase()}`;
-      const shouldContinue = await pollBackgroundSync(sKey);
+      const shouldContinue = await pollBackgroundSync(syncingAccountKey);
       if (active && shouldContinue) {
         timer = setTimeout(tick, 2000);
       }
     };
 
-    if (syncingAccount) {
-      tick();
-    }
+    tick();
 
     return () => {
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, [accountSyncs, sessions]);
+  }, [syncingAccountKey, sessions]);
 
   // Trigger server-side background sync
   const startGlobalSync = async (sessionsToSync?: MoodleSession[]) => {
@@ -1367,11 +1405,7 @@ export default function App() {
     if (!isAnySyncing && syncQueue.length > 0) {
       const nextSession = syncQueue[0];
       setSyncQueue(prev => prev.slice(1));
-      
-      const timer = setTimeout(() => {
-        startGlobalSync([nextSession]);
-      }, 1000);
-      return () => clearTimeout(timer);
+      startGlobalSync([nextSession]);
     }
   }, [accountSyncs, syncQueue]);
 
@@ -1755,7 +1789,13 @@ export default function App() {
             <div className="relative">
               <button 
                 type="button"
-                onClick={() => setIsNotifOpen(!isNotifOpen)}
+                onClick={() => {
+                  const nextOpen = !isNotifOpen;
+                  setIsNotifOpen(nextOpen);
+                  if (nextOpen) {
+                    markAllNotificationsRead();
+                  }
+                }}
                 className="relative p-2 text-gray-600 hover:text-blue-600 bg-gray-50 hover:bg-blue-100/50 rounded-xl transition-all border border-gray-100 cursor-pointer flex items-center justify-center focus:outline-hidden"
                 id="bell-icon-btn"
                 title="Notificaciones de cambios"
@@ -1770,10 +1810,17 @@ export default function App() {
 
               {/* Notifications Popover dropdown */}
               {isNotifOpen && (
-                <div 
-                  id="notifications-popover-panel"
-                  className="absolute right-0 mt-2.5 w-80 md:w-96 bg-white border border-gray-150 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-3 duration-200"
-                >
+                <>
+                  {/* Backdrop to close notifications when clicking outside */}
+                  <div 
+                    className="fixed inset-0 z-40 bg-transparent cursor-default" 
+                    onClick={() => setIsNotifOpen(false)} 
+                  />
+                  <div 
+                    id="notifications-popover-panel"
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute right-0 mt-2.5 w-80 md:w-96 bg-white border border-gray-150 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-3 duration-200"
+                  >
                   {/* Popover Header */}
                   <div className="p-3 bg-gray-50/80 border-b border-gray-100 flex items-center justify-between">
                     <div className="flex items-center space-x-1.5">
@@ -1904,6 +1951,7 @@ export default function App() {
                     <p className="text-[9px] text-gray-400 font-semibold">Alertas Inteligentes Moodle</p>
                   </div>
                 </div>
+                </>
               )}
             </div>
           </div>
@@ -1921,7 +1969,14 @@ export default function App() {
               <Sparkles className="w-3.5 h-3.5" />
               <span>Sincronizador Inteligente Multi-Cuenta</span>
             </div>
-            <h2 className="hidden sm:block text-sm md:text-base font-extrabold text-gray-900 leading-snug">Sincronizador de Materias</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="hidden sm:block text-sm md:text-base font-extrabold text-gray-900 leading-snug">Sincronizador de Materias</h2>
+              {lastSyncedTime && (
+                <span className="text-[10px] text-gray-500 font-bold bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-md shrink-0" id="last-sync-global-badge">
+                  Sincronizado: {getRelativeLastSyncedTime()}
+                </span>
+              )}
+            </div>
             
             {/* Sync control block duplicated/mapped per account */}
             <div className="space-y-3 max-w-md w-full">
@@ -2417,17 +2472,28 @@ export default function App() {
                               Reconectar
                             </button>
                           ) : (
-                            idx !== activeSessionIndex && (
+                            <>
                               <button
                                 onClick={() => {
                                   setActiveSessionIndex(idx);
-                                  setActiveTab('browser');
+                                  setActiveTab('agenda');
                                 }}
-                                className="text-[10px] font-semibold text-blue-600 hover:bg-blue-50 hover:text-blue-700 px-2.5 py-1 rounded-lg border border-blue-100 transition-colors cursor-pointer"
+                                className="text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer mr-1"
                               >
-                                Ver navegador
+                                Ver actividades
                               </button>
-                            )
+                              {idx !== activeSessionIndex && (
+                                <button
+                                  onClick={() => {
+                                    setActiveSessionIndex(idx);
+                                    setActiveTab('browser');
+                                  }}
+                                  className="text-[10px] font-semibold text-blue-600 hover:bg-blue-50 hover:text-blue-700 px-2.5 py-1 rounded-lg border border-blue-100 transition-colors cursor-pointer mr-1"
+                                >
+                                  Ver navegador
+                                </button>
+                              )}
+                            </>
                           )}
                           <button
                             onClick={() => {
