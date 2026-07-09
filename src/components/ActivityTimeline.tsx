@@ -21,6 +21,7 @@ interface ActivityTimelineProps {
   onViewHtml?: (task: TodoTask) => void;
   filterCourseIdTrigger?: string | null;
   onClearFilterCourseIdTrigger?: () => void;
+  viewingTaskId?: string | null;
 }
 
 export default function ActivityTimeline({ 
@@ -37,7 +38,8 @@ export default function ActivityTimeline({
   onDownloadHtml,
   onViewHtml,
   filterCourseIdTrigger,
-  onClearFilterCourseIdTrigger
+  onClearFilterCourseIdTrigger,
+  viewingTaskId
 }: ActivityTimelineProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
@@ -869,7 +871,7 @@ export default function ActivityTimeline({
                                       </span>
                                     </div>
 
-                                    <h3 className="text-xs md:text-sm font-bold mt-1 leading-snug flex items-center gap-1 min-w-0">
+                                    <h3 className="text-xs md:text-sm font-bold mt-1 leading-snug flex items-center gap-1.5 min-w-0">
                                       {getTaskEmoji(task) && (
                                         <span className="shrink-0 no-underline inline-block font-normal text-slate-800" style={{ textDecoration: 'none' }}>
                                           {getTaskEmoji(task)}
@@ -880,6 +882,12 @@ export default function ActivityTimeline({
                                       }`}>
                                         {task.title}
                                       </span>
+                                      {viewingTaskId === task.id && (
+                                        <span className="inline-flex items-center space-x-1 bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded text-[10px] font-bold animate-pulse shrink-0">
+                                          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                                          <span>Abriendo...</span>
+                                        </span>
+                                      )}
                                     </h3>
 
                                     {(task.type === 'TAREA' || task.type === 'CUESTIONARIO') && (
@@ -1158,7 +1166,7 @@ export default function ActivityTimeline({
                                                 </div>
 
                                                 {/* Heading title */}
-                                                <h3 className="text-xs md:text-sm font-bold mt-1 leading-snug flex items-center gap-1 min-w-0">
+                                                <h3 className="text-xs md:text-sm font-bold mt-1 leading-snug flex items-center gap-1.5 min-w-0">
                                                   {getTaskEmoji(task) && (
                                                     <span className="shrink-0 no-underline inline-block font-normal text-slate-800" style={{ textDecoration: 'none' }}>
                                                       {getTaskEmoji(task)}
@@ -1169,6 +1177,12 @@ export default function ActivityTimeline({
                                                   }`}>
                                                     {task.title}
                                                   </span>
+                                                  {viewingTaskId === task.id && (
+                                                    <span className="inline-flex items-center space-x-1 bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded text-[10px] font-bold animate-pulse shrink-0">
+                                                      <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                                                      <span>Abriendo...</span>
+                                                    </span>
+                                                  )}
                                                 </h3>
 
                                                 {/* Grading/submission status badge block */}

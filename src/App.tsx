@@ -103,6 +103,11 @@ export default function App() {
   const [devBrowserUrl, setDevBrowserUrl] = useState<string>('');
   const [devIframeKey, setDevIframeKey] = useState<number>(0);
 
+  // Alert and Loading states for Activity detail fetching/opening
+  const [showConnectionsAlert, setShowConnectionsAlert] = useState<boolean>(false);
+  const [isShaking, setIsShaking] = useState<boolean>(false);
+  const [viewingTaskId, setViewingTaskId] = useState<string | null>(null);
+
   // Sync state between accounts list changes and developer view
   useEffect(() => {
     if (sessions.length > 0) {
@@ -1691,10 +1696,16 @@ export default function App() {
     if (!task.activityUrl || !task.moodleUsername || !task.moodleServer) return;
     const matchSess = sessions.find(s => s.username.toLowerCase() === task.moodleUsername?.toLowerCase() && s.server === task.moodleServer);
     if (!matchSess) {
-      alert('No se encontró una sesión activa para esta cuenta. Por favor vuelve a conectar la cuenta.');
+      if (!showConnectionsAlert) {
+        setShowConnectionsAlert(true);
+      } else {
+        setIsShaking(true);
+        setTimeout(() => setIsShaking(false), 500);
+      }
       return;
     }
     
+    setViewingTaskId(task.id);
     try {
       const apiBase = import.meta.env.VITE_API_URL || '';
       const res = await fetch(`${apiBase}/api/moodle/download-raw`, {
@@ -1723,6 +1734,8 @@ export default function App() {
     } catch (err) {
       console.error('Error viewing HTML:', err);
       alert('Error de red al intentar cargar la página.');
+    } finally {
+      setViewingTaskId(null);
     }
   };
 
@@ -2270,15 +2283,23 @@ export default function App() {
 
           <button
             id="tab-login-btn"
-            onClick={() => setActiveTab('login')}
+            onClick={() => {
+              setActiveTab('login');
+              setShowConnectionsAlert(false);
+            }}
             className={`pb-2.5 pt-2 px-2 sm:px-4 text-xs font-bold border-b-2 transition-all flex items-center justify-center sm:justify-start flex-1 sm:flex-none space-x-1.5 ${
               activeTab === 'login'
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
-            }`}
+            } ${isShaking ? 'animate-shake' : ''}`}
           >
             <Lock className="w-5 h-5 sm:w-4 sm:h-4 shrink-0" />
             <span className="hidden sm:inline">{sessions.length > 0 ? `Mis Conexiones (${sessions.length})` : 'Conectar Moodle'}</span>
+            {showConnectionsAlert && (
+              <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-600 text-white font-black text-[10px] shadow-sm shrink-0 animate-bounce" id="connections-alert-badge">
+                !
+              </span>
+            )}
           </button>
 
           <button
@@ -2343,6 +2364,7 @@ export default function App() {
               onViewHtml={handleViewHtml}
               filterCourseIdTrigger={timelineFilterCourseId}
               onClearFilterCourseIdTrigger={() => setTimelineFilterCourseId(null)}
+              viewingTaskId={viewingTaskId}
             />
           )}
 
