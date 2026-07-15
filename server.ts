@@ -20,6 +20,11 @@ function getSetCookies(headers: Headers): string[] {
   return setCookie ? [setCookie] : [];
 }
 
+function stripHtml(str: string): string {
+  if (!str) return '';
+  return str.replace(/<[^>]*>/g, '').trim();
+}
+
 // Spanish Month Parser Helper
 function parseMoodleSpanishDate(dateStr: string): string | null {
   if (!dateStr) return null;
@@ -106,6 +111,102 @@ function parseMoodleSpanishDate(dateStr: string): string | null {
   }
 }
 
+// Helper to parse base64 session containing cookies and wstoken
+function parseSession(sessionStr: string): { cookies: string; wstoken: string } {
+  if (!sessionStr) return { cookies: '', wstoken: '' };
+  try {
+    const decoded = JSON.parse(Buffer.from(sessionStr, 'base64').toString('utf-8'));
+    return {
+      cookies: decoded.cookies || '',
+      wstoken: decoded.wstoken || ''
+    };
+  } catch (e) {
+    // Fallback: treat as plain cookies
+    return {
+      cookies: sessionStr,
+      wstoken: ''
+    };
+  }
+}
+
+// Call Moodle Web Service helper
+async function callMoodleWS(base: string, wstoken: string, wsfunction: string, args: Record<string, any> = {}): Promise<any> {
+  const url = `${base}/webservice/rest/server.php?wstoken=${wstoken}&wsfunction=${wsfunction}&moodlewsrestformat=json`;
+  const body = new URLSearchParams();
+  
+  function appendArg(prefix: string, value: any) {
+    if (value === null || value === undefined) return;
+    if (typeof value === 'object') {
+      if (Array.isArray(value)) {
+        value.forEach((v, index) => {
+          appendArg(`${prefix}[${index}]`, v);
+        });
+      } else {
+        for (const [k, v] of Object.entries(value)) {
+          appendArg(`${prefix}[${k}]`, v);
+        }
+      }
+    } else {
+      body.append(prefix, String(value));
+    }
+  }
+
+  for (const [k, v] of Object.entries(args)) {
+    appendArg(k, v);
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': UA
+    },
+    body: body.toString()
+  });
+
+  if (!response.ok) {
+    throw new Error(`Moodle WS Error HTTP ${response.status}`);
+  }
+
+  const json = await response.json();
+  if (json && json.exception) {
+    throw new Error(`Moodle WS Exception: ${json.message || json.exception}`);
+  }
+  return json;
+}
+
+// Map course module (cmid) to assignid
+async function getAssignIdFromCmid(base: string, wstoken: string, courseId: number, cmid: number): Promise<number | null> {
+  try {
+    const res = await callMoodleWS(base, wstoken, 'mod_assign_get_assignments', { courseids: [courseId] });
+    if (res && Array.isArray(res.courses)) {
+      for (const course of res.courses) {
+        if (Array.isArray(course.assignments)) {
+          const found = course.assignments.find((a: any) => String(a.cmid) === String(cmid));
+          if (found) return found.id;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`Failed to find assign ID from cmid:`, e);
+  }
+  return null;
+}
+
+// Map course module (cmid) to quizid
+async function getQuizIdFromCmid(base: string, wstoken: string, courseId: number, cmid: number): Promise<number | null> {
+  try {
+    const res = await callMoodleWS(base, wstoken, 'mod_quiz_get_quizzes_by_courses', { courseids: [courseId] });
+    if (res && Array.isArray(res.quizzes)) {
+      const found = res.quizzes.find((q: any) => String(q.coursemodule) === String(cmid));
+      if (found) return found.id;
+    }
+  } catch (e) {
+    console.warn(`Failed to find quiz ID from cmid:`, e);
+  }
+  return null;
+}
+
 // 1. API: Moodle Login proxy
 app.post('/api/moodle/login', async (req, res) => {
   const { username, password, server } = req.body;
@@ -173,9 +274,35 @@ app.post('/api/moodle/login', async (req, res) => {
                           !verifyHtml.includes('username');
 
       if (isConnected) {
+        // Try to obtain Moodle WS token in background/parallel
+        let wstoken = '';
+        try {
+          const tokenUrl = `${base}/login/token.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&service=moodle_mobile_app`;
+          const tokenRes = await fetch(tokenUrl, {
+            headers: { 'User-Agent': UA }
+          });
+          if (tokenRes.ok) {
+            const tokenJson = await tokenRes.json();
+            if (tokenJson && tokenJson.token) {
+              wstoken = tokenJson.token;
+              console.log(`Successfully obtained Moodle WS token for ${username}`);
+            } else {
+              console.warn(`Could not get Moodle WS token:`, tokenJson);
+            }
+          }
+        } catch (tokenErr) {
+          console.warn(`Moodle WS token fetch failed:`, tokenErr);
+        }
+
+        const sessionData = {
+          cookies: cookieString,
+          wstoken: wstoken
+        };
+        const encodedSession = Buffer.from(JSON.stringify(sessionData)).toString('base64');
+
         return res.json({
           success: true,
-          moodleSession: cookieString,
+          moodleSession: encodedSession,
           server,
           base
         });
@@ -202,12 +329,13 @@ app.post('/api/moodle/login', async (req, res) => {
 async function fetchMoodleHtml(url: string, cookieString: string, maxRedirects = 5): Promise<string> {
   let currentUrl = url;
   let redirects = 0;
+  const parsedCookies = parseSession(cookieString).cookies;
 
   while (redirects <= maxRedirects) {
     const response = await fetch(currentUrl, {
       headers: {
         'User-Agent': UA,
-        'Cookie': cookieString,
+        'Cookie': parsedCookies,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
       },
@@ -255,8 +383,29 @@ app.post('/api/moodle/courses', async (req, res) => {
     ? 'https://aulas.upsdt.edu.ec'
     : (server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
 
+  const { cookies: cookieString, wstoken } = parseSession(moodleSession);
+
+  if (wstoken) {
+    try {
+      const siteInfo = await callMoodleWS(base, wstoken, 'core_webservice_get_site_info');
+      const userid = siteInfo.userid;
+      const wsCourses = await callMoodleWS(base, wstoken, 'core_enrol_get_users_courses', { userid });
+      if (Array.isArray(wsCourses)) {
+        const courses = wsCourses.map((c: any) => {
+          const id = String(c.id);
+          const text = c.displayname || c.fullname || c.shortname;
+          const url = `${base}/course/view.php?id=${id}`;
+          return { id, text, url };
+        });
+        return res.json({ courses });
+      }
+    } catch (wsErr: any) {
+      console.warn(`WS courses fetch failed, falling back to scraping:`, wsErr.message);
+    }
+  }
+
   try {
-    const dashboardHtml = await fetchMoodleHtml(`${base}/my/`, moodleSession);
+    const dashboardHtml = await fetchMoodleHtml(`${base}/my/`, cookieString);
     const $ = cheerio.load(dashboardHtml);
     const courses: { id: string; text: string; url: string }[] = [];
 
@@ -303,8 +452,85 @@ app.post('/api/moodle/course-activities', async (req, res) => {
     ? 'https://aulas.upsdt.edu.ec'
     : (server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
 
+  const { cookies: cookieString, wstoken } = parseSession(moodleSession);
+  const courseIdMatch = courseUrl.match(/id=(\d+)/);
+  const courseId = courseIdMatch ? courseIdMatch[1] : '';
+
+  if (wstoken && courseId) {
+    try {
+      const contents = await callMoodleWS(base, wstoken, 'core_course_get_contents', { courseid: parseInt(courseId, 10) });
+      if (Array.isArray(contents)) {
+        const sections: any[] = [];
+        const activities: any[] = [];
+
+        for (const section of contents) {
+          if (section.visible === 0 && (!section.modules || section.modules.length === 0)) {
+            continue;
+          }
+
+          const sectionName = section.name || `Tema ${section.id}`;
+          const sectionUrl = `${courseUrl}&sectionid=${section.id}`;
+          
+          sections.push({
+            text: sectionName,
+            url: sectionUrl
+          });
+
+          if (Array.isArray(section.modules)) {
+            for (const mod of section.modules) {
+              if (mod.visible === 0) continue;
+              const url = mod.url;
+              if (!url) continue;
+
+              let type = 'ACTIVIDAD';
+              let icon = '📚';
+              if (mod.modname === 'assign') {
+                type = 'TAREA';
+                icon = '📝';
+              } else if (mod.modname === 'quiz') {
+                type = 'CUESTIONARIO';
+                icon = '📋';
+              } else if (mod.modname === 'forum') {
+                type = 'FORO';
+                icon = '💬';
+              }
+
+              let closure: string | null = null;
+              let closureDateISO: string | null = null;
+              if (Array.isArray(mod.dates)) {
+                const closureItem = mod.dates.find((d: any) => {
+                  const lbl = (d.label || '').toLowerCase();
+                  return lbl.includes('cierra') || lbl.includes('vence') || lbl.includes('entrega') || lbl.includes('due') || lbl.includes('hasta');
+                });
+                if (closureItem) {
+                  closureDateISO = new Date(closureItem.timestamp * 1000).toISOString();
+                  closure = `${closureItem.label} ${new Date(closureItem.timestamp * 1000).toLocaleString('es-ES')}`;
+                }
+              }
+
+              activities.push({
+                name: mod.name,
+                url: url,
+                type,
+                icon,
+                section: sectionName,
+                completionStatus: mod.completiondata ? [mod.completiondata.state === 1 ? 'Hecho' : 'Por hacer'] : [],
+                closure,
+                closureDateISO
+              });
+            }
+          }
+        }
+
+        return res.json({ activities, sections });
+      }
+    } catch (wsErr: any) {
+      console.warn(`WS course activities failed, falling back to scraping:`, wsErr.message);
+    }
+  }
+
   try {
-    const courseHtml = await fetchMoodleHtml(courseUrl, moodleSession);
+    const courseHtml = await fetchMoodleHtml(courseUrl, cookieString);
     const $ = cheerio.load(courseHtml);
     
     const courseIdMatch = courseUrl.match(/id=(\d+)/);
@@ -704,8 +930,218 @@ app.post('/api/moodle/activity-details', async (req, res) => {
     return res.status(400).json({ error: 'Falta sesión, servidor o URL de actividad' });
   }
 
+  const base = server === 'upsdt'
+    ? 'https://aulas.upsdt.edu.ec'
+    : (server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
+
+  const { cookies: cookieString, wstoken } = parseSession(moodleSession);
+  const cmidMatch = activityUrl.match(/id=(\d+)/);
+  const cmid = cmidMatch ? parseInt(cmidMatch[1], 10) : null;
+
+  if (wstoken && cmid) {
+    try {
+      // 1. Get course ID using cmid
+      const modInfo = await callMoodleWS(base, wstoken, 'core_course_get_course_module', { cmid });
+      const courseId = modInfo.cm.course;
+      
+      // 2. Get site info to get userid
+      const siteInfo = await callMoodleWS(base, wstoken, 'core_webservice_get_site_info');
+      const userid = siteInfo.userid;
+
+      // 3. Get grades for this course to match our cmid
+      let gradeVal: string | null = null;
+      let gradeMax: string | null = null;
+      let feedbackComment: string | null = null;
+      try {
+        const gradeReport = await callMoodleWS(base, wstoken, 'gradereport_user_get_grade_items', { courseid: courseId, userid });
+        if (gradeReport && Array.isArray(gradeReport.usergrades)) {
+          const userGrade = gradeReport.usergrades[0];
+          if (userGrade && Array.isArray(userGrade.gradeitems)) {
+            const matchedItem = userGrade.gradeitems.find((item: any) => 
+              (item.cmid && String(item.cmid) === String(cmid)) ||
+              (item.itemname && modInfo.cm?.name && String(item.itemname).trim() === String(modInfo.cm.name).trim())
+            );
+            if (matchedItem) {
+              gradeVal = matchedItem.gradeformatted || null;
+              if (gradeVal === '-') gradeVal = null;
+              if (gradeVal) gradeVal = stripHtml(gradeVal);
+              gradeMax = matchedItem.grademax ? String(matchedItem.grademax) : null;
+              feedbackComment = matchedItem.feedback || null;
+            }
+          }
+        }
+      } catch (gradeErr) {
+        console.warn(`Failed to fetch grades via WS:`, gradeErr);
+      }
+
+      const isAssign = activityUrl.includes('mod/assign');
+      const isQuiz = activityUrl.includes('mod/quiz');
+      const tipo_actividad = isAssign ? 'Tarea' : (isQuiz ? 'Cuestionario' : 'Actividad');
+
+      const info: any = {
+        aperture: null,
+        apertureDateISO: null,
+        closure: null,
+        closureDateISO: null,
+        tipo_actividad,
+        requisitos_pendientes: [],
+        requisitos_completados: [],
+        archivos_enviados: [],
+        archivos_adicionales: [],
+        detalle: modInfo.cm.description || null,
+        quiz_info: null
+      };
+
+      // If assignment, fetch submission status
+      if (isAssign) {
+        const assignId = await getAssignIdFromCmid(base, wstoken, courseId, cmid);
+        if (assignId) {
+          const [statusRes, assignmentsRes] = await Promise.all([
+            callMoodleWS(base, wstoken, 'mod_assign_get_submission_status', { assignid: assignId }),
+            callMoodleWS(base, wstoken, 'mod_assign_get_assignments', { courseids: [courseId] }).catch(() => null)
+          ]);
+
+          if (assignmentsRes && Array.isArray(assignmentsRes.courses)) {
+            for (const c of assignmentsRes.courses) {
+              if (Array.isArray(c.assignments)) {
+                const matched = c.assignments.find((a: any) => String(a.id) === String(assignId));
+                if (matched && matched.grade !== undefined && matched.grade !== null) {
+                  // Fallback to the assignment's configured grade only if gradeMax is not set
+                  gradeMax = gradeMax || String(matched.grade);
+                }
+              }
+            }
+          }
+          
+          if (statusRes.lastattempt) {
+            const la = statusRes.lastattempt;
+            if (la.submission) {
+              const statusMap: Record<string, string> = {
+                'submitted': 'Enviado para calificar',
+                'draft': 'Borrador (no enviado)',
+                'new': 'No entregado'
+              };
+              info.estado_entrega = statusMap[la.submission.status] || la.submission.status;
+              
+              if (Array.isArray(la.submission.plugins)) {
+                const filePlugin = la.submission.plugins.find((p: any) => p.type === 'file');
+                if (filePlugin && Array.isArray(filePlugin.fileareas)) {
+                  for (const area of filePlugin.fileareas) {
+                    if (Array.isArray(area.files)) {
+                      for (const file of area.files) {
+                        info.archivos_enviados.push({
+                          nombre: file.filename,
+                          url: file.fileurl
+                        });
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
+            if (la.gradingstatus) {
+              const gradingMap: Record<string, string> = {
+                'graded': 'Calificado',
+                'notgraded': 'Sin calificar'
+              };
+              info.estado_calificacion = gradingMap[la.gradingstatus] || la.gradingstatus;
+            }
+          }
+
+          if (statusRes.feedback && statusRes.feedback.gradefordisplay) {
+            const display = stripHtml(statusRes.feedback.gradefordisplay);
+            if (display.includes('/')) {
+              const parts = display.split('/');
+              info.calificacion = parts[0].trim();
+              info.calificacion_sobre = parts[1].trim();
+            } else {
+              info.calificacion = display;
+              info.calificacion_sobre = gradeMax || "10.0";
+            }
+          } else if (gradeVal) {
+            info.calificacion = gradeVal;
+            info.calificacion_sobre = gradeMax || "10.0";
+          } else if (statusRes.feedback && statusRes.feedback.grade && statusRes.feedback.grade.grade) {
+            info.calificacion = String(statusRes.feedback.grade.grade);
+            info.calificacion_sobre = gradeMax || "10.0";
+          } else {
+            // Backup for ungraded assignments: still expose maximum grade
+            info.calificacion_sobre = gradeMax || "10.0";
+          }
+
+          if (feedbackComment) {
+            info.comentario_calificador = feedbackComment;
+          } else if (statusRes.feedback && Array.isArray(statusRes.feedback.plugins)) {
+            const commentPlugin = statusRes.feedback.plugins.find((p: any) => p.type === 'comments');
+            if (commentPlugin && Array.isArray(commentPlugin.editorfields)) {
+              info.comentario_calificador = commentPlugin.editorfields.map((f: any) => f.text).join('\n');
+            }
+          }
+        }
+      }
+
+      // If quiz, fetch user attempts
+      if (isQuiz) {
+        const quizId = await getQuizIdFromCmid(base, wstoken, courseId, cmid);
+        if (quizId) {
+          const [quizInfoWS, qtypesRes, quizzesRes] = await Promise.all([
+            callMoodleWS(base, wstoken, 'mod_quiz_get_user_attempts', { quizid: quizId }).catch(() => null),
+            callMoodleWS(base, wstoken, 'mod_quiz_get_quiz_required_qtypes', { quizid: quizId }).catch(() => null),
+            callMoodleWS(base, wstoken, 'mod_quiz_get_quizzes_by_courses', { courseids: [courseId] }).catch(() => null)
+          ]);
+
+          if (quizzesRes && Array.isArray(quizzesRes.quizzes)) {
+            const matched = quizzesRes.quizzes.find((q: any) => String(q.id) === String(quizId));
+            if (matched && matched.grade !== undefined && matched.grade !== null) {
+              // Fallback to the quiz's configured grade only if gradeMax is not set
+              gradeMax = gradeMax || String(matched.grade);
+            }
+          }
+          
+          if (qtypesRes && Array.isArray(qtypesRes.questiontypes) && qtypesRes.questiontypes.length === 0) {
+            info.advertencia_preguntas = 'Aún no se han agregado preguntas';
+          }
+          
+          const quiz_info: any = {
+            intentos_permitidos: null,
+            limite_tiempo: null,
+            calificacion_final: gradeVal || null,
+            calificacion_sobre: gradeMax || "10.0",
+            porcentaje: null,
+            intentos: []
+          };
+
+          if (quizInfoWS && Array.isArray(quizInfoWS.attempts)) {
+            quiz_info.intentos = quizInfoWS.attempts.map((att: any) => {
+              const stateMap: Record<string, string> = {
+                'finished': 'Terminado',
+                'inprogress': 'En curso'
+              };
+              return {
+                numero: String(att.attempt),
+                estado: stateMap[att.state] || att.state,
+                comenzado: att.timestart ? new Date(att.timestart * 1000).toLocaleString('es-ES') : null,
+                completado: att.timefinish ? new Date(att.timefinish * 1000).toLocaleString('es-ES') : null,
+                duracion: (att.timefinish && att.timestart) ? `${Math.round((att.timefinish - att.timestart) / 60)} min` : null,
+                calificacion: att.sumgrades !== undefined ? String(att.sumgrades) : null,
+                calificacion_sobre: gradeMax || "10.0"
+              };
+            });
+          }
+
+          info.quiz_info = quiz_info;
+        }
+      }
+
+      return res.json({ details: info });
+    } catch (wsErr: any) {
+      console.warn(`WS activity details failed, falling back to scraping:`, wsErr.message);
+    }
+  }
+
   try {
-    const activityHtml = await fetchMoodleHtml(activityUrl, moodleSession);
+    const activityHtml = await fetchMoodleHtml(activityUrl, cookieString);
     const $ = cheerio.load(activityHtml);
 
     // 1. Precise DOM-based extraction for Moodle date wrapper blocks
@@ -1110,7 +1546,7 @@ app.all('/api/moodle/proxy', async (req, res) => {
       method: req.method,
       headers: {
         'User-Agent': UA,
-        'Cookie': String(session),
+        'Cookie': parseSession(String(session)).cookies,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
       },
@@ -1423,6 +1859,9 @@ async function runBackgroundSync(key: string, sessions: any[]) {
   const job = syncJobs.get(key);
   if (!job) return;
 
+  const userIdsBySession: Record<number, number> = {};
+  const gradesCache: Record<string, any> = {};
+
   try {
     const baseUrls = sessions.map(s => {
       if (s.server === 'upsdt') return 'https://aulas.upsdt.edu.ec';
@@ -1445,8 +1884,33 @@ async function runBackgroundSync(key: string, sessions: any[]) {
       const sess = sessions[sIdx];
       const base = baseUrls[sIdx];
       const startDash = Date.now();
+
+      const { cookies: cookieString, wstoken } = parseSession(sess.cookies);
+      if (wstoken) {
+        try {
+          const siteInfo = await callMoodleWS(base, wstoken, 'core_webservice_get_site_info');
+          const userid = siteInfo.userid;
+          userIdsBySession[sIdx] = userid;
+          const wsCourses = await callMoodleWS(base, wstoken, 'core_enrol_get_users_courses', { userid });
+          if (Array.isArray(wsCourses)) {
+            const courses = wsCourses.map((c: any) => {
+              const id = String(c.id);
+              const text = c.displayname || c.fullname || c.shortname;
+              const url = `${base}/course/view.php?id=${id}`;
+              return { id, text, url };
+            });
+            coursesBySession.push({ sessIdx: sIdx, courses });
+            validSessionCount++;
+            addLog(job, 'performance', `[WS_DASHBOARD] Extracted courses via WS | EXTRACTED_COURSES=${courses.length} | USER="${sess.username}"`, Date.now() - startDash);
+            continue;
+          }
+        } catch (wsErr: any) {
+          addLog(job, 'warn', `[WS_DASHBOARD_FAIL] WS siteinfo/courses failed, falling back to scraping: ${wsErr.message}`, Date.now() - startDash);
+        }
+      }
+
       try {
-        const dashboardHtml = await fetchMoodleHtml(`${base}/my/`, sess.cookies);
+        const dashboardHtml = await fetchMoodleHtml(`${base}/my/`, cookieString);
         const dashTime = Date.now() - startDash;
         validSessionCount++;
         const $ = cheerio.load(dashboardHtml);
@@ -1520,9 +1984,181 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         await saveJobToDisk(key, job);
 
         const courseStart = Date.now();
+
+        const { cookies: cookieString, wstoken } = parseSession(sess.cookies);
+        if (wstoken) {
+          try {
+            const courseIdInt = parseInt(course.id, 10);
+            const [contents, assignmentsRes, quizzesRes] = await Promise.all([
+              callMoodleWS(base, wstoken, 'core_course_get_contents', { courseid: courseIdInt }),
+              callMoodleWS(base, wstoken, 'mod_assign_get_assignments', { courseids: [courseIdInt] }).catch(() => ({ courses: [] })),
+              callMoodleWS(base, wstoken, 'mod_quiz_get_quizzes_by_courses', { courseids: [courseIdInt] }).catch(() => ({ quizzes: [] }))
+            ]);
+
+            if (Array.isArray(contents)) {
+              let wsActivitiesCount = 0;
+
+              const assignList: any[] = [];
+              if (assignmentsRes && Array.isArray(assignmentsRes.courses)) {
+                for (const c of assignmentsRes.courses) {
+                  if (Array.isArray(c.assignments)) {
+                    assignList.push(...c.assignments);
+                  }
+                }
+              }
+
+              const quizList: any[] = [];
+              if (quizzesRes && Array.isArray(quizzesRes.quizzes)) {
+                quizList.push(...quizzesRes.quizzes);
+              }
+
+              for (const section of contents) {
+                if (section.visible === 0 && (!section.modules || section.modules.length === 0)) {
+                  continue;
+                }
+                const sectionName = section.name || `Tema ${section.id}`;
+                if (Array.isArray(section.modules)) {
+                  for (const mod of section.modules) {
+                    if (mod.visible === 0) continue;
+                    const url = mod.url;
+                    if (!url) continue;
+
+                    let type = 'ACTIVIDAD';
+                    if (mod.modname === 'assign') {
+                      type = 'TAREA';
+                    } else if (mod.modname === 'quiz') {
+                      type = 'CUESTIONARIO';
+                    } else {
+                      continue; // Only care about actionable items
+                    }
+
+                    // Pre-extract dates and completion requirements
+                    let closure: string | null = null;
+                    let closureDateISO: string | null = null;
+                    if (Array.isArray(mod.dates)) {
+                      const closureItem = mod.dates.find((d: any) => {
+                        const lbl = (d.label || '').toLowerCase();
+                        return lbl.includes('cierra') || lbl.includes('vence') || lbl.includes('entrega') || lbl.includes('due') || lbl.includes('hasta');
+                      });
+                      if (closureItem) {
+                        closureDateISO = new Date(closureItem.timestamp * 1000).toISOString();
+                        closure = `${closureItem.label} ${new Date(closureItem.timestamp * 1000).toLocaleString('es-ES')}`;
+                      }
+                    }
+
+                    let aperture: string | null = null;
+                    let apertureDateISO: string | null = null;
+                    if (Array.isArray(mod.dates)) {
+                      const apertureItem = mod.dates.find((d: any) => {
+                        const lbl = (d.label || '').toLowerCase();
+                        return lbl.includes('abre') || lbl.includes('abierto') || lbl.includes('apertura') || lbl.includes('disponible desde');
+                      });
+                      if (apertureItem) {
+                        apertureDateISO = new Date(apertureItem.timestamp * 1000).toISOString();
+                        aperture = `${apertureItem.label} ${new Date(apertureItem.timestamp * 1000).toLocaleString('es-ES')}`;
+                      }
+                    }
+
+                    // Enrich with mod_assign_get_assignments / mod_quiz_get_quizzes_by_courses values
+                    let wsAssignId: number | null = null;
+                    let wsQuizId: number | null = null;
+                    let wsGradeMax: string | null = null;
+
+                    if (mod.modname === 'assign') {
+                      const matchedAssign = assignList.find((a: any) => String(a.cmid) === String(mod.id));
+                      if (matchedAssign) {
+                        wsAssignId = matchedAssign.id;
+                        if (matchedAssign.grade !== undefined && matchedAssign.grade !== null) {
+                          wsGradeMax = String(matchedAssign.grade);
+                        }
+                        if (!closureDateISO && matchedAssign.duedate > 0) {
+                          closureDateISO = new Date(matchedAssign.duedate * 1000).toISOString();
+                          closure = `Fecha de vencimiento: ${new Date(matchedAssign.duedate * 1000).toLocaleString('es-ES')}`;
+                        }
+                        if (!apertureDateISO && matchedAssign.allowsubmissionsfromdate > 0) {
+                          apertureDateISO = new Date(matchedAssign.allowsubmissionsfromdate * 1000).toISOString();
+                          aperture = `Disponible desde: ${new Date(matchedAssign.allowsubmissionsfromdate * 1000).toLocaleString('es-ES')}`;
+                        }
+                      }
+                    } else if (mod.modname === 'quiz') {
+                      const matchedQuiz = quizList.find((q: any) => String(q.coursemodule) === String(mod.id));
+                      if (matchedQuiz) {
+                        wsQuizId = matchedQuiz.id;
+                        if (matchedQuiz.grade !== undefined && matchedQuiz.grade !== null) {
+                          wsGradeMax = String(matchedQuiz.grade);
+                        }
+                        if (!closureDateISO && matchedQuiz.timeclose > 0) {
+                          closureDateISO = new Date(matchedQuiz.timeclose * 1000).toISOString();
+                          closure = `Cierra: ${new Date(matchedQuiz.timeclose * 1000).toLocaleString('es-ES')}`;
+                        }
+                        if (!apertureDateISO && matchedQuiz.timeopen > 0) {
+                          apertureDateISO = new Date(matchedQuiz.timeopen * 1000).toISOString();
+                          aperture = `Abre: ${new Date(matchedQuiz.timeopen * 1000).toLocaleString('es-ES')}`;
+                        }
+                      }
+                    }
+
+                    let wsPorHacerCalificacion = false;
+                    let wsHechoCalificacion = false;
+                    const wsRequisitosPendientes: string[] = [];
+                    const wsRequisitosCompletados: string[] = [];
+
+                    if (mod.completiondata && Array.isArray(mod.completiondata.details)) {
+                      for (const detail of mod.completiondata.details) {
+                        const desc = detail.rulevalue?.description || detail.rulename || '';
+                        const status = detail.rulevalue?.status; // 0 = todo, 1 = done
+                        if (status === 0) {
+                          wsRequisitosPendientes.push(desc);
+                          if (desc.toLowerCase().includes('calific') || detail.rulename.toLowerCase().includes('grade')) {
+                            wsPorHacerCalificacion = true;
+                          }
+                        } else if (status === 1 || status === 2 || status === 3) {
+                          wsRequisitosCompletados.push(desc);
+                          if (desc.toLowerCase().includes('calific') || detail.rulename.toLowerCase().includes('grade')) {
+                            wsHechoCalificacion = true;
+                          }
+                        }
+                      }
+                    }
+
+                    workingQueue.push({
+                      sessionIndex: coursesObj.sessIdx,
+                      username: sess.username,
+                      server: sess.server,
+                      courseId: course.id,
+                      courseName: course.text,
+                      activityUrl: url,
+                      type: type,
+                      activityName: mod.name,
+                      wsAperture: aperture,
+                      wsApertureDateISO: apertureDateISO,
+                      wsClosure: closure,
+                      wsClosureDateISO: closureDateISO,
+                      wsDescription: mod.description || null,
+                      wsPorHacerCalificacion,
+                      wsHechoCalificacion,
+                      wsRequisitosPendientes,
+                      wsRequisitosCompletados,
+                      wsAssignId,
+                      wsQuizId,
+                      wsGradeMax
+                    });
+                    wsActivitiesCount++;
+                  }
+                }
+              }
+              const duration = Date.now() - courseStart;
+              addLog(job, 'performance', `[WS_COURSE_RESOLVED] COURSE_ID=${course.id} | TITLE="${course.text}" | ACTIONABLE_DELIVERABLES=${wsActivitiesCount} | DURATION=${duration}ms`, duration);
+              continue; // Skip scraping for this course!
+            }
+          } catch (wsErr: any) {
+            addLog(job, 'warn', `[WS_COURSE_FAIL] WS activities fetch failed for ${course.text}, falling back to scraping: ${wsErr.message}`, Date.now() - courseStart);
+          }
+        }
+
         try {
           const fetchStart = Date.now();
-          const courseHtml = await fetchMoodleHtml(course.url, sess.cookies);
+          const courseHtml = await fetchMoodleHtml(course.url, cookieString);
           const fetchTime = Date.now() - fetchStart;
           const $ = cheerio.load(courseHtml);
           const courseIdMatch = course.url.match(/id=(\d+)/);
@@ -1972,8 +2608,253 @@ async function runBackgroundSync(key: string, sessions: any[]) {
       job.processedCount = processed;
       syncJobs.set(key, { ...job });
 
+      const { cookies: cookieString, wstoken } = parseSession(sess.cookies);
+      const cmidMatch = currentItem.activityUrl.match(/id=(\d+)/);
+      const cmid = cmidMatch ? parseInt(cmidMatch[1], 10) : null;
+      const base = baseUrls[currentItem.sessionIndex];
+
+      if (wstoken && cmid && base) {
+        try {
+          const courseIdInt = parseInt(currentItem.courseId, 10);
+          
+          // 1. Get userid (cached or fetch)
+          let userid = userIdsBySession[currentItem.sessionIndex];
+          if (!userid) {
+            const siteInfo = await callMoodleWS(base, wstoken, 'core_webservice_get_site_info');
+            userid = siteInfo.userid;
+            userIdsBySession[currentItem.sessionIndex] = userid;
+          }
+
+          // 2. Get grade items (cached or fetch)
+          const cacheKey = `${currentItem.sessionIndex}_${currentItem.courseId}`;
+          let gradeItems = gradesCache[cacheKey];
+          if (!gradeItems) {
+            try {
+              const gradeReport = await callMoodleWS(base, wstoken, 'gradereport_user_get_grade_items', { courseid: courseIdInt, userid });
+              if (gradeReport && Array.isArray(gradeReport.usergrades) && gradeReport.usergrades[0]) {
+                gradeItems = gradeReport.usergrades[0].gradeitems || [];
+                gradesCache[cacheKey] = gradeItems;
+              }
+            } catch (gradeErr) {
+              console.warn(`Failed to fetch grades via WS for course ${currentItem.courseId}:`, gradeErr);
+              gradeItems = [];
+            }
+          }
+
+          let gradeVal: string | null = null;
+          let gradeMax: string | null = currentItem.wsGradeMax || null;
+          let feedbackComment: string | null = null;
+
+          if (Array.isArray(gradeItems)) {
+            const matchedItem = gradeItems.find((item: any) => 
+              (item.cmid && String(item.cmid) === String(cmid)) ||
+              (item.itemname && currentItem.activityName && String(item.itemname).trim() === String(currentItem.activityName).trim())
+            );
+            if (matchedItem) {
+              gradeVal = matchedItem.gradeformatted || null;
+              if (gradeVal === '-') gradeVal = null;
+              if (gradeVal) gradeVal = stripHtml(gradeVal);
+              gradeMax = (matchedItem.grademax ? String(matchedItem.grademax) : null) || gradeMax;
+              feedbackComment = matchedItem.feedback || null;
+            }
+          }
+
+          const isAssign = currentItem.type === 'TAREA';
+          const isQuiz = currentItem.type === 'CUESTIONARIO';
+          const tipo_actividad = isAssign ? 'Tarea' : (isQuiz ? 'Cuestionario' : 'Actividad');
+
+          const detailsInfo: any = {
+            aperture: currentItem.wsAperture || null,
+            apertureDateISO: currentItem.wsApertureDateISO || null,
+            closure: currentItem.wsClosure || null,
+            closureDateISO: currentItem.wsClosureDateISO || null,
+            tipo_actividad,
+            requisitos_pendientes: currentItem.wsRequisitosPendientes || [],
+            requisitos_completados: currentItem.wsRequisitosCompletados || [],
+            archivos_enviados: [],
+            archivos_adicionales: [],
+            detalle: currentItem.wsDescription || null,
+            quiz_info: null,
+            por_hacer_calificacion: currentItem.wsPorHacerCalificacion || false,
+            hecho_calificacion: currentItem.wsHechoCalificacion || false
+          };
+
+          // 3. Fetch specific details for Assignment or Quiz
+          if (isAssign) {
+            const assignId = currentItem.wsAssignId || await getAssignIdFromCmid(base, wstoken, courseIdInt, cmid);
+            if (assignId) {
+              const statusRes = await callMoodleWS(base, wstoken, 'mod_assign_get_submission_status', { assignid: assignId });
+              
+              if (statusRes.lastattempt) {
+                const la = statusRes.lastattempt;
+                if (la.submission) {
+                  const statusMap: Record<string, string> = {
+                    'submitted': 'Enviado para calificar',
+                    'draft': 'Borrador (no enviado)',
+                    'new': 'No entregado'
+                  };
+                  detailsInfo.estado_entrega = statusMap[la.submission.status] || la.submission.status;
+                  
+                  if (Array.isArray(la.submission.plugins)) {
+                    const filePlugin = la.submission.plugins.find((p: any) => p.type === 'file');
+                    if (filePlugin && Array.isArray(filePlugin.fileareas)) {
+                      for (const area of filePlugin.fileareas) {
+                        if (Array.isArray(area.files)) {
+                          for (const file of area.files) {
+                            detailsInfo.archivos_enviados.push({
+                              nombre: file.filename,
+                              url: file.fileurl
+                            });
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+
+                if (la.gradingstatus) {
+                  const gradingMap: Record<string, string> = {
+                    'graded': 'Calificado',
+                    'notgraded': 'Sin calificar'
+                  };
+                  detailsInfo.estado_calificacion = gradingMap[la.gradingstatus] || la.gradingstatus;
+                }
+              }
+
+              if (statusRes.feedback && statusRes.feedback.gradefordisplay) {
+                const display = stripHtml(statusRes.feedback.gradefordisplay);
+                if (display.includes('/')) {
+                  const parts = display.split('/');
+                  detailsInfo.calificacion = parts[0].trim();
+                  detailsInfo.calificacion_sobre = parts[1].trim();
+                } else {
+                  detailsInfo.calificacion = display;
+                  detailsInfo.calificacion_sobre = gradeMax || "10.0";
+                }
+              } else if (gradeVal) {
+                detailsInfo.calificacion = gradeVal;
+                detailsInfo.calificacion_sobre = gradeMax || "10.0";
+              } else if (statusRes.feedback && statusRes.feedback.grade && statusRes.feedback.grade.grade) {
+                detailsInfo.calificacion = String(statusRes.feedback.grade.grade);
+                detailsInfo.calificacion_sobre = gradeMax || "10.0";
+              } else {
+                // Backup for ungraded assignments: still expose maximum grade
+                detailsInfo.calificacion_sobre = gradeMax || "10.0";
+              }
+
+              if (feedbackComment) {
+                detailsInfo.comentario_calificador = feedbackComment;
+              } else if (statusRes.feedback && Array.isArray(statusRes.feedback.plugins)) {
+                const commentPlugin = statusRes.feedback.plugins.find((p: any) => p.type === 'comments');
+                if (commentPlugin && Array.isArray(commentPlugin.editorfields)) {
+                  detailsInfo.comentario_calificador = commentPlugin.editorfields.map((f: any) => f.text).join('\n');
+                }
+              }
+            }
+          }
+
+          if (isQuiz) {
+            const quizId = currentItem.wsQuizId || await getQuizIdFromCmid(base, wstoken, courseIdInt, cmid);
+            if (quizId) {
+              const [quizInfoWS, qtypesRes] = await Promise.all([
+                callMoodleWS(base, wstoken, 'mod_quiz_get_user_attempts', { quizid: quizId }).catch(() => null),
+                callMoodleWS(base, wstoken, 'mod_quiz_get_quiz_required_qtypes', { quizid: quizId }).catch(() => null)
+              ]);
+
+              if (qtypesRes && Array.isArray(qtypesRes.questiontypes) && qtypesRes.questiontypes.length === 0) {
+                detailsInfo.advertencia_preguntas = 'Aún no se han agregado preguntas';
+              }
+              
+              const quiz_info: any = {
+                intentos_permitidos: null,
+                limite_tiempo: null,
+                calificacion_final: gradeVal || null,
+                calificacion_sobre: gradeMax || "10.0",
+                porcentaje: null,
+                intentos: []
+              };
+
+              if (quizInfoWS && Array.isArray(quizInfoWS.attempts)) {
+                quiz_info.intentos = quizInfoWS.attempts.map((att: any) => {
+                  const stateMap: Record<string, string> = {
+                    'finished': 'Terminado',
+                    'inprogress': 'En curso'
+                  };
+                  return {
+                    numero: String(att.attempt),
+                    estado: stateMap[att.state] || att.state,
+                    comenzado: att.timestart ? new Date(att.timestart * 1000).toLocaleString('es-ES') : null,
+                    completado: att.timefinish ? new Date(att.timefinish * 1000).toLocaleString('es-ES') : null,
+                    duracion: (att.timefinish && att.timestart) ? `${Math.round((att.timefinish - att.timestart) / 60)} min` : null,
+                    calificacion: att.sumgrades !== undefined ? String(att.sumgrades) : null,
+                    calificacion_sobre: gradeMax || "10.0"
+                  };
+                });
+              }
+
+              detailsInfo.quiz_info = quiz_info;
+            }
+          }
+
+          const computedStats = computeStatsServer(currentItem.type, detailsInfo);
+
+          const newTodo = {
+            id: `moodle-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+            title: currentItem.activityName,
+            courseId: currentItem.courseId,
+            courseName: currentItem.courseName,
+            activityUrl: currentItem.activityUrl,
+            type: currentItem.type,
+            description: detailsInfo.detalle || undefined,
+            closureDate: detailsInfo.closureDateISO || null,
+            aperture: detailsInfo.aperture || null,
+            apertureDateISO: detailsInfo.apertureDateISO || null,
+            completed: !detailsInfo.por_hacer_calificacion && (
+                         isStatusSubmittedServer(detailsInfo.estado_entrega) || 
+                         detailsInfo.quiz_info?.intentos?.some((att: any) => att.estado?.toLowerCase().includes('terminado')) || 
+                         (detailsInfo.hecho_calificacion === true) ||
+                         (computedStats.status === 'Calificado' || computedStats.status === 'Entregado') ||
+                         false
+                       ),
+            createdAt: new Date().toISOString(),
+            status: computedStats.status,
+            grade: computedStats.grade,
+            gradeOver: computedStats.gradeOver || gradeMax || "10.0",
+            gradingStatus: (computedStats.grade || computedStats.status === 'Calificado' || (detailsInfo.estado_calificacion && detailsInfo.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (detailsInfo.estado_calificacion || null),
+            estado_calificacion: (computedStats.grade || computedStats.status === 'Calificado' || (detailsInfo.estado_calificacion && detailsInfo.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (detailsInfo.estado_calificacion || null),
+            estado_entrega: detailsInfo.estado_entrega || null,
+            comentario_calificador: detailsInfo.comentario_calificador || null,
+            advertencia_preguntas: detailsInfo.advertencia_preguntas || null,
+            por_hacer_calificacion: detailsInfo.por_hacer_calificacion || false,
+            hecho_calificacion: detailsInfo.hecho_calificacion || false,
+            grupo: detailsInfo.grupo || null,
+            moodleUsername: currentItem.username,
+            moodleServer: currentItem.server,
+            lastSyncedAt: new Date().toISOString()
+          };
+
+          const existingIdx = job.tasks.findIndex(t => t.activityUrl === currentItem.activityUrl);
+          if (existingIdx !== -1) {
+            job.tasks[existingIdx] = newTodo;
+          } else {
+            job.tasks.push(newTodo);
+          }
+          
+          const taskDuration = Date.now() - taskStart;
+          addLog(job, 'performance', `[WS_FETCH_DETAIL] ADDR="${currentItem.activityUrl}" | TYPE=${currentItem.type} | COURSE_ID=${currentItem.courseId} | TITLE="${currentItem.activityName}" | STATUS="${computedStats.status}" | CALIF="${computedStats.grade || 'N/A'}/${computedStats.gradeOver || '100'}" | ENTREGA="${detailsInfo.estado_entrega || 'N/A'}" | CALIFIC_REQ=${detailsInfo.hecho_calificacion}`, taskDuration);
+          processed++;
+          job.processedCount = processed;
+          if (processed % 5 === 0 || processed === job.totalCount) {
+            await saveJobToDisk(key, job);
+          }
+          return; // WS path fully done!
+        } catch (wsErr: any) {
+          addLog(job, 'warn', `[WS_DETAIL_PARSE_FAIL] WS details fetch failed for ${currentItem.activityName}, falling back to scraping: ${wsErr.message}`, Date.now() - taskStart);
+        }
+      }
+
       try {
-        const activityHtml = await fetchMoodleHtml(currentItem.activityUrl, sess.cookies);
+        const activityHtml = await fetchMoodleHtml(currentItem.activityUrl, cookieString);
         const $ = cheerio.load(activityHtml);
 
         let domAperture: string | null = null;
@@ -2236,7 +3117,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
           createdAt: new Date().toISOString(),
           status: computedStats.status,
           grade: computedStats.grade,
-          gradeOver: computedStats.gradeOver,
+          gradeOver: computedStats.gradeOver || currentItem.wsGradeMax || "10.0",
           gradingStatus: (computedStats.grade || computedStats.status === 'Calificado' || (detailsInfo.estado_calificacion && detailsInfo.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (detailsInfo.estado_calificacion || null),
           estado_calificacion: (computedStats.grade || computedStats.status === 'Calificado' || (detailsInfo.estado_calificacion && detailsInfo.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (detailsInfo.estado_calificacion || null),
           estado_entrega: detailsInfo.estado_entrega || null,

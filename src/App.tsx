@@ -730,13 +730,16 @@ export default function App() {
     }
   }, []);
 
-  // 1b. Auto-save user cache to Firestore whenever state changes
+  // 1b. Auto-save user cache to Firestore whenever state changes (debounced by 10 seconds)
   useEffect(() => {
     if (!isDbLoaded) return;
-    sessions.forEach(s => {
-      saveUserCacheToFirestore(s.server, s.username, tasks, lastSyncedTime, notifications)
-        .catch(err => console.error(`Error auto-saving cache to Firestore for ${s.username}:`, err));
-    });
+    const timer = setTimeout(() => {
+      sessions.forEach(s => {
+        saveUserCacheToFirestore(s.server, s.username, tasks, lastSyncedTime, notifications)
+          .catch(err => console.error(`Error auto-saving cache to Firestore for ${s.username}:`, err));
+      });
+    }, 10000); // 10s debounce to avoid exhausting Firestore write streams during high-frequency syncs
+    return () => clearTimeout(timer);
   }, [tasks, lastSyncedTime, sessions, isDbLoaded, notifications]);
 
   // Fetch courses cache sequentially once connected
@@ -1546,7 +1549,7 @@ export default function App() {
                        ),
             status: stats.status,
             grade: stats.grade,
-            gradeOver: stats.gradeOver,
+            gradeOver: stats.gradeOver || details.calificacion_sobre || rawMatch.gradeOver || "10.0",
             gradingStatus: (stats.grade || stats.status === 'Calificado' || (details.estado_calificacion && details.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (details.estado_calificacion || null),
             estado_calificacion: (stats.grade || stats.status === 'Calificado' || (details.estado_calificacion && details.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (details.estado_calificacion || null),
             estado_entrega: details.estado_entrega || null,
