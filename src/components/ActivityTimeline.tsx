@@ -45,6 +45,7 @@ export default function ActivityTimeline({
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState<boolean>(false);
   const [selectedCourseId, setSelectedCourseId] = useState<string>('all');
+  const [selectedType, setSelectedType] = useState<string>('all');
   const [showCompleted, setShowCompleted] = useState<boolean>(true);
   const [confirmClear, setConfirmClear] = useState(false);
   
@@ -502,8 +503,9 @@ export default function ActivityTimeline({
                             (task.description && task.description.toLowerCase().includes(searchQuery.toLowerCase()));
       const matchesAccount = selectedAccounts.length === 0 || selectedAccounts.includes(`${task.moodleUsername || 'Manual'}|${getCourseDetails(task.courseName).carrera}`);
       const matchesCourse = selectedCourseId === 'all' || task.courseId === selectedCourseId;
+      const matchesType = selectedType === 'all' || task.type === selectedType;
       const matchesCompleted = showCompleted || !task.completed;
-      return matchesSearch && matchesAccount && matchesCourse && matchesCompleted;
+      return matchesSearch && matchesAccount && matchesCourse && matchesType && matchesCompleted;
     })
     .sort((a, b) => {
       if (!a.closureDate) return 1;
@@ -659,7 +661,7 @@ export default function ActivityTimeline({
           </div>
 
           {/* Subjects Filter */}
-          <div className="sm:col-span-4 relative">
+          <div className="sm:col-span-3 relative">
             <div className="absolute inset-y-0 left-0 pl-2.5 sm:pl-3 flex items-center pointer-events-none text-gray-400">
               <Filter className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
             </div>
@@ -676,8 +678,27 @@ export default function ActivityTimeline({
             </select>
           </div>
 
+          {/* Activity Type Filter */}
+          <div className="sm:col-span-2 relative">
+            <div className="absolute inset-y-0 left-0 pl-2.5 sm:pl-3 flex items-center pointer-events-none text-gray-400">
+              <ListFilter className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            </div>
+            <select
+              id="task-type-filter"
+              value={selectedType}
+              onChange={(e) => setSelectedType(e.target.value)}
+              className="block w-full pl-7 sm:pl-9 pr-2 sm:pr-3 py-1.5 sm:py-2 border border-gray-150 bg-white rounded-xl text-[10.5px] sm:text-xs text-gray-700 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer h-full"
+            >
+              <option value="all">Todos los Tipos</option>
+              <option value="TAREA">TAREA</option>
+              <option value="CUESTIONARIO">CUESTIONARIO</option>
+              <option value="ACTIVIDAD">ACTIVIDAD</option>
+              <option value="MANUAL">MANUAL</option>
+            </select>
+          </div>
+
           {/* Hide Completed Selector */}
-          <div className="col-span-2 sm:col-span-3 flex items-center justify-between sm:justify-end px-1 gap-2 mt-1 sm:mt-0">
+          <div className="col-span-2 sm:col-span-2 flex items-center justify-between sm:justify-end px-1 gap-2 mt-1 sm:mt-0">
             <label className="text-[10px] sm:text-xs text-gray-500 cursor-pointer select-none">Mostrar Completadas</label>
             <button
               id="toggle-show-completed"
