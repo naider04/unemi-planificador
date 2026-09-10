@@ -1549,7 +1549,7 @@ export default function App() {
                        ),
             status: stats.status,
             grade: stats.grade,
-            gradeOver: stats.gradeOver || details.calificacion_sobre || rawMatch.gradeOver || "10.0",
+            gradeOver: stats.gradeOver,
             gradingStatus: (stats.grade || stats.status === 'Calificado' || (details.estado_calificacion && details.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (details.estado_calificacion || null),
             estado_calificacion: (stats.grade || stats.status === 'Calificado' || (details.estado_calificacion && details.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (details.estado_calificacion || null),
             estado_entrega: details.estado_entrega || null,

@@ -1006,8 +1006,8 @@ app.post('/api/moodle/activity-details', async (req, res) => {
               if (Array.isArray(c.assignments)) {
                 const matched = c.assignments.find((a: any) => String(a.id) === String(assignId));
                 if (matched && matched.grade !== undefined && matched.grade !== null) {
-                  // Fallback to the assignment's configured grade only if gradeMax is not set
-                  gradeMax = gradeMax || String(matched.grade);
+                  // Prioritize the assignment's configured grade over general grade report
+                  gradeMax = String(matched.grade);
                 }
               }
             }
@@ -1094,8 +1094,8 @@ app.post('/api/moodle/activity-details', async (req, res) => {
           if (quizzesRes && Array.isArray(quizzesRes.quizzes)) {
             const matched = quizzesRes.quizzes.find((q: any) => String(q.id) === String(quizId));
             if (matched && matched.grade !== undefined && matched.grade !== null) {
-              // Fallback to the quiz's configured grade only if gradeMax is not set
-              gradeMax = gradeMax || String(matched.grade);
+              // Prioritize the quiz's configured grade over general grade report
+              gradeMax = String(matched.grade);
             }
           }
           
@@ -2654,7 +2654,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
               gradeVal = matchedItem.gradeformatted || null;
               if (gradeVal === '-') gradeVal = null;
               if (gradeVal) gradeVal = stripHtml(gradeVal);
-              gradeMax = (matchedItem.grademax ? String(matchedItem.grademax) : null) || gradeMax;
+              gradeMax = gradeMax || (matchedItem.grademax ? String(matchedItem.grademax) : null);
               feedbackComment = matchedItem.feedback || null;
             }
           }
