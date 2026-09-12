@@ -25,6 +25,106 @@ function stripHtml(str: string): string {
   return str.replace(/<[^>]*>/g, '').trim();
 }
 
+// Scrape the "Feedback comments" cell from an assignment page. Row-based so the
+// grade/labels are not mixed into the feedback text.
+function scrapeFeedbackComment($: any): string | null {
+  let text: string | null = null;
+  $('.feedbacktable tr, #feedback table.generaltable tr, .feedbacktable table tr').each((_: number, tr: any) => {
+    if (text) return;
+    const th = $(tr).find('th').first().text().trim().toLowerCase();
+    if (th.includes('feedback comment') || th.includes('comentario de retroalimentación') || th.includes('comentarios') || th === 'comentario') {
+      const tdText = $(tr).find('td').last().text().replace(/\u00a0/g, ' ').trim();
+      if (tdText && !/^\s*$/.test(tdText)) {
+        text = tdText.replace(/[ \t\r\n]+/g, ' ').replace(/^\s*(Comments?|Comentarios?)\s*$/, '').trim();
+      }
+    }
+  });
+  if (text) return text;
+  // Fallback: legacy generic containers
+  const commentElem = $('.feedback .comment, .feedback .comment-content, .feedback .no-overflow');
+  if (commentElem.length > 0) {
+    const raw = commentElem.text().trim().replace(/^Comentarios?/i, '').trim().replace(/\u00a0/g, ' ').replace(/[ \t\r\n]+/g, ' ');
+    if (raw) return raw;
+  }
+  return null;
+}
+
+// Extract teacher-feedback images from the WS comments plugin (fileareas on Moodle
+// sometimes expose the actual files; otherwise parse the <img> tags inside the text).
+function extractFeedbackImages(plugins: any[] | null | undefined): { url: string; nombre: string }[] {
+  const images: { url: string; nombre: string }[] = [];
+  if (!Array.isArray(plugins)) return images;
+  const commentPlugin = plugins.find((p: any) => p?.type === 'comments');
+  if (commentPlugin && Array.isArray(commentPlugin.fileareas)) {
+    for (const area of commentPlugin.fileareas) {
+      if (!Array.isArray(area.files)) continue;
+      for (const file of area.files) {
+        if (String(file.mimetype || '').startsWith('image/') && file.fileurl) {
+          images.push({ url: file.fileurl, nombre: file.filename || 'imagen' });
+        }
+      }
+    }
+  }
+  if (images.length === 0 && commentPlugin && Array.isArray(commentPlugin.editorfields)) {
+    for (const f of commentPlugin.editorfields) {
+      const text: string = f?.text || '';
+      const imgs = text.match(/<img[^>]+>/gi) || [];
+      for (const tag of imgs) {
+        const src = tag.match(/\bsrc=["']([^"']+)["']/i);
+        const alt = tag.match(/\balt=["']([^"']*)["']/i);
+        if (src && src[1]) {
+          images.push({ url: src[1].replace(/&amp;/g, '&'), nombre: alt ? alt[1] : 'imagen' });
+        }
+      }
+    }
+  }
+  return images;
+}
+
+// Scrape the feedback <img> tags from the "Feedback comments" cell for the no-WS fallback.
+function scrapeFeedbackImages($: any): { url: string; nombre: string }[] {
+  const images: { url: string; nombre: string }[] = [];
+  $('.feedbacktable tr, #feedback table.generaltable tr, .feedbacktable table tr').each((_: number, tr: any) => {
+    const th = $(tr).find('th').first().text().trim().toLowerCase();
+    if (th.includes('feedback comment') || th.includes('comentario de retroalimentación') || th.includes('comentarios') || th === 'comentario') {
+      $(tr).find('td img').each((__: number, img: any) => {
+        const src = $(img).attr('src');
+        if (src) images.push({ url: src.replace(/&amp;/g, '&'), nombre: $(img).attr('alt') || 'imagen' });
+      });
+    }
+  });
+  return images;
+}
+
+// Clean teacher feedback from Moodle's HTML to plain readable text.
+// Moodle stores feedback comments as HTML (sometimes pasted from editors/generators),
+// so strip tags, decode entities and collapse whitespace before persisting.
+function extractFeedbackText(maybeHtml: string | null | undefined): string | null {
+  if (!maybeHtml) return null;
+  let text = maybeHtml
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ');
+  // Keep paragraph/line separation for block-level elements
+  text = text.replace(/<\/(p|div|li|h[1-6]|tr|td)>/gi, '\n');
+  text = text.replace(/<br\s*\/?>/gi, '\n');
+  text = stripHtml(text);
+  // Decode common HTML entities
+  text = text
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0?39;/g, "'");
+  // Normalize whitespace
+  text = text.replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{2,}/g, '\n')
+    .trim();
+  return text || null;
+}
+
 // Spanish Month Parser Helper
 function parseMoodleSpanishDate(dateStr: string): string | null {
   if (!dateStr) return null;
@@ -463,6 +563,20 @@ app.post('/api/moodle/course-activities', async (req, res) => {
         const sections: any[] = [];
         const activities: any[] = [];
 
+        // Prefetch quizzes metadata (open/close window, max attempts, has questions)
+        // to tag quiz activities that are currently open and attemptable.
+        let quizzesByCmid = new Map<string, any>();
+        try {
+          const qRes = await callMoodleWS(base, wstoken, 'mod_quiz_get_quizzes_by_courses', { courseids: [parseInt(courseId, 10)] });
+          if (qRes && Array.isArray(qRes.quizzes)) {
+            for (const q of qRes.quizzes) {
+              quizzesByCmid.set(String(q.coursemodule), q);
+            }
+          }
+        } catch (qErr) {
+          console.warn('Failed to fetch quiz metadata for course activities:', qErr);
+        }
+
         for (const section of contents) {
           if (section.visible === 0 && (!section.modules || section.modules.length === 0)) {
             continue;
@@ -518,6 +632,28 @@ app.post('/api/moodle/course-activities', async (req, res) => {
                 closure,
                 closureDateISO
               });
+
+              // Tag quiz activities that are open & attemptable, and report max attempts
+              if (mod.modname === 'quiz') {
+                const actItem = activities[activities.length - 1];
+                const qinfo = quizzesByCmid.get(String(mod.id));
+                if (qinfo) {
+                  const now = Math.floor(Date.now() / 1000);
+                  const timeopen = Number(qinfo.timeopen) || 0;
+                  const timeclose = Number(qinfo.timeclose) || 0;
+                  const hasQuestions = Number(qinfo.hasquestions) > 0;
+                  const isOpenWindow = (timeopen === 0 || timeopen <= now) && (timeclose === 0 || timeclose > now);
+                  if (hasQuestions && isOpenWindow) {
+                    actItem.completionStatus.push('opened');
+                  }
+                  const numAttempts = Number(qinfo.attempts);
+                  if (Number.isFinite(numAttempts) && numAttempts > 0) {
+                    actItem.completionStatus.push(`Attempts allowed: ${qinfo.attempts}`);
+                  } else if (numAttempts === 0) {
+                    actItem.completionStatus.push('Attempts allowed: Ilimitados');
+                  }
+                }
+              }
             }
           }
         }
@@ -1070,14 +1206,20 @@ app.post('/api/moodle/activity-details', async (req, res) => {
             info.calificacion_sobre = gradeMax || "10.0";
           }
 
-          if (feedbackComment) {
-            info.comentario_calificador = feedbackComment;
-          } else if (statusRes.feedback && Array.isArray(statusRes.feedback.plugins)) {
-            const commentPlugin = statusRes.feedback.plugins.find((p: any) => p.type === 'comments');
-            if (commentPlugin && Array.isArray(commentPlugin.editorfields)) {
-              info.comentario_calificador = commentPlugin.editorfields.map((f: any) => f.text).join('\n');
-            }
-          }
+          // Teacher feedback: prefer the assignment feedback plugin (mod_assign_get_submission_status)
+          // and fall back to the grade report, always cleaning the stored HTML to plain text.
+          const commentsFromPlugin = statusRes.feedback && Array.isArray(statusRes.feedback.plugins)
+            ? (() => {
+                const commentPlugin = statusRes.feedback.plugins.find((p: any) => p.type === 'comments');
+                if (commentPlugin && Array.isArray(commentPlugin.editorfields)) {
+                  return commentPlugin.editorfields.map((f: any) => extractFeedbackText(f.text)).filter(Boolean).join('\n') || null;
+                }
+                return null;
+              })()
+            : null;
+          info.comentario_calificador = commentsFromPlugin || extractFeedbackText(feedbackComment);
+          const feedbackImages = extractFeedbackImages(statusRes?.feedback?.plugins);
+          if (feedbackImages.length > 0) info.comentario_imagenes = feedbackImages;
         }
       }
 
@@ -1091,26 +1233,46 @@ app.post('/api/moodle/activity-details', async (req, res) => {
             callMoodleWS(base, wstoken, 'mod_quiz_get_quizzes_by_courses', { courseids: [courseId] }).catch(() => null)
           ]);
 
-          if (quizzesRes && Array.isArray(quizzesRes.quizzes)) {
-            const matched = quizzesRes.quizzes.find((q: any) => String(q.id) === String(quizId));
-            if (matched && matched.grade !== undefined && matched.grade !== null) {
-              // Prioritize the quiz's configured grade over general grade report
-              gradeMax = String(matched.grade);
-            }
-          }
-          
-          if (qtypesRes && Array.isArray(qtypesRes.questiontypes) && qtypesRes.questiontypes.length === 0) {
-            info.advertencia_preguntas = 'Aún no se han agregado preguntas';
-          }
-          
           const quiz_info: any = {
             intentos_permitidos: null,
             limite_tiempo: null,
             calificacion_final: gradeVal || null,
             calificacion_sobre: gradeMax || "10.0",
             porcentaje: null,
+            abierto: null,
             intentos: []
           };
+
+          if (quizzesRes && Array.isArray(quizzesRes.quizzes)) {
+            const matched = quizzesRes.quizzes.find((q: any) => String(q.id) === String(quizId));
+            if (matched) {
+              if (matched.grade !== undefined && matched.grade !== null) {
+                // Prioritize the quiz's configured grade over general grade report
+                gradeMax = String(matched.grade);
+              }
+              // Populate quiz configuration fields from WS
+              if (matched.attempts !== undefined && matched.attempts !== null && Number(matched.attempts) > 0) {
+                quiz_info.intentos_permitidos = String(matched.attempts);
+              } else if (Number(matched.attempts) === 0) {
+                quiz_info.intentos_permitidos = 'Ilimitados';
+              }
+              if (matched.timelimit !== undefined && matched.timelimit !== null && Number(matched.timelimit) > 0) {
+                quiz_info.limite_tiempo = `${Math.round(Number(matched.timelimit) / 60)} min`;
+              }
+              // Determine if the quiz is currently open (attempt button visible):
+              // within its open/close window AND it actually has questions.
+              const now = Math.floor(Date.now() / 1000);
+              const timeopen = Number(matched.timeopen) || 0;
+              const timeclose = Number(matched.timeclose) || 0;
+              const hasQuestions = Number(matched.hasquestions) > 0;
+              const isOpenWindow = (timeopen === 0 || timeopen <= now) && (timeclose === 0 || timeclose > now);
+              quiz_info.abierto = hasQuestions && isOpenWindow;
+            }
+          }
+
+          if (qtypesRes && Array.isArray(qtypesRes.questiontypes) && qtypesRes.questiontypes.length === 0) {
+            info.advertencia_preguntas = 'Aún no se han agregado preguntas';
+          }
 
           if (quizInfoWS && Array.isArray(quizInfoWS.attempts)) {
             quiz_info.intentos = quizInfoWS.attempts.map((att: any) => {
@@ -1330,9 +1492,13 @@ app.post('/api/moodle/activity-details', async (req, res) => {
         });
       }
 
-      const commentElem = $('.feedback .comment, .feedbacktable, .feedback .no-overflow');
-      if (commentElem.length > 0) {
-        info.comentario_calificador = commentElem.text().trim().replace(/^Comentarios?/i, '').trim();
+      const scrapedComment = scrapeFeedbackComment($);
+      if (scrapedComment) {
+        info.comentario_calificador = scrapedComment;
+      }
+      const scrapedImages = scrapeFeedbackImages($);
+      if (scrapedImages.length > 0) {
+        info.comentario_imagenes = scrapedImages;
       }
     }
 
@@ -1344,6 +1510,7 @@ app.post('/api/moodle/activity-details', async (req, res) => {
         calificacion_final: null,
         calificacion_sobre: null,
         porcentaje: null,
+        abierto: null,
         intentos: []
       };
 
@@ -1352,6 +1519,23 @@ app.post('/api/moodle/activity-details', async (req, res) => {
 
       const matchTiempo = pageText.match(/Límite de tiempo:\s*([^\n<]+)/i) || pageText.match(/Time limit:\s*([^\n<]+)/i);
       if (matchTiempo) quiz_info.limite_tiempo = matchTiempo[1].trim();
+
+      // Detect the "attempt quiz now" button: quiz is open & ready to be done.
+      // Moodle renders a startattempt.php form with an "Attempt quiz now"/"Re-attempt quiz"
+      // submit button only when the quiz is open, attemptable and has questions.
+      quiz_info.abierto = false;
+      // A form posting to startattempt.php means an attempt button is available.
+      if ($('form[action*="startattempt.php"], form[action*="startattempt"]').length > 0) {
+        quiz_info.abierto = true;
+      }
+      // Text fallback for the submit-button value itself.
+      if (!quiz_info.abierto) {
+        quiz_info.abierto = !!pageText.match(/(Attempt quiz now|Re-attempt quiz|Intentar cuestionario ahora|Reintentar cuestionario|Empezar cuestionario)/i);
+      }
+      // A quiz without questions does not show the attempt button -> not open.
+      if (pageText.match(/Aún no se han agregado preguntas|no questions have been added/i)) {
+        quiz_info.abierto = false;
+      }
 
       const feedbackDiv = $('#feedback, .quizfeedback');
       if (feedbackDiv.length > 0) {
@@ -1538,7 +1722,16 @@ app.all('/api/moodle/proxy', async (req, res) => {
     ? 'https://aulas.upsdt.edu.ec'
     : (server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
 
-  const targetUrl = String(url).startsWith('http') ? String(url) : new URL(String(url), base).toString();
+  let targetUrl = String(url).startsWith('http') ? String(url) : new URL(String(url), base).toString();
+
+  // Moodle pluginfile URLs served through the WS require the mobile-app token in the
+  // query (the WS fileurls don't include it). Without it they return a JSON missingparam error.
+  const parsedSession = parseSession(String(session));
+  if (parsedSession.wstoken && targetUrl.includes('pluginfile.php') && !new URL(targetUrl).searchParams.has('token')) {
+    const u = new URL(targetUrl);
+    u.searchParams.set('token', parsedSession.wstoken);
+    targetUrl = u.toString();
+  }
 
   try {
     // Forward the POST or GET request
@@ -1546,7 +1739,7 @@ app.all('/api/moodle/proxy', async (req, res) => {
       method: req.method,
       headers: {
         'User-Agent': UA,
-        'Cookie': parseSession(String(session)).cookies,
+        'Cookie': parsedSession.cookies,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
       },
@@ -2742,14 +2935,20 @@ async function runBackgroundSync(key: string, sessions: any[]) {
                 detailsInfo.calificacion_sobre = gradeMax || "10.0";
               }
 
-              if (feedbackComment) {
-                detailsInfo.comentario_calificador = feedbackComment;
-              } else if (statusRes.feedback && Array.isArray(statusRes.feedback.plugins)) {
-                const commentPlugin = statusRes.feedback.plugins.find((p: any) => p.type === 'comments');
-                if (commentPlugin && Array.isArray(commentPlugin.editorfields)) {
-                  detailsInfo.comentario_calificador = commentPlugin.editorfields.map((f: any) => f.text).join('\n');
-                }
-              }
+              // Teacher feedback: prefer the assignment feedback plugin (mod_assign_get_submission_status)
+              // and fall back to the grade report, always cleaning the stored HTML to plain text.
+              const commentsFromPlugin = statusRes.feedback && Array.isArray(statusRes.feedback.plugins)
+                ? (() => {
+                    const commentPlugin = statusRes.feedback.plugins.find((p: any) => p.type === 'comments');
+                    if (commentPlugin && Array.isArray(commentPlugin.editorfields)) {
+                      return commentPlugin.editorfields.map((f: any) => extractFeedbackText(f.text)).filter(Boolean).join('\n') || null;
+                    }
+                    return null;
+                  })()
+                : null;
+              detailsInfo.comentario_calificador = commentsFromPlugin || extractFeedbackText(feedbackComment);
+              const feedbackImages = extractFeedbackImages(statusRes?.feedback?.plugins);
+              if (feedbackImages.length > 0) detailsInfo.comentario_imagenes = feedbackImages;
             }
           }
 
@@ -2990,9 +3189,13 @@ async function runBackgroundSync(key: string, sessions: any[]) {
               }
             });
           }
-          const commentElem = $('.feedback .comment, .feedbacktable, .feedback .no-overflow');
-          if (commentElem.length > 0) {
-            detailsInfo.comentario_calificador = commentElem.text().trim().replace(/^Comentarios?/i, '').trim();
+          const scrapedComment = scrapeFeedbackComment($);
+          if (scrapedComment) {
+            detailsInfo.comentario_calificador = scrapedComment;
+          }
+          const scrapedImages = scrapeFeedbackImages($);
+          if (scrapedImages.length > 0) {
+            detailsInfo.comentario_imagenes = scrapedImages;
           }
         }
 

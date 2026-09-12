@@ -42,6 +42,7 @@ export interface QuizInfo {
   porcentaje: string | null;
   intentos: QuizAttempt[];
   no_mas_intentos?: boolean;
+  abierto?: boolean | null;
 }
 
 export interface ActivityDetails {
@@ -61,6 +62,7 @@ export interface ActivityDetails {
   calificado_por?: string | null;
   fecha_calificacion?: string | null;
   comentario_calificador?: string | null;
+  comentario_imagenes?: { url: string; nombre: string }[];
   archivos_enviados?: { nombre: string; url: string }[];
   archivos_adicionales?: { texto: string; url: string }[];
   requisitos_pendientes?: string[];
@@ -93,6 +95,7 @@ export interface TodoTask {
   estado_calificacion?: string | null;
   estado_entrega?: string | null;
   comentario_calificador?: string | null;
+  comentario_imagenes?: { url: string; nombre: string }[];
   advertencia_preguntas?: string | null;
   por_hacer_calificacion?: boolean;
   hecho_calificacion?: boolean;

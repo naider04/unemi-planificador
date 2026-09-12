@@ -451,14 +451,14 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
                     <div className="divide-y divide-gray-100">
                       {course.tasksList.map(taskItem => {
                         const isTaskFailing = taskItem.percentage < 70;
-                        const isClickable = !!(taskItem.activityUrl && onNavigateToMoodleActivity);
+                        const isClickable = !!taskItem.activityUrl;
                         
                         return (
                           <div 
                             key={taskItem.id} 
                             onClick={() => {
-                              if (isClickable && onNavigateToMoodleActivity) {
-                                onNavigateToMoodleActivity(course.courseId || '', taskItem.activityUrl || '');
+                              if (isClickable && taskItem.activityUrl) {
+                                window.open(taskItem.activityUrl, '_blank', 'noopener,noreferrer');
                               }
                             }}
                             className={`py-3 flex items-start justify-between gap-4 group transition-colors ${

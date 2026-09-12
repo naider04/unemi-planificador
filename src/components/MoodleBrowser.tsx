@@ -52,6 +52,9 @@ export default function MoodleBrowser({
   onSessionError,
   onGoToConnections
 }: MoodleBrowserProps) {
+  const proxiedFeedbackImageUrl = (fileUrl: string) =>
+    `/api/moodle/proxy?url=${encodeURIComponent(fileUrl)}&server=${session.server}&username=${session.username}&session=${encodeURIComponent(session.cookies)}`;
+
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -302,6 +305,7 @@ export default function MoodleBrowser({
               estado_calificacion: (computedStats.grade || computedStats.status === 'Calificado' || (details.estado_calificacion && details.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (details.estado_calificacion || null),
               estado_entrega: details.estado_entrega || null,
               comentario_calificador: details.comentario_calificador || null,
+              comentario_imagenes: details.comentario_imagenes || [],
               advertencia_preguntas: details.advertencia_preguntas || null,
               por_hacer_calificacion: details.por_hacer_calificacion || false,
               hecho_calificacion: details.hecho_calificacion || false,
@@ -565,6 +569,7 @@ export default function MoodleBrowser({
                     estado_calificacion: (computedStats.grade || computedStats.status === 'Calificado' || (details.estado_calificacion && details.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (details.estado_calificacion || null),
                     estado_entrega: details.estado_entrega || null,
                     comentario_calificador: details.comentario_calificador || null,
+              comentario_imagenes: details.comentario_imagenes || [],
                     advertencia_preguntas: details.advertencia_preguntas || null,
                     por_hacer_calificacion: details.por_hacer_calificacion || false,
                     hecho_calificacion: details.hecho_calificacion || false,
@@ -631,6 +636,7 @@ export default function MoodleBrowser({
       estado_calificacion: (computedStats.grade || computedStats.status === 'Calificado' || (activityDetails.estado_calificacion && activityDetails.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (activityDetails.estado_calificacion || null),
       estado_entrega: activityDetails.estado_entrega || null,
       comentario_calificador: activityDetails.comentario_calificador || null,
+      comentario_imagenes: activityDetails.comentario_imagenes || [],
       advertencia_preguntas: activityDetails.advertencia_preguntas || null,
       por_hacer_calificacion: activityDetails.por_hacer_calificacion || false,
       hecho_calificacion: activityDetails.hecho_calificacion || false,
@@ -1040,9 +1046,13 @@ export default function MoodleBrowser({
                                             <span 
                                               key={idx} 
                                               className={`text-[9px] font-mono font-medium px-1.5 py-0.5 rounded ${
-                                                badge.startsWith('Hecho') 
-                                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-100/50' 
-                                                  : 'bg-amber-50 text-amber-700 border border-amber-100/50'
+                                                badge === 'opened'
+                                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-100/50'
+                                                  : badge.startsWith('Attempts allowed')
+                                                    ? 'bg-blue-50 text-blue-700 border border-blue-100/50'
+                                                    : badge.startsWith('Hecho') 
+                                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-100/50' 
+                                                      : 'bg-amber-50 text-amber-700 border border-amber-100/50'
                                               }`}
                                             >
                                               {badge}
@@ -1227,10 +1237,28 @@ export default function MoodleBrowser({
                             </span>
                           </div>
                         )}
-                        {activityDetails.comentario_calificador && (
+                        {(activityDetails.comentario_calificador || (activityDetails.comentario_imagenes && activityDetails.comentario_imagenes.length > 0)) && (
                           <div className="bg-gray-50/80 border border-gray-100 rounded-xl p-3 text-gray-600 mt-2">
                             <p className="font-bold text-gray-700 mb-1">Comentario del Docente:</p>
-                            <p className="leading-relaxed text-[11px] font-mono italic">{activityDetails.comentario_calificador}</p>
+                            {activityDetails.comentario_calificador && (
+                              <p className="leading-relaxed text-[11px] font-mono italic">{activityDetails.comentario_calificador}</p>
+                            )}
+                            {activityDetails.comentario_imagenes && activityDetails.comentario_imagenes.length > 0 && (
+                              <div className="flex flex-wrap gap-2 mt-2">
+                                {activityDetails.comentario_imagenes.map(img => {
+                                  const proxied = proxiedFeedbackImageUrl(img.url);
+                                  return (
+                                    <a key={img.url} href={proxied} target="_blank" rel="noreferrer" title={img.nombre}>
+                                      <img
+                                        src={proxied}
+                                        alt={img.nombre}
+                                        className="w-28 h-28 object-cover rounded-lg border border-gray-200 bg-white cursor-zoom-in transition-transform hover:scale-105 hover:shadow-md"
+                                      />
+                                    </a>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1239,6 +1267,20 @@ export default function MoodleBrowser({
                     {/* Quizzes specific detailed sheet */}
                     {activityDetails.tipo_actividad === 'Cuestionario' && activityDetails.quiz_info && (
                       <div className="space-y-3 border-t border-gray-100 pt-3 text-xs">
+                        {activityDetails.quiz_info.abierto === true && (
+                          <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl text-emerald-800 flex items-center space-x-2">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-pulse" />
+                            <span className="font-extrabold tracking-wide uppercase text-[11px]">opened</span>
+                            <span className="text-emerald-700 font-medium">· El cuestionario está abierto, puedes intentarlo ahora.</span>
+                          </div>
+                        )}
+                        {activityDetails.quiz_info.abierto === false && (
+                          <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-slate-500 flex items-center space-x-2">
+                            <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0" />
+                            <span className="font-extrabold tracking-wide uppercase text-[11px]">Cerrado</span>
+                            <span className="font-medium">· El cuestionario no está disponible para intentar ahora.</span>
+                          </div>
+                        )}
                         <div className="grid grid-cols-2 gap-2 text-gray-700">
                           {activityDetails.quiz_info.intentos_permitidos && (
                             <div className="bg-gray-50 p-2 rounded-lg">

@@ -22,6 +22,7 @@ interface ActivityTimelineProps {
   filterCourseIdTrigger?: string | null;
   onClearFilterCourseIdTrigger?: () => void;
   viewingTaskId?: string | null;
+  getFeedbackImageUrl?: (task: TodoTask, fileUrl: string) => string | null;
 }
 
 export default function ActivityTimeline({ 
@@ -39,7 +40,8 @@ export default function ActivityTimeline({
   onViewHtml,
   filterCourseIdTrigger,
   onClearFilterCourseIdTrigger,
-  viewingTaskId
+  viewingTaskId,
+  getFeedbackImageUrl
 }: ActivityTimelineProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
@@ -827,7 +829,7 @@ export default function ActivityTimeline({
                       {group.mondaySort === 9999999999999 ? (
                         group.tasks.map((task) => {
                           const remaining = getRemainingTime(task.closureDate, task.completed);
-                          const isClickable = !!(task.activityUrl && onViewHtml);
+                          const isClickable = !!task.activityUrl;
                           
                           return (
                             <div key={task.id} id={`timeline-row-${task.id}`} className="relative group">
@@ -841,8 +843,8 @@ export default function ActivityTimeline({
 
                               <div 
                                 onClick={() => {
-                                  if (isClickable && onViewHtml) {
-                                    onViewHtml(task);
+                                  if (isClickable && task.activityUrl) {
+                                    window.open(task.activityUrl, '_blank', 'noopener,noreferrer');
                                   }
                                 }}
                                 className={`bg-white border rounded-2xl p-4 md:p-5 shadow-2xs hover:shadow-xs transition-all duration-205 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
@@ -982,10 +984,29 @@ export default function ActivityTimeline({
                                       </div>
                                     )}
 
-                                    {task.comentario_calificador && (
+                                    {(task.comentario_calificador || (task.comentario_imagenes && task.comentario_imagenes.length > 0)) && (
                                       <div className="mt-2 bg-gray-50/85 border border-gray-150 rounded-xl p-2.5 text-gray-600 max-w-md animate-in fade-in duration-200">
                                         <p className="font-bold text-[9px] text-gray-500 mb-0.5 uppercase tracking-wider">Retroalimentación del Docente:</p>
-                                        <p className="leading-relaxed text-[10px] font-mono italic">"{task.comentario_calificador}"</p>
+                                        {task.comentario_calificador && (
+                                          <p className="leading-relaxed text-[10px] font-mono italic">"{task.comentario_calificador}"</p>
+                                        )}
+                                        {task.comentario_imagenes && task.comentario_imagenes.length > 0 && (
+                                          <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                            {task.comentario_imagenes.map(img => {
+                                              const proxied = getFeedbackImageUrl ? getFeedbackImageUrl(task, img.url) : null;
+                                              if (!proxied) return null;
+                                              return (
+                                                <a key={img.url} href={proxied} target="_blank" rel="noreferrer" title={img.nombre}>
+                                                  <img
+                                                    src={proxied}
+                                                    alt={img.nombre}
+                                                    className="w-16 h-16 object-cover rounded-lg border border-gray-200 bg-white cursor-zoom-in transition-transform hover:scale-105 hover:shadow-md"
+                                                  />
+                                                </a>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
                                       </div>
                                     )}
                                   </div>
@@ -1124,15 +1145,15 @@ export default function ActivityTimeline({
                                     <div className="bg-white border border-gray-100 rounded-2xl shadow-3xs overflow-hidden divide-y divide-gray-100/80">
                                       {day.tasks.map((task) => {
                                         const remaining = getRemainingTime(task.closureDate, task.completed);
-                                        const isClickable = !!(task.activityUrl && onViewHtml);
+                                        const isClickable = !!task.activityUrl;
                                         
                                         return (
                                           <div 
                                             key={task.id} 
                                             id={`timeline-row-${task.id}`}
                                             onClick={() => {
-                                              if (isClickable && onViewHtml) {
-                                                onViewHtml(task);
+                                              if (isClickable && task.activityUrl) {
+                                                window.open(task.activityUrl, '_blank', 'noopener,noreferrer');
                                               }
                                             }}
                                             className={`p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all duration-205 ${
@@ -1282,10 +1303,29 @@ export default function ActivityTimeline({
                                                   </div>
                                                 )}
 
-                                                {task.comentario_calificador && (
+                                                {(task.comentario_calificador || (task.comentario_imagenes && task.comentario_imagenes.length > 0)) && (
                                                   <div className="mt-2 bg-gray-50/85 border border-gray-150 rounded-xl p-2.5 text-gray-600 max-w-md">
                                                     <p className="font-bold text-[9px] text-gray-500 mb-0.5 uppercase tracking-wider">Retroalimentación del Docente:</p>
-                                                    <p className="leading-relaxed text-[10px] font-mono italic">"{task.comentario_calificador}"</p>
+                                                    {task.comentario_calificador && (
+                                                      <p className="leading-relaxed text-[10px] font-mono italic">"{task.comentario_calificador}"</p>
+                                                    )}
+                                                    {task.comentario_imagenes && task.comentario_imagenes.length > 0 && (
+                                                      <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                                        {task.comentario_imagenes.map(img => {
+                                                          const proxied = getFeedbackImageUrl ? getFeedbackImageUrl(task, img.url) : null;
+                                                          if (!proxied) return null;
+                                                          return (
+                                                            <a key={img.url} href={proxied} target="_blank" rel="noreferrer" title={img.nombre}>
+                                                              <img
+                                                                src={proxied}
+                                                                alt={img.nombre}
+                                                                className="w-16 h-16 object-cover rounded-lg border border-gray-200 bg-white cursor-zoom-in transition-transform hover:scale-105 hover:shadow-md"
+                                                              />
+                                                            </a>
+                                                          );
+                                                        })}
+                                                      </div>
+                                                    )}
                                                   </div>
                                                 )}
                                               </div>

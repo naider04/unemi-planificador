@@ -1554,6 +1554,7 @@ export default function App() {
             estado_calificacion: (stats.grade || stats.status === 'Calificado' || (details.estado_calificacion && details.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (details.estado_calificacion || null),
             estado_entrega: details.estado_entrega || null,
             comentario_calificador: details.comentario_calificador || null,
+            comentario_imagenes: details.comentario_imagenes || [],
             advertencia_preguntas: details.advertencia_preguntas || null,
             por_hacer_calificacion: details.por_hacer_calificacion || false,
             hecho_calificacion: details.hecho_calificacion || false,
@@ -2368,6 +2369,13 @@ export default function App() {
               filterCourseIdTrigger={timelineFilterCourseId}
               onClearFilterCourseIdTrigger={() => setTimelineFilterCourseId(null)}
               viewingTaskId={viewingTaskId}
+              getFeedbackImageUrl={(task, fileUrl) => {
+                const match = sessions.find(
+                  s => s.username.toLowerCase() === task.moodleUsername?.toLowerCase() && s.server === task.moodleServer
+                );
+                if (!match) return null;
+                return `/api/moodle/proxy?url=${encodeURIComponent(fileUrl)}&server=${match.server}&username=${match.username}&session=${encodeURIComponent(match.cookies)}`;
+              }}
             />
           )}
 
