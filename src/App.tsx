@@ -11,6 +11,7 @@ import MoodleBrowser from './components/MoodleBrowser';
 import ActivityTimeline from './components/ActivityTimeline';
 import NewTaskModal from './components/NewTaskModal';
 import StatsPanel from './components/StatsPanel';
+import SyncStatusBar from './components/SyncStatusBar';
 import { fetchUserCacheFromFirestore, saveUserCacheToFirestore } from './firebase';
 
 export function mergeTasksLists(currentTasks: TodoTask[], newTasks: TodoTask[]): TodoTask[] {
@@ -1979,360 +1980,128 @@ export default function App() {
       {/* Main Container Grid layout */}
       <main className="max-w-7xl mx-auto px-4 md:px-6 mt-6 relative z-10 space-y-6">
         
-        <div id="analytics-grid-row" className="bg-white border border-gray-150/40 rounded-3xl p-5 md:p-6 shadow-2xs grid grid-cols-1 md:grid-cols-12 gap-5 items-stretch">
-          
-          <div className="md:col-span-5 space-y-2.5 flex flex-col justify-center">
-            <div className="hidden sm:flex items-center space-x-1.5 text-blue-600 text-[11px] font-bold">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Sincronizador Inteligente Multi-Cuenta</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <h2 className="hidden sm:block text-sm md:text-base font-extrabold text-gray-900 leading-snug">Sincronizador de Materias</h2>
-              {lastSyncedTime && (
-                <span className="text-[10px] text-gray-500 font-bold bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-md shrink-0" id="last-sync-global-badge">
-                  Sincronizado: {getRelativeLastSyncedTime()}
+        {/* Modern Segmented Tab Navigation Controls */}
+        <div id="tab-controls-root" className="flex items-center justify-between gap-2 flex-wrap border-b border-slate-200/80 pb-3">
+          <div className="flex items-center space-x-1 sm:space-x-1.5 overflow-x-auto bg-slate-100/90 p-1.5 rounded-2xl border border-slate-200/70">
+            <button
+              id="tab-agenda-btn"
+              onClick={() => setActiveTab("agenda")}
+              className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
+                activeTab === "agenda"
+                  ? "bg-white text-blue-600 shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
+              }`}
+            >
+              <Calendar className="w-4 h-4 shrink-0" />
+              <span>Mi Agenda</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                activeTab === "agenda" ? "bg-blue-50 text-blue-700" : "bg-slate-200/60 text-slate-600"
+              }`}>
+                {totalTasks}
+              </span>
+            </button>
+
+            <button
+              id="tab-browser-btn"
+              onClick={() => {
+                if (sessions.length === 0) {
+                  setActiveTab("login");
+                } else {
+                  setActiveTab("browser");
+                }
+              }}
+              className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
+                activeTab === "browser"
+                  ? "bg-white text-blue-600 shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
+              }`}
+            >
+              <BookOpen className="w-4 h-4 shrink-0" />
+              <span>Explorar Moodle</span>
+            </button>
+
+            <button
+              id="tab-login-btn"
+              onClick={() => {
+                setActiveTab("login");
+                setShowConnectionsAlert(false);
+              }}
+              className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
+                activeTab === "login"
+                  ? "bg-white text-blue-600 shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
+              } ${isShaking ? "animate-shake" : ""}`}
+            >
+              <Lock className="w-4 h-4 shrink-0" />
+              <span>Conexiones</span>
+              {sessions.length > 0 ? (
+                <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.2 rounded-full font-bold">
+                  {sessions.length}
                 </span>
+              ) : showConnectionsAlert && (
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
               )}
-            </div>
-            
-            {/* Sync control block duplicated/mapped per account */}
-            <div className="space-y-3 max-w-md w-full">
-              {sessions.filter(s => !s.expired).length === 0 ? (
-                <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-center">
-                  <p className="text-[11px] text-rose-500 font-bold">⚠️ Conecta una cuenta para habilitar la sincronización.</p>
-                </div>
-              ) : (
-                sessions.filter(s => !s.expired).map((sess) => {
-                  const sState = getAccountSyncState(sess);
-                  const sKey = `${sess.server}_${sess.username.trim().toLowerCase()}`;
-                  const isQueued = syncQueue.some(q => q.username.toLowerCase() === sess.username.toLowerCase() && q.server === sess.server);
+            </button>
 
-                  return (
-                    <div key={sKey} className="p-3.5 bg-slate-50 border border-slate-250/60 rounded-2xl space-y-2 shadow-2xs">
-                      {/* Account header */}
-                      <div className="flex items-center justify-between border-b border-gray-150/40 pb-1.5">
-                        <div className="flex items-center space-x-1.5 min-w-0">
-                          <span className="text-[10px] font-extrabold text-slate-700 truncate">
-                            {sess.username} ({sess.server === 'upsdt' ? 'UPSDT' : (sess.server === 'a' ? 'UNEMI P/S' : 'UNEMI Online')})
-                          </span>
-                        </div>
-                        <div className="flex items-center space-x-1.5 shrink-0">
-                          {sState.logs && sState.logs.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => setShowLogsAccountKey(showLogsAccountKey === sKey ? null : sKey)}
-                              className="text-[9px] text-gray-400 hover:text-gray-600 font-bold hover:underline cursor-pointer focus:outline-hidden normal-case"
-                            >
-                              {showLogsAccountKey === sKey ? '(ocultar)' : '(ver proceso)'}
-                            </button>
-                          )}
-                          {sState.status === 'syncing' && (
-                            <span className="text-[9px] bg-blue-100 text-blue-800 font-extrabold px-1.5 py-0.5 rounded-full animate-pulse">
-                              Sincronizando
-                            </span>
-                          )}
-                          {sState.status === 'waiting' && (
-                            <span className="text-[9px] bg-amber-100 text-amber-800 font-extrabold px-1.5 py-0.5 rounded-full">
-                              En cola
-                            </span>
-                          )}
-                          {sState.status === 'completed' && (
-                            <span className="text-[9px] bg-emerald-100 text-emerald-800 font-extrabold px-1.5 py-0.5 rounded-full">
-                              Al día
-                            </span>
-                          )}
-                          {sState.status === 'failed' && (
-                            <span className="text-[9px] bg-red-100 text-red-800 font-extrabold px-1.5 py-0.5 rounded-full">
-                              Fallido
-                            </span>
-                          )}
-                          {sState.status === 'idle' && !isQueued && (
-                            <span className="text-[9px] bg-gray-150 text-gray-700 font-bold px-1.5 py-0.5 rounded-full">
-                              Inactivo
-                            </span>
-                          )}
-                        </div>
-                      </div>
+            <button
+              id="tab-stats-btn"
+              onClick={() => setActiveTab("stats")}
+              className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
+                activeTab === "stats"
+                  ? "bg-white text-blue-600 shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
+              }`}
+            >
+              <BarChart3 className="w-4 h-4 shrink-0" />
+              <span>Estadísticas</span>
+            </button>
 
-                      {/* Status display */}
-                      {sState.status === 'idle' && (
-                        <div className="space-y-1.5">
-                          <button
-                            type="button"
-                            onClick={() => startGlobalSync([sess])}
-                            className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold flex items-center justify-center space-x-1.5 transition-all shadow-xs active:scale-[0.98] cursor-pointer"
-                          >
-                            <RefreshCw className="w-3 h-3 text-white shrink-0" />
-                            <span>Sincronizar esta cuenta</span>
-                          </button>
-                        </div>
-                      )}
-
-                      {(sState.status === 'syncing' || sState.status === 'waiting') && (
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between text-[10px]">
-                            <span className="font-semibold text-slate-500">Progreso materias</span>
-                            <span className="font-mono font-bold text-gray-600">{sState.processedCount} de {sState.totalCount || '?'}</span>
-                          </div>
-                          <div className="w-full bg-blue-100/40 h-1.5 rounded-full overflow-hidden">
-                            <div 
-                              className="bg-blue-600 h-full rounded-full transition-all duration-300"
-                              style={{ width: `${sState.totalCount > 0 ? (sState.processedCount / sState.totalCount) * 100 : 10}%` }}
-                            />
-                          </div>
-                          <div className="text-[10px] text-gray-500 leading-tight space-y-0.5">
-                            <p className="font-semibold text-gray-700 truncate">Materia: <span className="font-extrabold text-slate-800">{sState.currentCourse || 'Conectando...'}</span></p>
-                            <p className="italic truncate text-slate-500">Detalle: {sState.currentActivity || 'Buscando actividades...'}</p>
-                          </div>
-                          <div className="flex space-x-1.5 pt-1">
-                            <button
-                              type="button"
-                              onClick={() => cancelGlobalSync(sess)}
-                              className="flex-grow py-1 bg-red-50 hover:bg-red-100 border border-red-200 text-red-800 text-[10px] font-bold rounded-lg cursor-pointer transition-all text-center"
-                            >
-                              Cancelar Sincronización
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {sState.status === 'completed' && (
-                        <div className="space-y-1.5">
-                          <p className="text-[10px] text-emerald-600 font-bold">✓ ¡Materias actualizadas con éxito!</p>
-                          <button
-                            type="button"
-                            onClick={() => startGlobalSync([sess])}
-                            className="w-full py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-[10px] font-bold rounded-lg cursor-pointer transition-all flex items-center justify-center space-x-1"
-                          >
-                            <RefreshCw className="w-3 h-3 text-emerald-700 shrink-0" />
-                            <span>Actualizar de nuevo</span>
-                          </button>
-                        </div>
-                      )}
-
-                      {sState.status === 'failed' && (
-                        <div className="space-y-1.5">
-                          <p className="text-[10px] text-rose-500 font-bold truncate">Error: {sState.currentActivity || 'Error de conexión'}</p>
-                          <div className="flex space-x-1.5">
-                            <button
-                              type="button"
-                              onClick={() => startGlobalSync([sess])}
-                              className="flex-1 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold rounded-lg cursor-pointer transition-all text-center"
-                            >
-                              Reintentar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => cancelGlobalSync(sess)}
-                              className="flex-1 py-1 bg-gray-100 hover:bg-gray-200 text-gray-750 text-[10px] font-bold rounded-lg cursor-pointer transition-all text-center"
-                            >
-                              Cerrar
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Render specific account logs if opened */}
-                      {showLogsAccountKey === sKey && sState.logs && sState.logs.length > 0 && (
-                        <div className="mt-2.5 p-2.5 bg-slate-900 border border-slate-950 text-slate-100 rounded-xl shadow-inner space-y-1.5 font-mono text-[9px] max-h-36 overflow-y-auto">
-                          <div className="flex items-center justify-between border-b border-slate-800 pb-1">
-                            <span className="font-extrabold text-[8px] text-slate-400">REGISTRO DE PROCESO</span>
-                            <span className="text-[8px] text-slate-500">{sState.logs.length} ENTRADAS</span>
-                          </div>
-                          <div className="space-y-1">
-                            {sState.logs.map((log, idx) => {
-                              let badgeColor = "text-blue-400 bg-blue-950/40";
-                              if (log.type === 'success') { badgeColor = "text-emerald-400 bg-emerald-950/40"; }
-                              if (log.type === 'warn') { badgeColor = "text-amber-400 bg-amber-950/30"; }
-                              if (log.type === 'error') { badgeColor = "text-rose-400 bg-rose-950/40"; }
-                              if (log.type === 'performance') { badgeColor = "text-purple-400 bg-purple-950/30"; }
-
-                              return (
-                                <div key={idx} className="flex items-start space-x-1 py-0.5 leading-normal">
-                                  <span className="text-slate-500 shrink-0 font-light select-none">{log.timestamp}</span>
-                                  <span className={`px-1 rounded-sm text-[7px] font-bold shrink-0 select-none uppercase ${badgeColor}`}>
-                                    {log.type}
-                                  </span>
-                                  <span className="flex-1 text-slate-300 font-sans break-words whitespace-pre-wrap">{log.message}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
+            <button
+              id="tab-developer-btn"
+              onClick={() => setActiveTab("developer")}
+              className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
+                activeTab === "developer"
+                  ? "bg-white text-blue-600 shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
+              }`}
+            >
+              <Terminal className="w-4 h-4 shrink-0" />
+              <span>Sandbox</span>
+            </button>
           </div>
 
-          {/* Columna Derecha: Indicador de emojis superior y Estadísticas alineadas */}
-          <div className="md:col-span-7 flex flex-col justify-between space-y-4">
-            
-            {/* Guía de Indicadores de Actividades */}
-            <div className="bg-slate-50/60 border border-slate-100 rounded-2xl p-4 space-y-2.5">
-              <span className="font-extrabold text-gray-400 uppercase tracking-widest text-[9px] flex items-center gap-1.5 select-none font-sans leading-none">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                Guía de Indicadores de Actividades
-              </span>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-2 text-[9.5px] font-bold text-gray-500 select-none">
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-sm shrink-0">🔥</span>
-                  <span className="truncate">Inminente {"(<30h)"}</span>
-                </div>
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-sm shrink-0">😄</span>
-                  <span className="text-emerald-600 truncate">Excelente (≥90%)</span>
-                </div>
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-sm shrink-0">💪</span>
-                  <span className="truncate">Pendiente {"(<10d)"}</span>
-                </div>
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-sm shrink-0">🙂</span>
-                  <span className="text-blue-650 truncate">Aceptable (80-89%)</span>
-                </div>
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-sm shrink-0">⏱️</span>
-                  <span className="truncate">Entregado {"(Sin nota)"}</span>
-                </div>
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-sm shrink-0">😢</span>
-                  <span className="text-amber-600 truncate">Regular (60-79%)</span>
-                </div>
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-sm shrink-0">☠️</span>
-                  <span className="truncate">Vencido</span>
-                </div>
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-sm shrink-0">👎</span>
-                  <span className="text-rose-600 truncate">Reprobado {"(<60%)"}</span>
-                </div>
-                <div className="flex items-center space-x-1.5 col-span-2 sm:col-span-1 text-[8.5px] text-slate-400 font-extrabold uppercase tracking-wider">
-                  <span className="text-sm shrink-0 select-none">⚠️</span>
-                  <span className="truncate">Cierre Atípico (Sin fecha)</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Dos cuadros estadísticos con el mismo ancho */}
-            <div className="w-full animate-fade-in">
-              {/* Stat 1: Completed Rate */}
-              <div className="bg-gray-50/50 border border-gray-100 rounded-2xl p-2.5 sm:p-4 flex items-center space-x-3 sm:space-x-4 h-full">
-                <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${percentComplete === 100 ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50/60 text-blue-600'}`}>
-                  <Award className="w-4 h-4 sm:w-5 sm:h-5 stroke-[1.8]" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-baseline">
-                    <span className="hidden sm:inline text-[10px] uppercase font-bold text-gray-400 tracking-wider">Cumplimiento</span>
-                    <span className="text-xs font-mono font-bold text-gray-800">{percentComplete}%</span>
-                  </div>
-                  <div className="w-full bg-gray-100 h-1.5 sm:h-2 rounded-full overflow-hidden mt-1 sm:mt-1.5">
-                    <div 
-                      className={`h-full rounded-full transition-all duration-300 ${percentComplete === 100 ? 'bg-emerald-500' : 'bg-blue-600'}`} 
-                      style={{ width: `${percentComplete}%` }}
-                    />
-                  </div>
-                  <p className="text-[9px] sm:text-[10px] text-gray-400 mt-1 sm:mt-1.5 leading-none">
-                    {completedTasks} completadas • {pendingTasks} pendientes
-                  </p>
-                </div>
-              </div>
-            </div>
-
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => setIsNewTaskModalOpen(true)}
+              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-2xs cursor-pointer"
+              title="Crear nueva actividad manual"
+            >
+              <span>+ Nueva Tarea</span>
+            </button>
           </div>
-
         </div>
 
-        {/* Tab selection controls */}
-        <div id="tab-controls-root" className="flex border-b border-gray-200 justify-between sm:justify-start gap-x-1 sm:gap-x-2">
-          
-          <button
-            id="tab-agenda-btn"
-            onClick={() => setActiveTab('agenda')}
-            className={`pb-2.5 pt-2 px-2 sm:px-4 text-xs font-bold border-b-2 transition-all flex items-center justify-center sm:justify-start flex-1 sm:flex-none space-x-1.5 ${
-              activeTab === 'agenda'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
-            }`}
-          >
-            <Calendar className="w-5 h-5 sm:w-4 sm:h-4 shrink-0" />
-            <span className="hidden sm:inline">Mi Agenda ({totalTasks})</span>
-          </button>
-
-          <button
-            id="tab-browser-btn"
-            onClick={() => {
-              if (sessions.length === 0) {
-                setActiveTab('login');
-              } else {
-                setActiveTab('browser');
-              }
-            }}
-            className={`pb-2.5 pt-2 px-2 sm:px-4 text-xs font-bold border-b-2 transition-all flex items-center justify-center sm:justify-start flex-1 sm:flex-none space-x-1.5 ${
-              activeTab === 'browser'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
-            }`}
-          >
-            <BookOpen className="w-5 h-5 sm:w-4 sm:h-4 shrink-0" />
-            <span className="hidden sm:inline">Explorar Moodle</span>
-            {sessions.length === 0 && (
-              <span className="hidden sm:inline text-[9px] font-bold bg-amber-50 text-amber-600 border border-amber-100 rounded px-1 ml-1 scale-90">
-                Bloqueado
-              </span>
-            )}
-          </button>
-
-          <button
-            id="tab-login-btn"
-            onClick={() => {
-              setActiveTab('login');
-              setShowConnectionsAlert(false);
-            }}
-            className={`pb-2.5 pt-2 px-2 sm:px-4 text-xs font-bold border-b-2 transition-all flex items-center justify-center sm:justify-start flex-1 sm:flex-none space-x-1.5 ${
-              activeTab === 'login'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
-            } ${isShaking ? 'animate-shake' : ''}`}
-          >
-            <Lock className="w-5 h-5 sm:w-4 sm:h-4 shrink-0" />
-            <span className="hidden sm:inline">{sessions.length > 0 ? `Mis Conexiones (${sessions.length})` : 'Conectar Moodle'}</span>
-            {showConnectionsAlert && (
-              <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-600 text-white font-black text-[10px] shadow-sm shrink-0 animate-bounce" id="connections-alert-badge">
-                !
-              </span>
-            )}
-          </button>
-
-          <button
-            id="tab-stats-btn"
-            onClick={() => setActiveTab('stats')}
-            className={`pb-2.5 pt-2 px-2 sm:px-4 text-xs font-bold border-b-2 transition-all flex items-center justify-center sm:justify-start flex-1 sm:flex-none space-x-1.5 ${
-              activeTab === 'stats'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
-            }`}
-          >
-            <BarChart3 className="w-5 h-5 sm:w-4 sm:h-4 shrink-0" />
-            <span className="hidden sm:inline">Mis Stats</span>
-          </button>
-
-          <button
-            id="tab-developer-btn"
-            onClick={() => setActiveTab('developer')}
-            className={`pb-2.5 pt-2 px-2 sm:px-4 text-xs font-bold border-b-2 transition-all flex items-center justify-center sm:justify-start flex-1 sm:flex-none space-x-1.5 ${
-              activeTab === 'developer'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
-            }`}
-          >
-            <Terminal className="w-5 h-5 sm:w-4 sm:h-4 shrink-0 font-bold" />
-            <span className="hidden sm:inline">Developer</span>
-          </button>
-
-        </div>
+        {/* Sync & Overview Status Bar (Shown on Agenda or when sync in progress) */}
+        {(activeTab === "agenda" || sessions.some(s => {
+          const st = getAccountSyncState(s);
+          return st.status === "syncing" || st.status === "waiting";
+        })) && (
+          <SyncStatusBar
+            sessions={sessions}
+            getAccountSyncState={getAccountSyncState}
+            syncQueue={syncQueue}
+            lastSyncedTime={lastSyncedTime}
+            getRelativeLastSyncedTime={getRelativeLastSyncedTime}
+            onStartSync={startGlobalSync}
+            onCancelSync={cancelGlobalSync}
+            totalTasks={totalTasks}
+            completedTasks={completedTasks}
+            pendingTasks={pendingTasks}
+            percentComplete={percentComplete}
+            onNavigateToTab={(t) => setActiveTab(t)}
+          />
+        )}
 
         {/* Workspace Display */}
         <div id="workspace-tab-display" className="space-y-6">

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Clock, CheckCircle, Trash2, Calendar, FileText, Square, CheckSquare, Search, 
   ChevronRight, ChevronDown, Filter, EyeOff, LayoutGrid, ListFilter, AlertCircle, PlusCircle, CheckSquare2,
-  Download, RefreshCw, Eye, BookOpen, Terminal
+  Download, RefreshCw, Eye, BookOpen, Terminal, Info, X, Sparkles
 } from 'lucide-react';
 import { TodoTask } from '../types';
 
@@ -50,6 +50,7 @@ export default function ActivityTimeline({
   const [selectedType, setSelectedType] = useState<string>('all');
   const [showCompleted, setShowCompleted] = useState<boolean>(true);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [showLegend, setShowLegend] = useState(false);
   
   const [collapsedWeeksState, setCollapsedWeeksState] = useState<Record<string, boolean>>(() => {
     try {
@@ -520,28 +521,239 @@ export default function ActivityTimeline({
   // Calculate stats
   const pendingCount = tasks.filter(t => !t.completed).length;
   const completedCount = tasks.filter(t => t.completed).length;
+  const percentComplete = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
+
+  const renderTaskCard = (task: TodoTask) => {
+    const remaining = getRemainingTime(task.closureDate, task.completed);
+    const isClickable = !!task.activityUrl;
+
+    return (
+      <div 
+        key={task.id} 
+        id={`timeline-row-${task.id}`}
+        onClick={() => {
+          if (isClickable && task.activityUrl) {
+            window.open(task.activityUrl, '_blank', 'noopener,noreferrer');
+          }
+        }}
+        className={`p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+          task.completed ? 'bg-slate-50/40 text-slate-400' : 'bg-white hover:bg-slate-50/60'
+        } ${isClickable ? 'cursor-pointer' : ''}`}
+      >
+        <div className="flex items-start space-x-3 flex-1 min-w-0">
+          <button
+            id={`check-task-${task.id}`}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleComplete(task.id);
+            }}
+            className={`mt-0.5 shrink-0 transition-transform active:scale-95 cursor-pointer ${
+              task.completed ? 'text-emerald-500' : 'text-slate-300 hover:text-blue-500'
+            }`}
+          >
+            {task.completed ? (
+              <CheckSquare2 className="w-5 h-5 stroke-[2.2]" />
+            ) : (
+              <Square className="w-5 h-5 stroke-[1.8]" />
+            )}
+          </button>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+              {task.courseName && (
+                <span className="text-[11px] font-semibold text-slate-500 truncate max-w-[220px]" title={task.courseName}>
+                  {task.courseName.split('-')[0]?.trim() || task.courseName}
+                </span>
+              )}
+              <span className="text-slate-300 text-xs">•</span>
+              <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded ${
+                task.type === 'TAREA' 
+                  ? 'bg-orange-50 text-orange-700 border border-orange-100' 
+                  : task.type === 'CUESTIONARIO' 
+                    ? 'bg-purple-50 text-purple-700 border border-purple-100' 
+                    : 'bg-sky-50 text-sky-700 border border-sky-100'
+              }`}>
+                {task.type}
+              </span>
+              {task.grupo ? (
+                <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.2 rounded font-medium">
+                  Grupal
+                </span>
+              ) : null}
+            </div>
+
+            <h3 className="text-xs sm:text-sm font-bold mt-1 leading-snug flex items-center gap-1.5 min-w-0">
+              {getTaskEmoji(task) && (
+                <span className="shrink-0 no-underline inline-block font-normal text-slate-800">
+                  {getTaskEmoji(task)}
+                </span>
+              )}
+              <span className={`truncate ${
+                task.completed ? 'text-slate-400 line-through' : 'text-slate-900 hover:text-blue-600'
+              }`}>
+                {task.title}
+              </span>
+              {viewingTaskId === task.id && (
+                <span className="inline-flex items-center space-x-1 bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded text-[10px] font-bold animate-pulse shrink-0">
+                  <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                  <span>Abriendo...</span>
+                </span>
+              )}
+            </h3>
+
+            {/* Badges row: Status, Grade, Warnings */}
+            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+              {(() => {
+                const statusStr = task.status || (task.completed ? 'Entregado' : 'No entregado');
+                const isCalificado = statusStr.toLowerCase().includes('calificad');
+                const isEntregado = statusStr.toLowerCase().includes('entregad') || statusStr.toLowerCase().includes('enviad') || statusStr.toLowerCase().includes('finalizad');
+                const isBorrador = statusStr.toLowerCase().includes('borrador');
+                
+                let bgClass = 'bg-slate-50 text-slate-600 border-slate-200';
+                if (isCalificado) bgClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                else if (isEntregado) bgClass = 'bg-blue-50 text-blue-700 border-blue-200';
+                else if (isBorrador) bgClass = 'bg-amber-50 text-amber-700 border-amber-200';
+                else if (statusStr.toLowerCase().includes('no entregad') || statusStr.toLowerCase().includes('sin entregar')) bgClass = 'bg-rose-50 text-rose-700 border-rose-200';
+
+                return (
+                  <span className={`text-[10px] font-medium px-2 py-0.5 rounded-md border flex items-center gap-1 ${bgClass}`}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-current shrink-0"></span>
+                    {statusStr}
+                  </span>
+                );
+              })()}
+
+              {task.grade && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-emerald-50 text-emerald-800 border-emerald-200">
+                  Nota: {task.grade} {task.gradeOver ? `/ ${task.gradeOver}` : ''}
+                </span>
+              )}
+
+              {task.advertencia_preguntas && (
+                <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-1.5 py-0.5 flex items-center space-x-1">
+                  <AlertCircle className="w-3 h-3 text-amber-500 shrink-0" />
+                  <span>{task.advertencia_preguntas}</span>
+                </span>
+              )}
+
+              {task.por_hacer_calificacion && (
+                <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-1.5 py-0.5">
+                  Pendiente test en Moodle
+                </span>
+              )}
+            </div>
+
+            {/* Teacher feedback snippet if present */}
+            {task.comentario_calificador && (
+              <div className="mt-2 bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 text-slate-600 text-xs">
+                <p className="font-bold text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Comentario del docente:</p>
+                <p className="italic text-slate-700">"{task.comentario_calificador}"</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right action & remaining time */}
+        <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+          <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border font-mono ${remaining.color}`}>
+            {remaining.text}
+          </span>
+
+          <div className="flex items-center space-x-1">
+            {task.type !== 'MANUAL' && onRefreshSingleTask && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRefreshSingleTask(task.id);
+                }}
+                disabled={syncingTaskId === task.id}
+                className="text-[10px] font-medium text-slate-400 hover:text-blue-600 p-1 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
+                title="Actualizar estado desde Moodle"
+              >
+                <RefreshCw className={`w-3 h-3 ${syncingTaskId === task.id ? 'animate-spin text-blue-600' : ''}`} />
+              </button>
+            )}
+
+            {task.type !== 'MANUAL' && onNavigateToMoodleActivity && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNavigateToMoodleActivity(task.courseId || '', task.activityUrl || '');
+                }}
+                className="text-[10px] font-medium text-slate-400 hover:text-blue-600 p-1 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
+                title="Abrir en Moodle interno"
+              >
+                <Terminal className="w-3 h-3" />
+              </button>
+            )}
+
+            {onDeleteTask && task.type === 'MANUAL' && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteTask(task.id);
+                }}
+                className="text-[10px] font-medium text-slate-400 hover:text-rose-600 p-1 rounded-md hover:bg-rose-50 transition-colors cursor-pointer"
+                title="Eliminar tarea manual"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <div id="timeline-card-wrapper" className="space-y-6">
+    <div id="timeline-card-wrapper" className="space-y-4">
       
-      {/* 1. Header Toolbar Filters */}
-      <div className="bg-white border border-gray-100 rounded-3xl p-4 sm:p-5 shadow-xs">
+      {/* 1. Clean Toolbar & Filters */}
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-4">
         
-        {/* Core numbers */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between pb-4 mb-4 border-b border-gray-100 gap-3">
-          <div>
-            <h2 className="text-sm sm:text-lg font-bold text-gray-900 flex items-center space-x-1.5 sm:space-x-2">
-              <span>Agenda de Actividades</span>
-              <span className="text-[10px] sm:text-xs font-mono font-bold bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">
-                {pendingCount} pendientes
-              </span>
-            </h2>
-            <p className="text-[10px] sm:text-xs text-gray-400 mt-0.5 leading-relaxed">
-              Planifica tu semana. Las tareas de Moodle se sincronizan con su fecha de vencimiento real.
-            </p>
+        {/* Header summary row */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center space-x-3">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+                <span>Agenda de Actividades</span>
+                <span className="text-xs font-bold bg-blue-50 text-blue-600 px-2.5 py-0.5 rounded-full border border-blue-100">
+                  {pendingCount} pendientes
+                </span>
+              </h2>
+              <div className="flex items-center space-x-2 text-xs text-slate-400 mt-1">
+                <span>{completedCount} de {tasks.length} completadas ({percentComplete}%)</span>
+                <div className="w-20 bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                  <div 
+                    className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+                    style={{ width: `${percentComplete}%` }}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
           
-          <div className="flex items-center space-x-2 shrink-0 flex-wrap gap-y-2">
+          <div className="flex items-center space-x-2 shrink-0">
+            {/* Legend button */}
+            <button
+              type="button"
+              onClick={() => setShowLegend(!showLegend)}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-xl flex items-center space-x-1.5 border transition-colors cursor-pointer ${
+                showLegend 
+                  ? 'bg-blue-50 text-blue-700 border-blue-200' 
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+              }`}
+              title="Ver guía de indicadores y estados"
+            >
+              <Info className="w-3.5 h-3.5" />
+              <span>Leyenda</span>
+            </button>
+
+            {/* Clear agenda button with confirmation */}
             {onClearAgenda && tasks.length > 0 && (
               <button
                 id="btn-clear-agenda"
@@ -554,179 +766,157 @@ export default function ActivityTimeline({
                     setTimeout(() => setConfirmClear(false), 5000);
                   }
                 }}
-                className={`px-3 py-2 text-xs font-bold rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer active:scale-[0.97] border ${
+                className={`px-3 py-1.5 text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer border ${
                   confirmClear
-                    ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-600 animate-pulse'
-                    : 'bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-100 hover:border-rose-200'
+                    ? 'bg-rose-600 text-white border-rose-600 animate-pulse'
+                    : 'bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-100'
                 }`}
-                title={confirmClear ? 'Haz clic de nuevo para eliminar absolutamente todo por completo' : 'Vaciar la agenda completa'}
+                title={confirmClear ? 'Haz clic de nuevo para vaciar' : 'Vaciar la agenda'}
               >
-                <Trash2 className="w-4 h-4 shrink-0" />
-                <span>{confirmClear ? '¿CONFIRMAR VACIAR TODO?' : 'Vaciar Agenda'}</span>
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{confirmClear ? '¿Confirmar?' : 'Vaciar'}</span>
               </button>
             )}
-            
+
+            {/* New Task button */}
             <button
               id="btn-add-manual-task"
               onClick={onOpenNewTaskModal}
-              className="hidden sm:flex px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs hover:shadow-sm items-center space-x-1.5 transition-all"
+              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-2xs flex items-center space-x-1.5 transition-colors cursor-pointer"
             >
               <PlusCircle className="w-4 h-4" />
-              <span>Nueva Actividad</span>
+              <span>Nueva</span>
             </button>
           </div>
         </div>
 
-        {/* Dynamic Filters panel */}
-        <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 sm:gap-3 pt-1">
-          {/* Accounts Multiselect Filter */}
-          <div className="sm:col-span-5 relative" id="account-filter-container">
-            <button
-              type="button"
-              onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
-              className="flex items-center justify-between w-full pl-7 sm:pl-9 pr-2 sm:pr-3 py-1.5 sm:py-2 border border-gray-150 bg-white rounded-xl text-[10.5px] sm:text-xs text-gray-700 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer text-left h-full"
-            >
-              <div className="flex items-center min-w-0">
-                <div className="absolute inset-y-0 left-0 pl-2.5 sm:pl-3 flex items-center pointer-events-none text-gray-400">
-                  <Filter className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                </div>
-                <span className="truncate">
-                  {selectedAccounts.length === 0 
-                    ? `Cuentas (${uniqueAccountCareers.length})` 
-                    : `${selectedAccounts.length} filtra.`
-                  }
-                </span>
+        {/* Legend Popover panel */}
+        {showLegend && (
+          <div className="p-3.5 bg-blue-50/60 border border-blue-100 rounded-xl text-xs space-y-2 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-blue-900 text-xs flex items-center space-x-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                <span>Guía de Indicadores de Estado</span>
+              </span>
+              <button 
+                onClick={() => setShowLegend(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 pt-1 text-[11px]">
+              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
+                <span className="text-base">🔥</span>
+                <span className="text-slate-700">Inminente (&lt;30h)</span>
               </div>
-              <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-            </button>
+              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
+                <span className="text-base">💪</span>
+                <span className="text-slate-700">Pendiente (&lt;10d)</span>
+              </div>
+              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
+                <span className="text-base">⏱️</span>
+                <span className="text-slate-700">Entregado (Sin nota)</span>
+              </div>
+              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
+                <span className="text-base">😄</span>
+                <span className="text-slate-700">Excelente (≥90%)</span>
+              </div>
+              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
+                <span className="text-base">🙂</span>
+                <span className="text-slate-700">Aceptable (80-89%)</span>
+              </div>
+              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
+                <span className="text-base">😢</span>
+                <span className="text-slate-700">Regular (60-79%)</span>
+              </div>
+              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
+                <span className="text-base">👎</span>
+                <span className="text-slate-700">Reprobado (&lt;60%)</span>
+              </div>
+              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
+                <span className="text-base">☠️</span>
+                <span className="text-slate-700">Vencido</span>
+              </div>
+              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
+                <span className="text-base">⚠️</span>
+                <span className="text-slate-700">Cierre atípico</span>
+              </div>
+            </div>
+          </div>
+        )}
 
-            {isAccountDropdownOpen && (
-              <>
-                <div 
-                  className="fixed inset-0 z-40" 
-                  onClick={() => setIsAccountDropdownOpen(false)} 
-                />
-                <div className="absolute left-0 right-0 mt-1.5 bg-white border border-gray-150 rounded-xl shadow-lg z-50 p-2.5 space-y-1 max-h-60 overflow-y-auto">
-                  <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-gray-100 px-1 text-[10px] text-gray-400 font-bold uppercase tracking-wider">
-                    <span>Filtrar Cuentas / Carreras</span>
-                    {selectedAccounts.length > 0 && (
-                      <button 
-                        type="button"
-                        onClick={() => setSelectedAccounts([])}
-                        className="text-blue-600 hover:text-blue-700 cursor-pointer"
-                      >
-                        Limpiar
-                      </button>
-                    )}
-                  </div>
-                  {uniqueAccountCareers.length === 0 ? (
-                    <div className="text-center py-2 text-xs text-gray-400 font-medium">
-                      No hay opciones disponibles
-                    </div>
-                  ) : (
-                    uniqueAccountCareers.map(key => {
-                      const isChecked = selectedAccounts.includes(key);
-                      const [username, carrera] = key.split('|');
-                      let displayName = '';
-                      if (username === 'Manual') {
-                        displayName = carrera === 'Otros' ? 'Tareas Manuales / Locales' : `Tareas Manuales (${carrera})`;
-                      } else {
-                        displayName = carrera === 'Otros' ? `${username} (Manuales / Otros)` : `${username} (${carrera})`;
-                      }
-                      return (
-                        <label 
-                          key={key} 
-                          className="flex items-center space-x-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer transition-all text-xs font-semibold select-none text-gray-700"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => {
-                              if (isChecked) {
-                                setSelectedAccounts(selectedAccounts.filter(a => a !== key));
-                              } else {
-                                setSelectedAccounts([...selectedAccounts, key]);
-                              }
-                            }}
-                            className="w-3.5 h-3.5 rounded-md border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                          />
-                          <span className="truncate">
-                            {displayName}
-                          </span>
-                        </label>
-                      );
-                    })
-                  )}
-                </div>
-              </>
-            )}
+        {/* Search & Filter Bar */}
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+          {/* Search */}
+          <div className="sm:col-span-4 relative">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar actividad o materia..."
+              className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+            />
           </div>
 
-          {/* Subjects Filter */}
-          <div className="sm:col-span-3 relative">
-            <div className="absolute inset-y-0 left-0 pl-2.5 sm:pl-3 flex items-center pointer-events-none text-gray-400">
-              <Filter className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-            </div>
+          {/* Subjects dropdown */}
+          <div className="sm:col-span-3">
             <select
               id="task-subject-filter"
               value={selectedCourseId}
               onChange={(e) => setSelectedCourseId(e.target.value)}
-              className="block w-full pl-7 sm:pl-9 pr-2 sm:pr-3 py-1.5 sm:py-2 border border-gray-150 bg-white rounded-xl text-[10.5px] sm:text-xs text-gray-700 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer h-full"
+              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer"
             >
-              <option value="all">Materias ({uniqueCourses.length})</option>
+              <option value="all">Todas las materias ({uniqueCourses.length})</option>
               {uniqueCourses.map(([cid, cname]) => (
                 <option key={cid} value={cid}>{cname}</option>
               ))}
             </select>
           </div>
 
-          {/* Activity Type Filter */}
-          <div className="sm:col-span-2 relative">
-            <div className="absolute inset-y-0 left-0 pl-2.5 sm:pl-3 flex items-center pointer-events-none text-gray-400">
-              <ListFilter className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-            </div>
+          {/* Type dropdown */}
+          <div className="sm:col-span-3">
             <select
               id="task-type-filter"
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
-              className="block w-full pl-7 sm:pl-9 pr-2 sm:pr-3 py-1.5 sm:py-2 border border-gray-150 bg-white rounded-xl text-[10.5px] sm:text-xs text-gray-700 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer h-full"
+              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer"
             >
-              <option value="all">Todos los Tipos</option>
-              <option value="TAREA">TAREA</option>
-              <option value="CUESTIONARIO">CUESTIONARIO</option>
-              <option value="ACTIVIDAD">ACTIVIDAD</option>
-              <option value="MANUAL">MANUAL</option>
+              <option value="all">Todos los tipos</option>
+              <option value="TAREA">Tareas</option>
+              <option value="CUESTIONARIO">Cuestionarios</option>
+              <option value="ACTIVIDAD">Otras actividades</option>
+              <option value="MANUAL">Manuales</option>
             </select>
           </div>
 
-          {/* Hide Completed Selector */}
-          <div className="col-span-2 sm:col-span-2 flex items-center justify-between sm:justify-end px-1 gap-2 mt-1 sm:mt-0">
-            <label className="text-[10px] sm:text-xs text-gray-500 cursor-pointer select-none">Mostrar Completadas</label>
+          {/* Hide Completed toggle */}
+          <div className="sm:col-span-2 flex items-center justify-end">
             <button
-              id="toggle-show-completed"
+              type="button"
               onClick={() => setShowCompleted(!showCompleted)}
-              className={`w-8 sm:w-10 h-5 sm:h-6 flex items-center rounded-full p-0.5 transition-colors duration-150 cursor-pointer ${
-                showCompleted ? 'bg-blue-600' : 'bg-gray-200'
+              className={`w-full px-2 py-1.5 text-xs font-semibold rounded-xl border flex items-center justify-center space-x-1.5 transition-colors cursor-pointer ${
+                showCompleted 
+                  ? 'bg-slate-50 text-slate-700 border-slate-200' 
+                  : 'bg-blue-50 text-blue-700 border-blue-200'
               }`}
             >
-              <div
-                className={`bg-white w-4 sm:w-5 h-4 sm:h-5 rounded-full shadow-xs transform duration-150 ${
-                  showCompleted ? 'translate-x-3 sm:translate-x-4' : 'translate-x-0'
-                }`}
-              />
+              <EyeOff className="w-3.5 h-3.5" />
+              <span>{showCompleted ? 'Ocultar hechas' : 'Ver hechas'}</span>
             </button>
           </div>
         </div>
 
       </div>
 
-      {/* 2. Tasks Timeline View Sheet */}
+      {/* 2. Tasks Timeline View */}
       {filteredTasks.length === 0 ? (
-        <div id="timeline-empty-state" className="bg-white border border-gray-100 rounded-3xl p-12 text-center shadow-xs">
-          <AlertCircle className="w-10 h-10 text-gray-200 mx-auto mb-2" />
-          <p className="text-xs font-bold text-gray-700">Sin actividades detectadas</p>
-          <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto leading-relaxed">
-            No hay actividades que coincidan con tus filtros. Agrega una actividad manual o sincroniza tus materias de Moodle en la pestaña siguiente.
+        <div id="timeline-empty-state" className="bg-white border border-slate-200/80 rounded-2xl p-10 text-center shadow-2xs">
+          <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+          <p className="text-sm font-bold text-slate-700">Sin actividades</p>
+          <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+            No hay actividades que coincidan con los filtros seleccionados.
           </p>
         </div>
       ) : (() => {
@@ -750,334 +940,57 @@ export default function ActivityTimeline({
         const sortedGroups = Object.values(groupsRecord).sort((a, b) => a.mondaySort - b.mondaySort);
 
         return (
-          <div id="timeline-rendered-body" className="space-y-6">
+          <div id="timeline-rendered-body" className="space-y-4">
             {sortedGroups.map(group => {
               const isCurrent = isCurrentWeek(group.mondaySort);
               const isCollapsed = collapsedWeeks[group.label] !== undefined 
                 ? collapsedWeeks[group.label] 
                 : !isCurrent;
+              const pendingInGroup = group.tasks.filter(t => !t.completed).length;
 
               return (
-                <div key={group.label} className="space-y-3">
+                <div key={group.label} className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-2xs">
                   {/* Academic Week Header Banner */}
-                  <button
-                    type="button"
+                  <div
                     onClick={() => {
                       setCollapsedWeeks(prev => ({
                         ...prev,
                         [group.label]: !isCollapsed
                       }));
                     }}
-                    className={`w-full flex items-center space-x-2.5 border rounded-xl px-3 py-2 text-left transition-all hover:bg-slate-50 cursor-pointer ${
-                      isCurrent 
-                        ? 'bg-blue-50 border-blue-400 text-blue-950 shadow-xs ring-1 ring-blue-300/30' 
-                        : 'bg-slate-50/70 border-slate-200/40 text-slate-800'
-                    }`}
+                    className="p-3.5 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
                   >
-                    {isCollapsed ? (
-                      <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4 text-slate-500 shrink-0" />
-                    )}
-                    <Calendar className={`w-4 h-4 shrink-0 ${isCurrent ? 'text-blue-605' : 'text-slate-500'}`} />
-                    <div className="flex-1 min-w-0 pr-2">
-                      <span className="text-xs font-bold font-sans text-slate-850">
-                        {group.label}
-                      </span>
-                      {isCurrent && (
-                        <span className="ml-2 px-2.5 py-0.5 text-[10px] bg-amber-500 text-white border border-amber-400 font-sans uppercase tracking-wider font-extrabold rounded-full shadow-xs animate-pulse inline-block">
-                          Semana Actual
+                    <div className="flex items-center space-x-2.5">
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isCollapsed ? "-rotate-90" : ""}`} />
+                      <div className="flex items-center space-x-2">
+                        <span className="font-bold text-xs text-slate-800">
+                          {group.label}
                         </span>
-                      )}
+                        {isCurrent && (
+                          <span className="text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.2 rounded-full">
+                            Semana actual
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    {(() => {
-                      const completedCount = group.tasks.filter(t => t.completed).length;
-                      const pendingCount = group.tasks.length - completedCount;
-                      const weekEmojis = group.tasks.map(t => getTaskEmoji(t)).filter(e => e !== '');
-                      
-                      // Count occurrences of each emoji
-                      const emojiCounts: Record<string, number> = {};
-                      weekEmojis.forEach(e => {
-                        emojiCounts[e] = (emojiCounts[e] || 0) + 1;
-                      });
-                      
-                      const formattedEmojis = Object.entries(emojiCounts).map(([emoji, count]) => {
-                        return count > 1 ? `${emoji}x${count}` : emoji;
-                      });
 
-                      return (
-                        <div className="flex items-center space-x-1.5 shrink-0">
-                          {formattedEmojis.length > 0 && (
-                            <span className="mr-1.5 text-[10.5px] sm:text-xs font-semibold select-none bg-gray-50/80 border border-gray-100 rounded-md px-1.5 py-0.5" title="Actividades por tipo en esta semana">
-                              {formattedEmojis.join(' ')}
-                            </span>
-                          )}
-                          <span className="hidden sm:inline-block text-[10px] font-bold bg-emerald-50/90 border border-emerald-250/25 text-emerald-700 px-2 py-0.5 rounded-md font-mono">
-                            Enviadas: {completedCount}
-                          </span>
-                          <span className="hidden sm:inline-block text-[10px] font-bold bg-slate-100 border border-slate-250/15 text-slate-600 px-2 py-0.5 rounded-md font-mono">
-                            No enviadas: {pendingCount}
-                          </span>
-                        </div>
-                      );
-                    })()}
-                  </button>
+                    <div className="flex items-center space-x-2 text-xs text-slate-400 font-medium">
+                      <span>
+                        {group.tasks.length} {group.tasks.length === 1 ? "actividad" : "actividades"}
+                        {pendingInGroup > 0 && ` • ${pendingInGroup} pendientes`}
+                      </span>
+                    </div>
+                  </div>
 
-                  {/* Left timeline rule of weekly segmented cards */}
+                  {/* Week Activities Content */}
                   {!isCollapsed && (
-                    <div className="relative pl-6 md:pl-8 border-l-2 border-slate-200/50 ml-4 space-y-6 pt-2 pb-2">
+                    <div className="p-3 sm:p-4">
                       {group.mondaySort === 9999999999999 ? (
-                        group.tasks.map((task) => {
-                          const remaining = getRemainingTime(task.closureDate, task.completed);
-                          const isClickable = !!task.activityUrl;
-                          
-                          return (
-                            <div key={task.id} id={`timeline-row-${task.id}`} className="relative group">
-                              <div className={`absolute -left-[30px] md:-left-[34px] top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 bg-white flex items-center justify-center transition-all duration-200 ${
-                                task.completed 
-                                  ? 'border-emerald-500 bg-emerald-50 scale-110' 
-                                  : 'border-blue-500 hover:scale-105'
-                              }`}>
-                                {task.completed && <CheckCircle className="w-2.5 h-2.5 text-emerald-600 shrink-0" />}
-                              </div>
-
-                              <div 
-                                onClick={() => {
-                                  if (isClickable && task.activityUrl) {
-                                    window.open(task.activityUrl, '_blank', 'noopener,noreferrer');
-                                  }
-                                }}
-                                className={`bg-white border rounded-2xl p-4 md:p-5 shadow-2xs hover:shadow-xs transition-all duration-205 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                                  task.completed 
-                                    ? 'border-emerald-50/70 bg-emerald-50/10' 
-                                    : 'border-gray-100 hover:border-gray-205'
-                                } ${
-                                  isClickable 
-                                    ? 'cursor-pointer hover:border-blue-300 hover:bg-blue-50/5' 
-                                    : ''
-                                }`}
-                              >
-                                <div className="flex items-start space-x-3.5 flex-1 min-w-0">
-                                  <button
-                                    id={`check-task-${task.id}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onToggleComplete(task.id);
-                                    }}
-                                    className={`mt-0.5 shrink-0 transition-transform active:scale-95 duration-100 ${
-                                      task.completed ? 'text-emerald-500' : 'text-gray-300 hover:text-blue-500'
-                                    }`}
-                                  >
-                                    {task.completed ? (
-                                      <CheckSquare2 className="w-5 h-5 stroke-[2.2]" />
-                                    ) : (
-                                      <Square className="w-5 h-5 stroke-[1.8]" />
-                                    )}
-                                  </button>
-
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
-                                      {task.courseName && (
-                                        <span className="text-[10px] font-bold text-slate-500 truncate max-w-[200px]" title={task.courseName}>
-                                          {task.courseName.split('-')[0]?.trim() || task.courseName}
-                                        </span>
-                                      )}
-                                      <span className="text-[11px] text-gray-300">•</span>
-                                      <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded ${
-                                        task.type === 'TAREA' 
-                                          ? 'bg-orange-50 text-orange-700 border border-orange-100/50' 
-                                          : task.type === 'CUESTIONARIO' 
-                                            ? 'bg-purple-50 text-purple-700 border border-purple-100/50' 
-                                            : 'bg-sky-50 text-sky-700 border border-sky-100/50'
-                                      }`}>
-                                        {task.type}
-                                      </span>
-                                    </div>
-
-                                    <h3 className="text-xs md:text-sm font-bold mt-1 leading-snug flex items-center gap-1.5 min-w-0">
-                                      {getTaskEmoji(task) && (
-                                        <span className="shrink-0 no-underline inline-block font-normal text-slate-800" style={{ textDecoration: 'none' }}>
-                                          {getTaskEmoji(task)}
-                                        </span>
-                                      )}
-                                      <span className={`truncate hover:underline ${
-                                        task.completed ? 'text-gray-400 line-through' : 'text-gray-955 group-hover:text-blue-600 transition-colors'
-                                      }`}>
-                                        {task.title}
-                                      </span>
-                                      {viewingTaskId === task.id && (
-                                        <span className="inline-flex items-center space-x-1 bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded text-[10px] font-bold animate-pulse shrink-0">
-                                          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                                          <span>Abriendo...</span>
-                                        </span>
-                                      )}
-                                    </h3>
-
-                                    {(task.type === 'TAREA' || task.type === 'CUESTIONARIO') && (
-                                      <div className="flex flex-wrap gap-1.5 mt-2">
-                                        {(() => {
-                                          const statusStr = task.status || (task.completed ? 'Entregado' : 'No entregado');
-                                          const isCalificado = statusStr.toLowerCase().includes('calificad');
-                                          const isEntregado = statusStr.toLowerCase().includes('entregad') || statusStr.toLowerCase().includes('enviad') || statusStr.toLowerCase().includes('finalizad');
-                                          const isBorrador = statusStr.toLowerCase().includes('borrador');
-                                          
-                                          let bgClass = 'bg-slate-50 text-slate-700 border-slate-200';
-                                          if (isCalificado) bgClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                                          else if (isEntregado) bgClass = 'bg-blue-50 text-blue-700 border-blue-200/60';
-                                          else if (isBorrador) bgClass = 'bg-amber-50 text-amber-700 border-amber-200';
-                                          else if (statusStr.toLowerCase().includes('no entrenado') || statusStr.toLowerCase().includes('sin entregar') || statusStr.toLowerCase().includes('no entregad')) bgClass = 'bg-rose-50 text-rose-700 border-rose-200';
-
-                                          return (
-                                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg border flex items-center gap-1 ${bgClass}`}>
-                                              <span className="w-1.5 h-1.5 rounded-full bg-current shrink-0"></span>
-                                              {statusStr}
-                                            </span>
-                                          );
-                                        })()}
-
-                                        {task.grade && (
-                                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg border bg-gradient-to-r from-teal-50/80 to-emerald-50/80 text-teal-800 border-teal-200/60">
-                                            Nota: {task.grade} {task.gradeOver ? `/ ${task.gradeOver}` : ''}
-                                          </span>
-                                        )}
-
-                                        {(task.estado_calificacion || task.gradingStatus) && (
-                                          (() => {
-                                            const gradStr = task.estado_calificacion || task.gradingStatus || '';
-                                            const isGraded = gradStr.toLowerCase().includes('calificad');
-                                            const bgGradClass = isGraded 
-                                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200/80' 
-                                              : 'bg-amber-50 text-amber-800 border-amber-200/80';
-                                            return (
-                                              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg border flex items-center gap-1 ${bgGradClass}`}>
-                                                <span className="font-semibold text-slate-500 text-[9px] uppercase">Estado Calif:</span>
-                                                <span>{gradStr}</span>
-                                              </span>
-                                            );
-                                          })()
-                                        )}
-                                      </div>
-                                    )}
-
-                                    {task.advertencia_preguntas && (
-                                      <div className="mt-2 text-[10px] text-amber-700 bg-amber-50/50 border border-amber-100 rounded-lg px-2 py-1 flex items-center space-x-1.5 w-fit">
-                                        <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                                        <span className="font-semibold">{task.advertencia_preguntas}</span>
-                                      </div>
-                                    )}
-
-                                    {task.por_hacer_calificacion && (
-                                      <div className="mt-2 text-[10px] text-xs font-semibold text-amber-700 bg-amber-50/45 border border-amber-200/55 rounded-lg px-2 py-1 flex items-center space-x-1.5 w-fit animate-in fade-in duration-350">
-                                        <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                                        <span>
-                                          Pendiente - Realizar test/actividad en Moodle
-                                        </span>
-                                      </div>
-                                    )}
-
-                                    {task.hecho_calificacion && (
-                                      <div className="mt-2 text-[10px] text-emerald-700 bg-emerald-50/45 border border-emerald-200/55 rounded-lg px-2 py-1 flex items-center space-x-1.5 w-fit animate-in fade-in duration-350">
-                                        <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                                        <span>
-                                          Completado - Calificación en proceso en Moodle
-                                        </span>
-                                      </div>
-                                    )}
-
-                                    {(task.comentario_calificador || (task.comentario_imagenes && task.comentario_imagenes.length > 0)) && (
-                                      <div className="mt-2 bg-gray-50/85 border border-gray-150 rounded-xl p-2.5 text-gray-600 max-w-md animate-in fade-in duration-200">
-                                        <p className="font-bold text-[9px] text-gray-500 mb-0.5 uppercase tracking-wider">Retroalimentación del Docente:</p>
-                                        {task.comentario_calificador && (
-                                          <p className="leading-relaxed text-[10px] font-mono italic">"{task.comentario_calificador}"</p>
-                                        )}
-                                        {task.comentario_imagenes && task.comentario_imagenes.length > 0 && (
-                                          <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                            {task.comentario_imagenes.map(img => {
-                                              const proxied = getFeedbackImageUrl ? getFeedbackImageUrl(task, img.url) : null;
-                                              if (!proxied) return null;
-                                              return (
-                                                <a key={img.url} href={proxied} target="_blank" rel="noreferrer" title={img.nombre}>
-                                                  <img
-                                                    src={proxied}
-                                                    alt={img.nombre}
-                                                    className="w-16 h-16 object-cover rounded-lg border border-gray-200 bg-white cursor-zoom-in transition-transform hover:scale-105 hover:shadow-md"
-                                                  />
-                                                </a>
-                                              );
-                                            })}
-                                          </div>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-
-                                <div className="flex flex-col items-center md:items-end gap-2 mt-2 md:mt-0 pt-3 md:pt-0 border-t md:border-t-0 border-gray-150 shrink-0 select-none">
-                                  <div className="text-[11px] font-medium text-slate-500 flex flex-wrap items-center justify-end gap-1.5 select-none text-right">
-                                    {task.grupo ? (
-                                      <span className="text-[10px] bg-blue-50 border border-blue-100/55 text-blue-700 px-1.5 py-0.5 rounded font-bold">
-                                        👥 Grupal
-                                      </span>
-                                    ) : (
-                                      <span className="text-[10px] bg-slate-50 border border-slate-150/45 text-slate-600 px-1.5 py-0.5 rounded font-bold">
-                                        👤 Individual
-                                      </span>
-                                    )}
-
-                                    {/* Action Links/Buttons for HTML raw parsing and single task refresh */}
-                                    {task.type !== 'MANUAL' && (
-                                      <div className="flex items-center space-x-1">
-                                        {onNavigateToMoodleActivity && (
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              onNavigateToMoodleActivity(task.courseId || '', task.activityUrl || '');
-                                            }}
-                                            className="bg-slate-50 hover:bg-slate-100/90 text-slate-500 hover:text-blue-600 border border-slate-200 hover:border-blue-200 p-1 rounded-lg transition-all cursor-pointer"
-                                            title="Abrir en Developer Sandbox"
-                                          >
-                                            <Terminal className="w-3 h-3 shrink-0" />
-                                          </button>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  <div className="flex flex-wrap items-center justify-between md:justify-end gap-2 w-full md:w-auto">
-                                    {task.type !== 'MANUAL' && (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (onRefreshSingleTask) onRefreshSingleTask(task.id);
-                                        }}
-                                        disabled={syncingTaskId === task.id}
-                                        className={`text-[10px] font-semibold border rounded-lg px-2 py-1 transition-all text-left flex items-center space-x-1 shrink-0 ${
-                                          syncingTaskId === task.id 
-                                            ? 'bg-blue-50 text-blue-600 border-blue-200 animate-pulse' 
-                                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-250 cursor-pointer'
-                                        }`}
-                                        title="Haz clic para actualizar esta actividad individual desde Moodle"
-                                      >
-                                        <RefreshCw className={`w-2.5 h-2.5 shrink-0 ${syncingTaskId === task.id ? 'animate-spin' : ''}`} />
-                                        <span>
-                                          Última sincronización: {getRelativeSyncTime(task.lastSyncedAt) || 'nunca'}
-                                        </span>
-                                      </button>
-                                    )}
-
-                                    <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border font-mono ${remaining.color}`}>
-                                      {remaining.text}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
+                        <div className="divide-y divide-slate-100 border border-slate-200/70 rounded-xl overflow-hidden">
+                          {group.tasks.map(task => renderTaskCard(task))}
+                        </div>
                       ) : (() => {
-                        const weekdays = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+                        const weekdays = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
                         const mondayDate = new Date(group.mondaySort);
 
                         const daysArray = weekdays.map((name, index) => {
@@ -1105,298 +1018,30 @@ export default function ActivityTimeline({
                           }
                         });
 
+                        const daysWithTasks = daysArray.filter(day => day.tasks.length > 0);
+
+                        if (daysWithTasks.length === 0) {
+                          return (
+                            <div className="p-4 text-center text-xs text-slate-400 bg-slate-50/50 rounded-xl border border-slate-100">
+                              Todas las actividades de esta semana están completadas
+                            </div>
+                          );
+                        }
+
                         return (
-                          <div className="space-y-6">
-                            {daysArray.map((day, dayIdx) => {
-                              const dayStr = day.dayDate.toLocaleDateString('es-EC', { day: 'numeric', month: 'short' });
-                              const allCompleted = day.tasks.length > 0 && day.tasks.every(t => t.completed);
+                          <div className="space-y-4">
+                            {daysWithTasks.map((day, dayIdx) => {
+                              const dayStr = day.dayDate.toLocaleDateString("es-EC", { day: "numeric", month: "short" });
                               return (
-                                <div key={dayIdx} className="relative pl-2 group space-y-3">
-                                  {/* Chronic Timeline Bullet mark aligned with standard left timeline line */}
-                                  <div className={`absolute -left-[31px] md:-left-[35px] top-[10px] w-3.5 h-3.5 rounded-full border-2 bg-white flex items-center justify-center transition-all duration-200 z-10 ${
-                                    day.tasks.length === 0 
-                                      ? 'border-emerald-400 bg-emerald-50/30' 
-                                      : allCompleted
-                                        ? 'border-emerald-500 bg-emerald-50 scale-105'
-                                        : 'border-blue-500 hover:scale-105'
-                                  }`}>
-                                    {day.tasks.length === 0 ? (
-                                      <span className="text-[7px] leading-none text-emerald-600 font-bold">✓</span>
-                                    ) : allCompleted ? (
-                                      <CheckCircle className="w-2 h-2 text-emerald-600 shrink-0" />
-                                    ) : null}
+                                <div key={dayIdx} className="space-y-1.5">
+                                  <div className="flex items-center space-x-2 text-xs text-slate-500 font-semibold px-1">
+                                    <span className="text-slate-800 capitalize font-bold">{day.name}, {dayStr}</span>
+                                    <span className="text-[10px] text-slate-400">({day.tasks.length})</span>
+                                    <div className="flex-1 h-px bg-slate-100 ml-2" />
                                   </div>
-
-                                  {/* Day label header tag */}
-                                  <div className="flex items-center space-x-2 text-xs font-bold text-slate-500 select-none pb-0.5">
-                                    <div className="flex items-center space-x-1.5 bg-slate-100/90 border border-slate-200/50 px-2.5 py-0.5 rounded-lg shadow-3xs">
-                                      <span className="text-slate-700 font-extrabold uppercase font-sans tracking-wide text-[9px]">{day.name}</span>
-                                      <span className="text-slate-400 font-mono text-[9px] font-bold">{dayStr}</span>
-                                    </div>
-                                    <div className="flex-1 h-px bg-slate-150/40" />
+                                  <div className="divide-y divide-slate-100 border border-slate-200/70 rounded-xl overflow-hidden bg-white shadow-2xs">
+                                    {day.tasks.map(task => renderTaskCard(task))}
                                   </div>
-
-                                  {day.tasks.length === 0 ? (
-                                    <div className="bg-emerald-50/15 border border-emerald-100/30 rounded-2xl p-4 text-left shadow-3xs flex items-center space-x-2.5">
-                                      <span className="text-sm select-none">☕</span>
-                                      <span className="text-[11px] font-extrabold text-emerald-800 tracking-wider uppercase leading-none">Día libre: Sin entregas programadas</span>
-                                    </div>
-                                  ) : (
-                                    <div className="bg-white border border-gray-100 rounded-2xl shadow-3xs overflow-hidden divide-y divide-gray-100/80">
-                                      {day.tasks.map((task) => {
-                                        const remaining = getRemainingTime(task.closureDate, task.completed);
-                                        const isClickable = !!task.activityUrl;
-                                        
-                                        return (
-                                          <div 
-                                            key={task.id} 
-                                            id={`timeline-row-${task.id}`}
-                                            onClick={() => {
-                                              if (isClickable && task.activityUrl) {
-                                                window.open(task.activityUrl, '_blank', 'noopener,noreferrer');
-                                              }
-                                            }}
-                                            className={`p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all duration-205 ${
-                                              task.completed 
-                                                ? 'bg-emerald-50/5' 
-                                                : 'hover:bg-slate-50/40'
-                                            } ${
-                                              isClickable 
-                                                ? 'cursor-pointer hover:border-blue-300 hover:bg-blue-50/5' 
-                                                : ''
-                                            }`}
-                                          >
-                                            <div className="flex items-start space-x-3.5 flex-1 min-w-0">
-                                              {/* Checkbox trigger button */}
-                                              <button
-                                                id={`check-task-${task.id}`}
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  onToggleComplete(task.id);
-                                                }}
-                                                className={`mt-0.5 shrink-0 transition-transform active:scale-95 duration-100 ${
-                                                  task.completed ? 'text-emerald-500' : 'text-gray-300 hover:text-blue-500'
-                                                }`}
-                                              >
-                                                {task.completed ? (
-                                                  <CheckSquare2 className="w-5 h-5 stroke-[2.2]" />
-                                                ) : (
-                                                  <Square className="w-5 h-5 stroke-[1.8]" />
-                                                )}
-                                              </button>
-
-                                              {/* Info lines text */}
-                                              <div className="flex-1 min-w-0">
-                                                <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
-                                                  {/* Course Name tags */}
-                                                  {task.courseName && (
-                                                    <span className="text-[10px] font-bold text-slate-500 truncate max-w-[200px]" title={task.courseName}>
-                                                      {task.courseName.split('-')[0]?.trim() || task.courseName}
-                                                    </span>
-                                                  )}
-                                                  <span className="text-[11px] text-gray-300">•</span>
-                                                  {/* Sourcing badges category */}
-                                                  <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded ${
-                                                    task.type === 'TAREA' 
-                                                      ? 'bg-orange-50 text-orange-700 border border-orange-100/50' 
-                                                      : task.type === 'CUESTIONARIO' 
-                                                        ? 'bg-purple-50 text-purple-700 border border-purple-100/50' 
-                                                        : 'bg-sky-50 text-sky-700 border border-sky-100/50'
-                                                  }`}>
-                                                    {task.type}
-                                                  </span>
-                                                </div>
-
-                                                {/* Heading title */}
-                                                <h3 className="text-xs md:text-sm font-bold mt-1 leading-snug flex items-center gap-1.5 min-w-0">
-                                                  {getTaskEmoji(task) && (
-                                                    <span className="shrink-0 no-underline inline-block font-normal text-slate-800" style={{ textDecoration: 'none' }}>
-                                                      {getTaskEmoji(task)}
-                                                    </span>
-                                                  )}
-                                                  <span className={`truncate hover:underline ${
-                                                    task.completed ? 'text-gray-400 line-through' : 'text-gray-955 group-hover:text-blue-600 transition-colors'
-                                                  }`}>
-                                                    {task.title}
-                                                  </span>
-                                                  {viewingTaskId === task.id && (
-                                                    <span className="inline-flex items-center space-x-1 bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded text-[10px] font-bold animate-pulse shrink-0">
-                                                      <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                                                      <span>Abriendo...</span>
-                                                    </span>
-                                                  )}
-                                                </h3>
-
-                                                {/* Grading/submission status badge block */}
-                                                {(task.type === 'TAREA' || task.type === 'CUESTIONARIO') && (
-                                                  <div className="flex flex-wrap gap-1.5 mt-2">
-                                                    {/* Submission Status */}
-                                                    {(() => {
-                                                      const statusStr = task.status || (task.completed ? 'Entregado' : 'No entregado');
-                                                      const isCalificado = statusStr.toLowerCase().includes('calificad');
-                                                      const isEntregado = statusStr.toLowerCase().includes('entregad') || statusStr.toLowerCase().includes('enviad') || statusStr.toLowerCase().includes('finalizad');
-                                                      const isBorrador = statusStr.toLowerCase().includes('borrador');
-                                                      
-                                                      let bgClass = 'bg-slate-50 text-slate-700 border-slate-200';
-                                                      if (isCalificado) bgClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                                                      else if (isEntregado) bgClass = 'bg-blue-50 text-blue-700 border-blue-200/60';
-                                                      else if (isBorrador) bgClass = 'bg-amber-50 text-amber-700 border-amber-200';
-                                                      else if (statusStr.toLowerCase().includes('no entrenado') || statusStr.toLowerCase().includes('sin entregar') || statusStr.toLowerCase().includes('no entregad')) bgClass = 'bg-rose-50 text-rose-700 border-rose-200';
-
-                                                      return (
-                                                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg border flex items-center gap-1 ${bgClass}`}>
-                                                          <span className="w-1.5 h-1.5 rounded-full bg-current shrink-0"></span>
-                                                          {statusStr}
-                                                        </span>
-                                                      );
-                                                    })()}
-
-                                                    {/* Note / Grade */}
-                                                    {task.grade && (
-                                                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg border bg-gradient-to-r from-teal-50/80 to-emerald-50/80 text-teal-800 border-teal-200/60">
-                                                        Nota: {task.grade} {task.gradeOver ? `/ ${task.gradeOver}` : ''}
-                                                      </span>
-                                                    )}
-
-                                                    {/* Grading Status (Estado de Calificación) */}
-                                                    {(task.estado_calificacion || task.gradingStatus) && (
-                                                      (() => {
-                                                        const gradStr = task.estado_calificacion || task.gradingStatus || '';
-                                                        const isGraded = gradStr.toLowerCase().includes('calificad');
-                                                        const bgGradClass = isGraded 
-                                                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200/80' 
-                                                          : 'bg-amber-50 text-amber-800 border-amber-200/80';
-                                                        return (
-                                                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg border flex items-center gap-1 ${bgGradClass}`}>
-                                                            <span className="font-semibold text-slate-500 text-[9px] uppercase">Estado Calif:</span>
-                                                            <span>{gradStr}</span>
-                                                          </span>
-                                                        );
-                                                      })()
-                                                    )}
-                                                  </div>
-                                                )}
-
-                                                {/* WARNINGS AND FEEDBACK OVERLAYS */}
-                                                {task.advertencia_preguntas && (
-                                                  <div className="mt-2 text-[10px] text-amber-700 bg-amber-50/50 border border-amber-100 rounded-lg px-2 py-1 flex items-center space-x-1.5 w-fit">
-                                                    <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                                                    <span className="font-semibold">{task.advertencia_preguntas}</span>
-                                                  </div>
-                                                )}
-
-                                                {task.por_hacer_calificacion && (
-                                                  <div className="mt-2 text-[10px] text-xs font-semibold text-amber-700 bg-amber-50/45 border border-amber-200/55 rounded-lg px-2 py-1 flex items-center space-x-1.5 w-fit">
-                                                    <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                                                    <span>
-                                                      Pendiente - Realizar test/actividad en Moodle
-                                                    </span>
-                                                  </div>
-                                                )}
-
-                                                {task.hecho_calificacion && (
-                                                  <div className="mt-2 text-[10px] text-emerald-700 bg-emerald-50/45 border border-emerald-200/55 rounded-lg px-2 py-1 flex items-center space-x-1.5 w-fit">
-                                                    <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                                                    <span>
-                                                      Completado - Calificación en proceso en Moodle
-                                                    </span>
-                                                  </div>
-                                                )}
-
-                                                {(task.comentario_calificador || (task.comentario_imagenes && task.comentario_imagenes.length > 0)) && (
-                                                  <div className="mt-2 bg-gray-50/85 border border-gray-150 rounded-xl p-2.5 text-gray-600 max-w-md">
-                                                    <p className="font-bold text-[9px] text-gray-500 mb-0.5 uppercase tracking-wider">Retroalimentación del Docente:</p>
-                                                    {task.comentario_calificador && (
-                                                      <p className="leading-relaxed text-[10px] font-mono italic">"{task.comentario_calificador}"</p>
-                                                    )}
-                                                    {task.comentario_imagenes && task.comentario_imagenes.length > 0 && (
-                                                      <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                                        {task.comentario_imagenes.map(img => {
-                                                          const proxied = getFeedbackImageUrl ? getFeedbackImageUrl(task, img.url) : null;
-                                                          if (!proxied) return null;
-                                                          return (
-                                                            <a key={img.url} href={proxied} target="_blank" rel="noreferrer" title={img.nombre}>
-                                                              <img
-                                                                src={proxied}
-                                                                alt={img.nombre}
-                                                                className="w-16 h-16 object-cover rounded-lg border border-gray-200 bg-white cursor-zoom-in transition-transform hover:scale-105 hover:shadow-md"
-                                                              />
-                                                            </a>
-                                                          );
-                                                        })}
-                                                      </div>
-                                                    )}
-                                                  </div>
-                                                )}
-                                              </div>
-                                            </div>
-
-                                            {/* Right tags & remaining indicator */}
-                                            <div className="flex flex-col items-center md:items-end gap-2 mt-2 md:mt-0 pt-3 md:pt-0 border-t md:border-t-0 border-gray-150 shrink-0 select-none">
-                                              <div className="text-[11px] font-medium text-slate-500 flex flex-wrap items-center justify-end gap-1.5 select-none text-right">
-                                                {task.grupo ? (
-                                                  <span className="text-[10px] bg-blue-50 border border-blue-100/55 text-blue-700 px-1.5 py-0.5 rounded font-bold">
-                                                    👥 Grupal
-                                                  </span>
-                                                ) : (
-                                                  <span className="text-[10px] bg-slate-50 border border-slate-150/45 text-slate-600 px-1.5 py-0.5 rounded font-bold">
-                                                    👤 Individual
-                                                  </span>
-                                                )}
-
-                                                {/* Action Links/Buttons for HTML raw parsing and single task refresh */}
-                                                {task.type !== 'MANUAL' && (
-                                                  <div className="flex items-center space-x-1">
-                                                    {onNavigateToMoodleActivity && (
-                                                      <button
-                                                        type="button"
-                                                        onClick={(e) => {
-                                                          e.stopPropagation();
-                                                          onNavigateToMoodleActivity(task.courseId || '', task.activityUrl || '');
-                                                        }}
-                                                        className="bg-slate-50 hover:bg-slate-100/90 text-slate-500 hover:text-blue-600 border border-slate-200 hover:border-blue-200 p-1 rounded-lg transition-all cursor-pointer"
-                                                        title="Abrir en Developer Sandbox"
-                                                      >
-                                                        <Terminal className="w-3 h-3 shrink-0" />
-                                                      </button>
-                                                    )}
-                                                  </div>
-                                                )}
-                                              </div>
-
-                                              <div className="flex flex-wrap items-center justify-between md:justify-end gap-2 w-full md:w-auto">
-                                                {task.type !== 'MANUAL' && (
-                                                  <button
-                                                    type="button"
-                                                    onClick={(e) => {
-                                                      e.stopPropagation();
-                                                      if (onRefreshSingleTask) onRefreshSingleTask(task.id);
-                                                    }}
-                                                    disabled={syncingTaskId === task.id}
-                                                    className={`text-[10px] font-semibold border rounded-lg px-2 py-1 transition-all text-left flex items-center space-x-1 shrink-0 ${
-                                                      syncingTaskId === task.id 
-                                                        ? 'bg-blue-50 text-blue-600 border-blue-200 animate-pulse' 
-                                                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-250 cursor-pointer'
-                                                    }`}
-                                                    title="Haz clic para actualizar esta actividad individual desde Moodle"
-                                                  >
-                                                    <RefreshCw className={`w-2.5 h-2.5 shrink-0 ${syncingTaskId === task.id ? 'animate-spin' : ''}`} />
-                                                    <span>
-                                                      Última sincronización: {getRelativeSyncTime(task.lastSyncedAt) || 'nunca'}
-                                                    </span>
-                                                  </button>
-                                                )}
-
-                                                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border font-mono ${remaining.color}`}>
-                                                  {remaining.text}
-                                                </span>
-                                              </div>
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
                                 </div>
                               );
                             })}
