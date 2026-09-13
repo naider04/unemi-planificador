@@ -51,6 +51,7 @@ export default function ActivityTimeline({
   const [selectedCourseId, setSelectedCourseId] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [showCompleted, setShowCompleted] = useState<boolean>(true);
+  const [showPastSemester, setShowPastSemester] = useState<boolean>(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
   
@@ -497,6 +498,15 @@ export default function ActivityTimeline({
     return '';
   };
 
+  // A task is considered "past semester" when its deadline closed well before
+  // today (grace of 21 days). Such tasks come from previous semesters that the
+  // app keeps merged in localStorage/Firestore, so they are hidden by default.
+  const PAST_SEMESTER_GRACE_MS = 21 * 24 * 60 * 60 * 1000;
+  const isPastSemesterTask = (task: TodoTask, nowTime: number): boolean => {
+    if (!task.closureDate) return false;
+    return new Date(task.closureDate).getTime() < nowTime - PAST_SEMESTER_GRACE_MS;
+  };
+
   // Filter & SORT calculations:
   // Sorting rules:
   // 1. Items WITHOUT closing dates are pushed to the very end
@@ -510,7 +520,8 @@ export default function ActivityTimeline({
       const matchesCourse = selectedCourseId === 'all' || task.courseId === selectedCourseId;
       const matchesType = selectedType === 'all' || task.type === selectedType;
       const matchesCompleted = showCompleted || !task.completed;
-      return matchesSearch && matchesAccount && matchesCourse && matchesType && matchesCompleted;
+      const matchesSemester = showPastSemester || !isPastSemesterTask(task, now.getTime());
+      return matchesSearch && matchesAccount && matchesCourse && matchesType && matchesCompleted && matchesSemester;
     })
     .sort((a, b) => {
       if (!a.closureDate) return 1;
@@ -893,8 +904,21 @@ export default function ActivityTimeline({
             </select>
           </div>
 
-          {/* Hide Completed toggle */}
-          <div className="sm:col-span-2 flex items-center justify-end">
+          {/* View toggles */}
+          <div className="sm:col-span-2 flex flex-col gap-1.5">
+            <button
+              type="button"
+              onClick={() => setShowPastSemester(!showPastSemester)}
+              className={`w-full px-2 py-1.5 text-xs font-semibold rounded-xl border flex items-center justify-center space-x-1.5 transition-colors cursor-pointer ${
+                showPastSemester 
+                  ? 'bg-slate-50 text-slate-700 border-slate-200' 
+                  : 'bg-amber-50 text-amber-700 border-amber-200'
+              }`}
+              title={language === 'es' ? 'Muestra u oculta actividades de semestres anteriores (cerradas hace más de 21 días)' : 'Show or hide activities from previous semesters (closed more than 21 days ago)'}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>{showPastSemester ? (language === 'es' ? 'Ver pasado' : 'Show past') : (language === 'es' ? 'Ocultar pasado' : 'Hide past')}</span>
+            </button>
             <button
               type="button"
               onClick={() => setShowCompleted(!showCompleted)}

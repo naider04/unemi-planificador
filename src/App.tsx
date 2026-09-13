@@ -150,7 +150,29 @@ export default function App() {
   }>>(() => {
     try {
       const cached = localStorage.getItem('unemi_account_sync_states');
-      return cached ? JSON.parse(cached) : {};
+      if (!cached) return {};
+      const parsed = JSON.parse(cached) as Record<string, any>;
+      // Only restore informative terminal states. Transient states ('syncing',
+      // 'waiting', 'paused', 'interrupted') come from an interrupted session and
+      // must not survive a reload, otherwise an account stuck at 'waiting' is
+      // never queued again (syncQueue resets) and blocks the whole app forever.
+      const restored: Record<string, any> = {};
+      for (const [key, value] of Object.entries(parsed)) {
+        const status = value?.status;
+        if (status === 'completed' || status === 'failed') {
+          restored[key] = value;
+          continue;
+        }
+        restored[key] = {
+          status: 'idle',
+          currentCourse: '',
+          currentActivity: '',
+          processedCount: 0,
+          totalCount: 0,
+          logs: value?.logs || []
+        };
+      }
+      return restored;
     } catch {
       return {};
     }
