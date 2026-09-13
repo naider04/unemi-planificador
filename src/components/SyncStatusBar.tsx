@@ -5,6 +5,7 @@ import {
   Award, ArrowRight
 } from 'lucide-react';
 import { MoodleSession } from '../types';
+import { useLanguage } from '../context/LanguageContext';
 
 export interface AccountSyncLog {
   timestamp: string;
@@ -51,6 +52,7 @@ export default function SyncStatusBar({
   percentComplete,
   onNavigateToTab
 }: SyncStatusBarProps) {
+  const { t } = useLanguage();
   const [showLogsAccountKey, setShowLogsAccountKey] = useState<string | null>(null);
   const [showLegendPopover, setShowLegendPopover] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -81,10 +83,10 @@ export default function SyncStatusBar({
                   ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
                   : 'bg-blue-600 hover:bg-blue-700 active:scale-95 text-white'
               }`}
-              title={activeSessions.length === 0 ? 'Conecta una cuenta primero' : 'Sincronizar materias de todas las cuentas activas'}
+              title={activeSessions.length === 0 ? t('sync.connectFirst') : t('sync.syncAllActive')}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isAnySyncing ? 'animate-spin' : ''}`} />
-              <span>{isAnySyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+              <span>{isAnySyncing ? t('sync.syncingBtn') : t('sync.syncBtn')}</span>
             </button>
 
             {activeSessions.length > 0 && (
@@ -92,9 +94,9 @@ export default function SyncStatusBar({
                 type="button"
                 onClick={() => setIsExpanded(!isExpanded)}
                 className="text-xs text-slate-500 hover:text-slate-800 font-semibold px-2 py-1.5 rounded-lg hover:bg-slate-100 flex items-center space-x-1 cursor-pointer transition-colors"
-                title="Ver detalles por cuenta"
+                title={t('sync.viewAccountDetails')}
               >
-                <span>{activeSessions.length} {activeSessions.length === 1 ? 'cuenta' : 'cuentas'}</span>
+                <span>{activeSessions.length} {activeSessions.length === 1 ? t('sync.account') : t('sync.accounts')}</span>
                 {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
               </button>
             )}
@@ -102,11 +104,11 @@ export default function SyncStatusBar({
 
           {lastSyncedTime ? (
             <span className="text-[11px] text-slate-500 hidden md:inline truncate">
-              Última vez: <span className="font-semibold text-slate-700">{getRelativeLastSyncedTime()}</span>
+              {t('sync.lastSynced', { time: getRelativeLastSyncedTime() })}
             </span>
           ) : (
             <span className="text-[11px] text-slate-400 hidden md:inline">
-              Sin sincronizar recientemente
+              {t('sync.notSyncedRecently')}
             </span>
           )}
         </div>
@@ -119,7 +121,7 @@ export default function SyncStatusBar({
             <div className="flex items-center space-x-2">
               <span className="text-xs font-bold text-slate-800 font-mono">{percentComplete}%</span>
               <span className="text-[11px] text-slate-400 font-medium hidden lg:inline">
-                ({completedTasks}/{totalTasks} completadas)
+                {t('sync.tasksCompleted', { completed: completedTasks, total: totalTasks })}
               </span>
             </div>
             <div className="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden hidden sm:block">
@@ -140,10 +142,10 @@ export default function SyncStatusBar({
                   ? 'bg-blue-50 text-blue-700 border-blue-200' 
                   : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100 hover:text-slate-800'
               }`}
-              title="Guía de iconos y estados"
+              title={t('sync.legendTitle')}
             >
               <HelpCircle className="w-4 h-4" />
-              <span className="hidden sm:inline text-[11px]">Iconos</span>
+              <span className="hidden sm:inline text-[11px]">{t('sync.icons')}</span>
             </button>
 
             {/* Popover */}
@@ -159,7 +161,7 @@ export default function SyncStatusBar({
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                    <span className="text-xs font-bold text-slate-800">Guía de Indicadores</span>
+                    <span className="text-xs font-bold text-slate-800">{t('sync.legendHeading')}</span>
                     <button
                       type="button"
                       onClick={() => setShowLegendPopover(false)}
@@ -171,35 +173,35 @@ export default function SyncStatusBar({
                   <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600">
                     <div className="flex items-center space-x-1.5">
                       <span className="text-sm shrink-0">🔥</span>
-                      <span>Inminente (&lt;30h)</span>
+                      <span>{t('sync.legend.imminent')}</span>
                     </div>
                     <div className="flex items-center space-x-1.5">
                       <span className="text-sm shrink-0">😄</span>
-                      <span className="text-emerald-700">Excelente (≥90%)</span>
+                      <span className="text-emerald-700">{t('sync.legend.excellent')}</span>
                     </div>
                     <div className="flex items-center space-x-1.5">
                       <span className="text-sm shrink-0">💪</span>
-                      <span>Pendiente (&lt;10d)</span>
+                      <span>{t('sync.legend.pending')}</span>
                     </div>
                     <div className="flex items-center space-x-1.5">
                       <span className="text-sm shrink-0">🙂</span>
-                      <span className="text-blue-700">Aceptable (80-89%)</span>
+                      <span className="text-blue-700">{t('sync.legend.acceptable')}</span>
                     </div>
                     <div className="flex items-center space-x-1.5">
                       <span className="text-sm shrink-0">⏱️</span>
-                      <span>Sin calificar</span>
+                      <span>{t('sync.legend.ungraded')}</span>
                     </div>
                     <div className="flex items-center space-x-1.5">
                       <span className="text-sm shrink-0">😢</span>
-                      <span className="text-amber-700">Regular (60-79%)</span>
+                      <span className="text-amber-700">{t('sync.legend.regular')}</span>
                     </div>
                     <div className="flex items-center space-x-1.5">
                       <span className="text-sm shrink-0">☠️</span>
-                      <span className="text-rose-600">Vencido</span>
+                      <span className="text-rose-600">{t('sync.legend.overdue')}</span>
                     </div>
                     <div className="flex items-center space-x-1.5">
                       <span className="text-sm shrink-0">👎</span>
-                      <span className="text-rose-700">Reprobado (&lt;60%)</span>
+                      <span className="text-rose-700">{t('sync.legend.failed')}</span>
                     </div>
                   </div>
                 </div>
@@ -232,14 +234,14 @@ export default function SyncStatusBar({
                   </div>
                   <div className="flex items-center space-x-2">
                     <span className="text-[11px] font-mono text-blue-700 font-bold">
-                      {sState.processedCount} de {sState.totalCount || '?'} materias
+                      {t('sync.progressOf', { current: sState.processedCount, total: sState.totalCount || '?' })}
                     </span>
                     <button
                       type="button"
                       onClick={() => onCancelSync(sess)}
                       className="text-[10px] font-bold text-rose-600 hover:text-rose-800 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md cursor-pointer"
                     >
-                      Cancelar
+                      {t('sync.cancel')}
                     </button>
                   </div>
                 </div>
@@ -253,10 +255,10 @@ export default function SyncStatusBar({
 
                 <div className="flex items-center justify-between text-[11px] text-slate-500">
                   <span className="truncate max-w-[280px] sm:max-w-md">
-                    {sState.currentCourse || 'Conectando con Moodle...'}
+                    {sState.currentCourse || t('sync.connecting')}
                   </span>
                   <span className="italic text-[10px] text-slate-400 truncate">
-                    {sState.currentActivity || 'Analizando actividades...'}
+                    {sState.currentActivity || t('sync.analyzing')}
                   </span>
                 </div>
               </div>
@@ -282,17 +284,17 @@ export default function SyncStatusBar({
                   <div className="flex items-center space-x-1.5">
                     {sState.status === 'completed' && (
                       <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                        Al día
+                        {t('sync.upToDate')}
                       </span>
                     )}
                     {sState.status === 'failed' && (
                       <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
-                        Error
+                        {t('sync.error')}
                       </span>
                     )}
                     {sState.status === 'idle' && !isQueued && (
                       <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
-                        Listo
+                        {t('sync.ready')}
                       </span>
                     )}
                   </div>
@@ -306,7 +308,7 @@ export default function SyncStatusBar({
                     className="flex-1 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold rounded-lg transition-colors flex items-center justify-center space-x-1 cursor-pointer"
                   >
                     <RefreshCw className="w-3 h-3" />
-                    <span>Sincronizar</span>
+                    <span>{t('sync.syncBtn')}</span>
                   </button>
 
                   {sState.logs && sState.logs.length > 0 && (
@@ -314,7 +316,7 @@ export default function SyncStatusBar({
                       type="button"
                       onClick={() => setShowLogsAccountKey(showLogsAccountKey === sKey ? null : sKey)}
                       className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"
-                      title="Ver registro"
+                      title={t('sync.viewLog')}
                     >
                       <Terminal className="w-3.5 h-3.5" />
                     </button>
@@ -343,7 +345,7 @@ export default function SyncStatusBar({
         <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl flex items-center justify-between gap-2">
           <div className="flex items-center space-x-2 text-amber-800 text-xs font-semibold">
             <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-            <span>Conecta tu cuenta de Moodle para sincronizar automáticamente tus materias y tareas.</span>
+            <span>{t('sync.emptyBanner')}</span>
           </div>
           {onNavigateToTab && (
             <button
@@ -351,7 +353,7 @@ export default function SyncStatusBar({
               onClick={() => onNavigateToTab('login')}
               className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shrink-0 transition-colors cursor-pointer"
             >
-              Conectar
+              {t('sync.connect')}
             </button>
           )}
         </div>
@@ -359,3 +361,4 @@ export default function SyncStatusBar({
     </div>
   );
 }
+

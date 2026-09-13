@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { TodoTask } from '../types';
 import { Award, ChevronDown, ChevronUp, AlertCircle, BookOpen, Clock, CalendarDays, CheckCircle2, Filter } from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
 
 interface StatsPanelProps {
   tasks: TodoTask[];
@@ -29,6 +30,7 @@ interface CourseStats {
 }
 
 export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUpcomingActivities }: StatsPanelProps) {
+  const { t, language } = useLanguage();
   const [expandedCourses, setExpandedCourses] = useState<Record<string, boolean>>({});
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState<boolean>(false);
@@ -197,9 +199,9 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
             <Award className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-gray-900">Rendimiento Académico por Materia</h2>
+            <h2 className="text-base font-bold text-gray-900">{t('stats.title')}</h2>
             <p className="text-xs text-gray-400 mt-0.5">
-              Tus materias ordenadas de menor a mayor promedio. Los trabajos no entregados vencidos penalizan con <span className="font-semibold text-rose-600">0%</span>.
+              {t('stats.subtitle')} <span className="font-semibold text-rose-600">0%</span>.
             </p>
           </div>
         </div>
@@ -208,7 +210,7 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
         <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-4 mt-2">
           {/* Label or left spacer */}
           <div className="md:col-span-3 flex items-center">
-            <span className="text-xs font-bold text-gray-500">Filtrar rendimiento por cuenta:</span>
+            <span className="text-xs font-bold text-gray-500">{t('stats.filterLabel')}</span>
           </div>
           {/* Account Multi-select Container */}
           <div className="md:col-span-3 relative" id="account-filter-container">
@@ -221,8 +223,8 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
                 <Filter className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                 <span className="truncate">
                   {selectedAccounts.length === 0 
-                    ? `Todas las Cuentas (${uniqueAccountCareers.length})` 
-                    : `${selectedAccounts.length} filtro${selectedAccounts.length > 1 ? 's' : ''} activo${selectedAccounts.length > 1 ? 's' : ''}`
+                    ? t('stats.allAccounts', { count: uniqueAccountCareers.length }) 
+                    : t('stats.activeFilters', { count: selectedAccounts.length, plural: selectedAccounts.length > 1 ? (language === 'es' ? 's' : 's') : '' })
                   }
                 </span>
               </div>
@@ -237,20 +239,20 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
                 />
                 <div className="absolute left-0 right-0 mt-1.5 bg-white border border-gray-150 rounded-xl shadow-lg z-50 p-2.5 space-y-1 max-h-60 overflow-y-auto">
                   <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-gray-100 px-1 text-[10px] text-gray-400 font-bold uppercase tracking-wider">
-                    <span>Filtrar Cuentas / Carreras</span>
+                    <span>{t('stats.filterModalTitle')}</span>
                     {selectedAccounts.length > 0 && (
                       <button 
                         type="button"
                         onClick={() => setSelectedAccounts([])}
                         className="text-blue-600 hover:text-blue-700 cursor-pointer"
                       >
-                        Limpiar
+                        {t('stats.clear')}
                       </button>
                     )}
                   </div>
                   {uniqueAccountCareers.length === 0 ? (
                     <div className="text-center py-2 text-xs text-gray-400 font-medium">
-                      No hay opciones disponibles
+                      {t('stats.noOptions')}
                     </div>
                   ) : (
                     uniqueAccountCareers.map(key => {
@@ -258,9 +260,9 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
                       const [username, carrera] = key.split('|');
                       let displayName = '';
                       if (username === 'Manual') {
-                        displayName = carrera === 'Otros' ? 'Tareas Manuales / Locales' : `Tareas Manuales (${carrera})`;
+                        displayName = carrera === 'Otros' ? t('stats.manualTasksLocal') : t('stats.manualTasksCareer', { carrera });
                       } else {
-                        displayName = carrera === 'Otros' ? `${username} (Manuales / Otros)` : `${username} (${carrera})`;
+                        displayName = carrera === 'Otros' ? `${username} (${language === 'es' ? 'Manuales / Otros' : 'Manual / Other'})` : `${username} (${carrera})`;
                       }
                       return (
                         <label 
@@ -295,8 +297,8 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
         {!hasAnyGrades ? (
           <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-8 text-center text-gray-400">
             <AlertCircle className="w-8 h-8 mx-auto text-gray-300 mb-2" />
-            <p className="text-xs font-bold text-gray-600">Aún no se registran actividades calificadas o vencidas en tu agenda.</p>
-            <p className="text-[11px] text-gray-400 mt-0.5">Sincroniza tus materias en "Explorar Moodle" para descargar tus notas reales.</p>
+            <p className="text-xs font-bold text-gray-600">{t('stats.emptyAlert')}</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">{t('stats.emptyAlertSub')}</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-5">
@@ -318,7 +320,7 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
                 <>
                   <div className="bg-rose-50/40 border border-rose-100 rounded-2xl p-4 flex flex-col justify-between">
                     <div>
-                      <span className="text-[10px] font-sans font-extrabold uppercase tracking-wider text-rose-600">Mayor Alerta ⭐</span>
+                      <span className="text-[10px] font-sans font-extrabold uppercase tracking-wider text-rose-600">{t('stats.highestAlert')}</span>
                       <h4 className="text-xs font-bold text-gray-800 line-clamp-1 mt-1" title={lowest?.courseName}>
                         {lowest?.courseName.split('-')[0]?.trim() || lowest?.courseName}
                       </h4>
@@ -331,8 +333,8 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
 
                   <div className="bg-blue-50/40 border border-blue-100 rounded-2xl p-4 flex flex-col justify-between">
                     <div>
-                      <span className="text-[10px] font-sans font-extrabold uppercase tracking-wider text-blue-600">Promedio General 📈</span>
-                      <h4 className="text-xs font-bold text-gray-800 mt-1">Acumulado Total</h4>
+                      <span className="text-[10px] font-sans font-extrabold uppercase tracking-wider text-blue-600">{t('stats.generalAvg')}</span>
+                      <h4 className="text-xs font-bold text-gray-800 mt-1">{t('stats.totalAccumulated')}</h4>
                     </div>
                     <div className="mt-2.5 flex items-baseline gap-1.5">
                       <span className="text-lg font-black text-blue-700">{globalAvg.toFixed(1)}%</span>
@@ -342,7 +344,7 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
 
                   <div className="bg-emerald-50/40 border border-emerald-100 rounded-2xl p-4 flex flex-col justify-between">
                     <div>
-                      <span className="text-[10px] font-sans font-extrabold uppercase tracking-wider text-emerald-600">Mejor Rendimiento ✨</span>
+                      <span className="text-[10px] font-sans font-extrabold uppercase tracking-wider text-emerald-600">{t('stats.bestPerformance')}</span>
                       <h4 className="text-xs font-bold text-gray-800 line-clamp-1 mt-1" title={highest?.courseName}>
                         {highest?.courseName.split('-')[0]?.trim() || highest?.courseName}
                       </h4>
@@ -381,11 +383,11 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
                 <div className="flex-1 min-w-0 pr-4">
                   <div className="flex items-center space-x-2">
                     <span className="text-xs font-mono font-extrabold text-blue-600 uppercase bg-blue-50 px-2 py-0.5 rounded-md">
-                      Materia {idx + 1}
+                      {t('stats.courseLabel', { number: idx + 1 })}
                     </span>
                     {course.unsubmittedTasksCount > 0 && (
                       <span className="text-[9px] font-bold text-rose-600 bg-rose-50 border border-rose-100 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                        ⚠️ {course.unsubmittedTasksCount} sin entregar
+                        ⚠️ {t('stats.unsubmitted', { count: course.unsubmittedTasksCount })}
                       </span>
                     )}
                   </div>
@@ -409,11 +411,11 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
                           </span>
                         </div>
                         <p className="text-[9px] text-gray-450 mt-0.5">
-                          {course.gradedTasksCount} calificado{course.gradedTasksCount !== 1 ? 's' : ''}
+                          {t('stats.graded', { count: course.gradedTasksCount, plural: course.gradedTasksCount !== 1 ? (language === 'es' ? 's' : '') : '' })}
                         </p>
                       </>
                     ) : (
-                      <span className="text-xs font-bold text-gray-400 italic">Sin calificaciones</span>
+                      <span className="text-xs font-bold text-gray-400 italic">{t('stats.noGrades')}</span>
                     )}
                   </div>
 
@@ -428,7 +430,7 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
                 <div className="border-t border-gray-100 bg-white p-5 animate-in slide-in-from-top-1 duration-150">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                     <h4 className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">
-                      Desglose de Calificaciones ({course.tasksList.length} ítems analizados)
+                      {t('stats.breakdown', { count: course.tasksList.length })}
                     </h4>
                     {onViewUpcomingActivities && course.courseId && (
                       <button
@@ -440,13 +442,13 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
                         className="py-1 px-2.5 bg-blue-50 hover:bg-blue-100 text-blue-600 text-[11px] font-bold rounded-xl transition-all flex items-center space-x-1.5 cursor-pointer border border-blue-200/50 w-fit"
                       >
                         <CalendarDays className="w-3.5 h-3.5 shrink-0" />
-                        <span>Ver próximas actividades</span>
+                        <span>{t('stats.viewUpcoming')}</span>
                       </button>
                     )}
                   </div>
                   
                   {course.tasksList.length === 0 ? (
-                    <p className="text-xs text-gray-400 italic">No hay notas registradas para esta materia.</p>
+                    <p className="text-xs text-gray-400 italic">{t('stats.noCourseGrades')}</p>
                   ) : (
                     <div className="divide-y divide-gray-100">
                       {course.tasksList.map(taskItem => {
@@ -475,16 +477,16 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
                               <div className="flex items-center space-x-2 mt-1">
                                 {taskItem.isOverdueUnsubmitted ? (
                                   <span className="text-[9px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.2 rounded font-sans uppercase">
-                                    No entregado (Vencido)
+                                    {t('stats.overdueUnsubmitted')}
                                   </span>
                                 ) : (
                                   <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded font-sans uppercase">
-                                    Nota de Moodle
+                                    {t('stats.moodleGrade')}
                                   </span>
                                 )}
                                 {taskItem.closureDate && (
                                   <span className="text-[9px] text-gray-400 font-mono">
-                                    Cerró: {new Date(taskItem.closureDate).toLocaleDateString('es-EC', { day: 'numeric', month: 'short' })}
+                                    {t('stats.closedDate', { date: new Date(taskItem.closureDate).toLocaleDateString(language === 'es' ? 'es-EC' : 'en-US', { day: 'numeric', month: 'short' }) })}
                                   </span>
                                 ) || null}
                               </div>

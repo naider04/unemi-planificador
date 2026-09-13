@@ -5,6 +5,7 @@ import {
   Download, RefreshCw, Eye, BookOpen, Terminal, Info, X, Sparkles
 } from 'lucide-react';
 import { TodoTask } from '../types';
+import { useLanguage } from '../context/LanguageContext';
 
 interface ActivityTimelineProps {
   tasks: TodoTask[];
@@ -43,6 +44,7 @@ export default function ActivityTimeline({
   viewingTaskId,
   getFeedbackImageUrl
 }: ActivityTimelineProps) {
+  const { t, language } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState<boolean>(false);
@@ -107,7 +109,7 @@ export default function ActivityTimeline({
         timeZone: 'America/Guayaquil',
         hour12: true
       };
-      return dateObj.toLocaleDateString('es-EC', options);
+      return dateObj.toLocaleDateString(language === 'es' ? 'es-EC' : 'en-US', options);
     } catch {
       return dateObj.toISOString();
     }
@@ -118,25 +120,25 @@ export default function ActivityTimeline({
     const scannedTasks = tasks.filter(t => t.type !== 'MANUAL');
 
     const headers = [
-      'ID de Actividad',
-      'Título',
-      'Tipo Académico',
-      'Grupo / Individual',
-      'ID del Curso',
-      'Materia',
-      'Enlace de la Actividad',
-      'Detalle/Descripción',
-      'Fecha de Apertura (ISO)',
-      'Fecha de Apertura Formateada',
-      'Fecha de Cierre (ISO)',
-      'Fecha de Cierre Formateada',
-      'Completada',
-      'Fecha de Registro',
-      'Estado de Entrega',
-      'Calificación',
-      'Calificación Máxima',
-      'Estado de Calificación',
-      'Retroalimentación del Docente'
+      t('csv.id'),
+      t('csv.title'),
+      t('csv.type'),
+      t('csv.group'),
+      t('csv.courseId'),
+      t('csv.courseName'),
+      t('csv.url'),
+      t('csv.description'),
+      t('csv.apertureIso'),
+      t('csv.apertureFormatted'),
+      t('csv.closureIso'),
+      t('csv.closureFormatted'),
+      t('csv.completed'),
+      t('csv.registeredAt'),
+      t('csv.submissionStatus'),
+      t('csv.grade'),
+      t('csv.maxGrade'),
+      t('csv.gradingStatus'),
+      t('csv.feedback')
     ];
 
     const escapeCSVField = (val: any) => {
@@ -155,17 +157,17 @@ export default function ActivityTimeline({
     const rows = scannedTasks.map(task => {
       const isSkeleton = !task.completed && task.closureDate && (new Date(task.closureDate).getTime() < nowTime);
       const displayGrade = task.grade ? task.grade : (isSkeleton ? '0.00' : '');
-      const displayStatus = ((task.status === 'Calificado' || task.grade) ? 'Calificado' : (task.estado_calificacion || task.gradingStatus || (task.hecho_calificacion ? 'Calificación no visible' : '')));
+      const displayStatus = ((task.status === 'Calificado' || task.grade) ? t('csv.graded') : (task.estado_calificacion || task.gradingStatus || (task.hecho_calificacion ? t('csv.gradeHidden') : '')));
       const hasPassed = task.closureDate ? (new Date(task.closureDate).getTime() < nowTime) : false;
       const displayEntrega = task.completed
-        ? (task.status || task.estado_entrega || 'Entregado')
-        : (hasPassed ? 'No Entregado' : 'Entregar');
+        ? (task.status || task.estado_entrega || t('csv.submitted'))
+        : (hasPassed ? t('csv.notSubmitted') : t('csv.toSubmit'));
 
       return [
         task.id || '',
         task.title || '',
         task.type || '',
-        task.grupo ? task.grupo : 'Individual',
+        task.grupo ? task.grupo : t('csv.individual'),
         task.courseId || '',
         task.courseName || '',
         task.activityUrl || '',
@@ -174,7 +176,7 @@ export default function ActivityTimeline({
         task.apertureDateISO ? formatCalendarDate(task.apertureDateISO) : (task.aperture || ''),
         task.closureDate || '',
         task.closureDate ? formatCalendarDate(task.closureDate) : '',
-        task.completed ? 'Sí' : 'No',
+        task.completed ? t('csv.yes') : t('csv.no'),
         task.createdAt || '',
         displayEntrega,
         displayGrade,
@@ -218,7 +220,7 @@ export default function ActivityTimeline({
 
   // Helper to locate which academic week a task belongs to
   const getWeekInfo = (dateStr: string | null) => {
-    if (!dateStr) return { weekNumber: 9999, label: 'Actividades sin fecha de cierre específica', mondaySort: 9999999999999 };
+    if (!dateStr) return { weekNumber: 9999, label: t('timeline.weekNoDeadline'), mondaySort: 9999999999999 };
     const d = new Date(dateStr);
     const BASING_START = new Date('2026-04-13T00:00:00'); // Start of Semester Week 1 (Monday)
     
@@ -239,10 +241,10 @@ export default function ActivityTimeline({
     const weekNumber = weekIndex + 1;
 
     const label = weekNumber === 9999
-      ? 'Actividades sin fecha de cierre específica'
+      ? t('timeline.weekNoDeadline')
       : weekNumber > 0 
-        ? `Semana ${weekNumber}`
-        : `Semana Especial / Extra`;
+        ? t('timeline.weekTitle', { number: weekNumber })
+        : t('timeline.weekSpecial');
 
     return { weekNumber, label, mondaySort: monday.getTime() };
   };
@@ -360,15 +362,15 @@ export default function ActivityTimeline({
 
   // Parse remaining duration in a human readable way
   const getRemainingTime = (isoString: string | null, completed: boolean) => {
-    if (completed) return { text: 'Completado', color: 'text-emerald-600 bg-emerald-50 border-emerald-100/50' };
-    if (!isoString) return { text: 'Sin fecha de cierre', color: 'text-gray-500 bg-gray-50 border-gray-100' };
+    if (completed) return { text: t('time.completed'), color: 'text-emerald-600 bg-emerald-50 border-emerald-100/50' };
+    if (!isoString) return { text: t('time.noDeadline'), color: 'text-gray-500 bg-gray-50 border-gray-100' };
 
     const deadline = new Date(isoString);
     const now = new Date();
     const diff = deadline.getTime() - now.getTime();
 
     if (diff < 0) {
-      return { text: 'Cerrado/Vencido', color: 'text-rose-600 bg-rose-50 border-rose-100/50' };
+      return { text: t('time.closedOverdue'), color: 'text-rose-600 bg-rose-50 border-rose-100/50' };
     }
 
     const hrs = Math.floor(diff / (1000 * 60 * 60));
@@ -378,24 +380,24 @@ export default function ActivityTimeline({
     if (days > 0) {
       if (days === 1) {
         return { 
-          text: `Falta 1 día y ${remainingHrs} hrs`, 
+          text: t('time.oneDayHrsLeft', { hrs: remainingHrs }), 
           color: 'text-amber-700 bg-amber-50 border-amber-100/50 hover:bg-amber-100/40' 
         };
       }
       return { 
-        text: `Faltan ${days} días`, 
+        text: t('time.daysLeft', { days }), 
         color: 'text-slate-700 bg-slate-50 border-slate-100 hover:bg-slate-100/60' 
       };
     } else {
       if (hrs === 0) {
         const mins = Math.floor(diff / (1000 * 60)) % 60;
         return { 
-          text: `¡Faltan ${mins} minutos!`, 
+          text: t('time.minutesLeft', { mins }), 
           color: 'text-rose-700 bg-rose-50 border-rose-100 animate-pulse font-bold' 
         };
       }
       return { 
-        text: `¡Faltan ${hrs} horas!`, 
+        text: t('time.hoursLeft', { hrs }), 
         color: 'text-rose-700 bg-rose-50 border-rose-100 animate-pulse-slow' 
       };
     }
@@ -403,7 +405,7 @@ export default function ActivityTimeline({
 
   // Helper to format Spanish calendar strings
   const formatCalendarDate = (isoString: string | null) => {
-    if (!isoString) return 'Sin fecha límite';
+    if (!isoString) return t('time.noDeadline');
     const date = new Date(isoString);
     const options: Intl.DateTimeFormatOptions = { 
       weekday: 'long', 
@@ -413,7 +415,7 @@ export default function ActivityTimeline({
       minute: '2-digit',
       timeZone: 'America/Guayaquil'
     };
-    return date.toLocaleDateString('es-EC', options);
+    return date.toLocaleDateString(language === 'es' ? 'es-EC' : 'en-US', options);
   };
 
   const getRelativeSyncTime = (lastSyncedAtStr?: string) => {
@@ -421,15 +423,15 @@ export default function ActivityTimeline({
     try {
       const past = new Date(lastSyncedAtStr).getTime();
       const diffMs = Date.now() - past;
-      if (diffMs < 0) return 'hace un momento';
+      if (diffMs < 0) return t('time.justNow');
       const seconds = Math.floor(diffMs / 1000);
-      if (seconds < 60) return 'hace un momento';
+      if (seconds < 60) return t('time.justNow');
       const minutes = Math.floor(seconds / 60);
-      if (minutes < 60) return `${minutes}m ago`;
+      if (minutes < 60) return t('time.minutesAgo', { min: minutes });
       const hours = Math.floor(minutes / 60);
-      if (hours < 24) return `${hours} hrs ago`;
+      if (hours < 24) return t('time.hoursAgo', { hrs: hours });
       const days = Math.floor(hours / 24);
-      return `${days} d ago`;
+      return t('time.daysAgo', { days });
     } catch {
       return null;
     }
@@ -578,7 +580,7 @@ export default function ActivityTimeline({
               </span>
               {task.grupo ? (
                 <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.2 rounded font-medium">
-                  Grupal
+                  {t('timeline.groupBadge')}
                 </span>
               ) : null}
             </div>
@@ -597,7 +599,7 @@ export default function ActivityTimeline({
               {viewingTaskId === task.id && (
                 <span className="inline-flex items-center space-x-1 bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded text-[10px] font-bold animate-pulse shrink-0">
                   <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                  <span>Abriendo...</span>
+                  <span>{language === 'es' ? 'Abriendo...' : 'Opening...'}</span>
                 </span>
               )}
             </h3>
@@ -605,7 +607,7 @@ export default function ActivityTimeline({
             {/* Badges row: Status, Grade, Warnings */}
             <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
               {(() => {
-                const statusStr = task.status || (task.completed ? 'Entregado' : 'No entregado');
+                const statusStr = task.status || (task.completed ? (language === 'es' ? 'Entregado' : 'Submitted') : (language === 'es' ? 'No entregado' : 'Not submitted'));
                 const isCalificado = statusStr.toLowerCase().includes('calificad');
                 const isEntregado = statusStr.toLowerCase().includes('entregad') || statusStr.toLowerCase().includes('enviad') || statusStr.toLowerCase().includes('finalizad');
                 const isBorrador = statusStr.toLowerCase().includes('borrador');
@@ -626,7 +628,7 @@ export default function ActivityTimeline({
 
               {task.grade && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-emerald-50 text-emerald-800 border-emerald-200">
-                  Nota: {task.grade} {task.gradeOver ? `/ ${task.gradeOver}` : ''}
+                  {language === 'es' ? 'Nota:' : 'Grade:'} {task.grade} {task.gradeOver ? `/ ${task.gradeOver}` : ''}
                 </span>
               )}
 
@@ -639,7 +641,7 @@ export default function ActivityTimeline({
 
               {task.por_hacer_calificacion && (
                 <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-1.5 py-0.5">
-                  Pendiente test en Moodle
+                  {language === 'es' ? 'Pendiente test en Moodle' : 'Pending test on Moodle'}
                 </span>
               )}
             </div>
@@ -647,7 +649,7 @@ export default function ActivityTimeline({
             {/* Teacher feedback snippet if present */}
             {task.comentario_calificador && (
               <div className="mt-2 bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 text-slate-600 text-xs">
-                <p className="font-bold text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Comentario del docente:</p>
+                <p className="font-bold text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">{language === 'es' ? 'Comentario del docente:' : 'Teacher comment:'}</p>
                 <p className="italic text-slate-700">"{task.comentario_calificador}"</p>
               </div>
             )}
@@ -670,7 +672,7 @@ export default function ActivityTimeline({
                 }}
                 disabled={syncingTaskId === task.id}
                 className="text-[10px] font-medium text-slate-400 hover:text-blue-600 p-1 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
-                title="Actualizar estado desde Moodle"
+                title={language === 'es' ? 'Actualizar estado desde Moodle' : 'Update status from Moodle'}
               >
                 <RefreshCw className={`w-3 h-3 ${syncingTaskId === task.id ? 'animate-spin text-blue-600' : ''}`} />
               </button>
@@ -684,7 +686,7 @@ export default function ActivityTimeline({
                   onNavigateToMoodleActivity(task.courseId || '', task.activityUrl || '');
                 }}
                 className="text-[10px] font-medium text-slate-400 hover:text-blue-600 p-1 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
-                title="Abrir en Moodle interno"
+                title={language === 'es' ? 'Abrir en Moodle interno' : 'Open in internal Moodle'}
               >
                 <Terminal className="w-3 h-3" />
               </button>
@@ -698,7 +700,7 @@ export default function ActivityTimeline({
                   onDeleteTask(task.id);
                 }}
                 className="text-[10px] font-medium text-slate-400 hover:text-rose-600 p-1 rounded-md hover:bg-rose-50 transition-colors cursor-pointer"
-                title="Eliminar tarea manual"
+                title={language === 'es' ? 'Eliminar tarea manual' : 'Delete manual task'}
               >
                 <Trash2 className="w-3 h-3" />
               </button>
@@ -720,13 +722,13 @@ export default function ActivityTimeline({
           <div className="flex items-center space-x-3">
             <div>
               <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
-                <span>Agenda de Actividades</span>
+                <span>{language === 'es' ? 'Agenda de Actividades' : 'Activity Agenda'}</span>
                 <span className="text-xs font-bold bg-blue-50 text-blue-600 px-2.5 py-0.5 rounded-full border border-blue-100">
-                  {pendingCount} pendientes
+                  {t('timeline.statsPending', { count: pendingCount })}
                 </span>
               </h2>
               <div className="flex items-center space-x-2 text-xs text-slate-400 mt-1">
-                <span>{completedCount} de {tasks.length} completadas ({percentComplete}%)</span>
+                <span>{completedCount} {language === 'es' ? 'de' : 'of'} {tasks.length} {language === 'es' ? 'completadas' : 'completed'} ({percentComplete}%)</span>
                 <div className="w-20 bg-slate-100 h-1.5 rounded-full overflow-hidden">
                   <div 
                     className="bg-emerald-500 h-full rounded-full transition-all duration-300"
@@ -747,10 +749,10 @@ export default function ActivityTimeline({
                   ? 'bg-blue-50 text-blue-700 border-blue-200' 
                   : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
               }`}
-              title="Ver guía de indicadores y estados"
+              title={t('sync.legendTitle')}
             >
               <Info className="w-3.5 h-3.5" />
-              <span>Leyenda</span>
+              <span>{language === 'es' ? 'Leyenda' : 'Legend'}</span>
             </button>
 
             {/* Clear agenda button with confirmation */}
@@ -771,10 +773,10 @@ export default function ActivityTimeline({
                     ? 'bg-rose-600 text-white border-rose-600 animate-pulse'
                     : 'bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-100'
                 }`}
-                title={confirmClear ? 'Haz clic de nuevo para vaciar' : 'Vaciar la agenda'}
+                title={confirmClear ? (language === 'es' ? 'Haz clic de nuevo para vaciar' : 'Click again to clear') : (language === 'es' ? 'Vaciar la agenda' : 'Clear agenda')}
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>{confirmClear ? '¿Confirmar?' : 'Vaciar'}</span>
+                <span>{confirmClear ? (language === 'es' ? '¿Confirmar?' : 'Confirm?') : (language === 'es' ? 'Vaciar' : 'Clear')}</span>
               </button>
             )}
 
@@ -785,7 +787,7 @@ export default function ActivityTimeline({
               className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-2xs flex items-center space-x-1.5 transition-colors cursor-pointer"
             >
               <PlusCircle className="w-4 h-4" />
-              <span>Nueva</span>
+              <span>{t('tab.newTask')}</span>
             </button>
           </div>
         </div>
@@ -796,7 +798,7 @@ export default function ActivityTimeline({
             <div className="flex items-center justify-between">
               <span className="font-bold text-blue-900 text-xs flex items-center space-x-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                <span>Guía de Indicadores de Estado</span>
+                <span>{t('sync.legendHeading')}</span>
               </span>
               <button 
                 onClick={() => setShowLegend(false)}
@@ -808,39 +810,39 @@ export default function ActivityTimeline({
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 pt-1 text-[11px]">
               <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
                 <span className="text-base">🔥</span>
-                <span className="text-slate-700">Inminente (&lt;30h)</span>
+                <span className="text-slate-700">{t('sync.legend.imminent')}</span>
               </div>
               <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
                 <span className="text-base">💪</span>
-                <span className="text-slate-700">Pendiente (&lt;10d)</span>
+                <span className="text-slate-700">{t('sync.legend.pending')}</span>
               </div>
               <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
                 <span className="text-base">⏱️</span>
-                <span className="text-slate-700">Entregado (Sin nota)</span>
+                <span className="text-slate-700">{language === 'es' ? 'Entregado (Sin nota)' : 'Submitted (Ungraded)'}</span>
               </div>
               <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
                 <span className="text-base">😄</span>
-                <span className="text-slate-700">Excelente (≥90%)</span>
+                <span className="text-slate-700">{t('sync.legend.excellent')}</span>
               </div>
               <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
                 <span className="text-base">🙂</span>
-                <span className="text-slate-700">Aceptable (80-89%)</span>
+                <span className="text-slate-700">{t('sync.legend.acceptable')}</span>
               </div>
               <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
                 <span className="text-base">😢</span>
-                <span className="text-slate-700">Regular (60-79%)</span>
+                <span className="text-slate-700">{t('sync.legend.regular')}</span>
               </div>
               <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
                 <span className="text-base">👎</span>
-                <span className="text-slate-700">Reprobado (&lt;60%)</span>
+                <span className="text-slate-700">{t('sync.legend.failed')}</span>
               </div>
               <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
                 <span className="text-base">☠️</span>
-                <span className="text-slate-700">Vencido</span>
+                <span className="text-slate-700">{t('sync.legend.overdue')}</span>
               </div>
               <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
                 <span className="text-base">⚠️</span>
-                <span className="text-slate-700">Cierre atípico</span>
+                <span className="text-slate-700">{language === 'es' ? 'Cierre atípico' : 'Atypical deadline'}</span>
               </div>
             </div>
           </div>
@@ -855,7 +857,7 @@ export default function ActivityTimeline({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar actividad o materia..."
+              placeholder={language === 'es' ? 'Buscar actividad o materia...' : 'Search activity or course...'}
               className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
             />
           </div>
@@ -868,7 +870,7 @@ export default function ActivityTimeline({
               onChange={(e) => setSelectedCourseId(e.target.value)}
               className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer"
             >
-              <option value="all">Todas las materias ({uniqueCourses.length})</option>
+              <option value="all">{language === 'es' ? `Todas las materias (${uniqueCourses.length})` : `All courses (${uniqueCourses.length})`}</option>
               {uniqueCourses.map(([cid, cname]) => (
                 <option key={cid} value={cid}>{cname}</option>
               ))}
@@ -883,11 +885,11 @@ export default function ActivityTimeline({
               onChange={(e) => setSelectedType(e.target.value)}
               className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer"
             >
-              <option value="all">Todos los tipos</option>
-              <option value="TAREA">Tareas</option>
-              <option value="CUESTIONARIO">Cuestionarios</option>
-              <option value="ACTIVIDAD">Otras actividades</option>
-              <option value="MANUAL">Manuales</option>
+              <option value="all">{t('timeline.allTypes')}</option>
+              <option value="TAREA">{t('timeline.typeTask')}</option>
+              <option value="CUESTIONARIO">{t('timeline.typeQuiz')}</option>
+              <option value="ACTIVIDAD">{t('timeline.typeActivity')}</option>
+              <option value="MANUAL">{t('timeline.typeManual')}</option>
             </select>
           </div>
 
@@ -903,7 +905,7 @@ export default function ActivityTimeline({
               }`}
             >
               <EyeOff className="w-3.5 h-3.5" />
-              <span>{showCompleted ? 'Ocultar hechas' : 'Ver hechas'}</span>
+              <span>{showCompleted ? (language === 'es' ? 'Ocultar hechas' : 'Hide completed') : (language === 'es' ? 'Ver hechas' : 'Show completed')}</span>
             </button>
           </div>
         </div>
@@ -914,9 +916,9 @@ export default function ActivityTimeline({
       {filteredTasks.length === 0 ? (
         <div id="timeline-empty-state" className="bg-white border border-slate-200/80 rounded-2xl p-10 text-center shadow-2xs">
           <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-          <p className="text-sm font-bold text-slate-700">Sin actividades</p>
+          <p className="text-sm font-bold text-slate-700">{t('timeline.noFilteredActivities')}</p>
           <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-            No hay actividades que coincidan con los filtros seleccionados.
+            {language === 'es' ? 'No hay actividades que coincidan con los filtros seleccionados.' : 'No activities match the selected filters.'}
           </p>
         </div>
       ) : (() => {
@@ -968,7 +970,7 @@ export default function ActivityTimeline({
                         </span>
                         {isCurrent && (
                           <span className="text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.2 rounded-full">
-                            Semana actual
+                            {t('timeline.currentWeekBadge')}
                           </span>
                         )}
                       </div>
@@ -976,8 +978,8 @@ export default function ActivityTimeline({
 
                     <div className="flex items-center space-x-2 text-xs text-slate-400 font-medium">
                       <span>
-                        {group.tasks.length} {group.tasks.length === 1 ? "actividad" : "actividades"}
-                        {pendingInGroup > 0 && ` • ${pendingInGroup} pendientes`}
+                        {group.tasks.length} {group.tasks.length === 1 ? (language === 'es' ? "actividad" : "activity") : (language === 'es' ? "actividades" : "activities")}
+                        {pendingInGroup > 0 && ` • ${pendingInGroup} ${language === 'es' ? 'pendientes' : 'pending'}`}
                       </span>
                     </div>
                   </div>
@@ -990,7 +992,9 @@ export default function ActivityTimeline({
                           {group.tasks.map(task => renderTaskCard(task))}
                         </div>
                       ) : (() => {
-                        const weekdays = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+                        const weekdays = language === 'es' 
+                          ? ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+                          : ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
                         const mondayDate = new Date(group.mondaySort);
 
                         const daysArray = weekdays.map((name, index) => {
@@ -1023,7 +1027,7 @@ export default function ActivityTimeline({
                         if (daysWithTasks.length === 0) {
                           return (
                             <div className="p-4 text-center text-xs text-slate-400 bg-slate-50/50 rounded-xl border border-slate-100">
-                              Todas las actividades de esta semana están completadas
+                              {language === 'es' ? 'Todas las actividades de esta semana están completadas' : 'All activities for this week are completed'}
                             </div>
                           );
                         }
@@ -1031,7 +1035,7 @@ export default function ActivityTimeline({
                         return (
                           <div className="space-y-4">
                             {daysWithTasks.map((day, dayIdx) => {
-                              const dayStr = day.dayDate.toLocaleDateString("es-EC", { day: "numeric", month: "short" });
+                              const dayStr = day.dayDate.toLocaleDateString(language === 'es' ? "es-EC" : "en-US", { day: "numeric", month: "short" });
                               return (
                                 <div key={dayIdx} className="space-y-1.5">
                                   <div className="flex items-center space-x-2 text-xs text-slate-500 font-semibold px-1">

@@ -5,6 +5,7 @@ import {
   ChevronDown, ChevronRight
 } from 'lucide-react';
 import { Course, Activity, ActivityDetails, MoodleSession, TodoTask } from '../types';
+import { useLanguage } from '../context/LanguageContext';
 
 const apiBase = import.meta.env.VITE_API_URL || '';
 
@@ -52,6 +53,7 @@ export default function MoodleBrowser({
   onSessionError,
   onGoToConnections
 }: MoodleBrowserProps) {
+  const { t, language } = useLanguage();
   const proxiedFeedbackImageUrl = (fileUrl: string) =>
     `/api/moodle/proxy?url=${encodeURIComponent(fileUrl)}&server=${session.server}&username=${session.username}&session=${encodeURIComponent(session.cookies)}`;
 
@@ -246,11 +248,11 @@ export default function MoodleBrowser({
     // Pick assignments and quizzes in this course
     const listToScan = activities.filter(act => act.type === 'TAREA' || act.type === 'CUESTIONARIO');
     if (!listToScan.length) {
-      showToast('Esta materia no tiene tareas o cuestionarios asignados para sincronizar.', 'info');
+      showToast(language === 'es' ? 'Esta materia no tiene tareas o cuestionarios asignados para sincronizar.' : 'This course has no assigned tasks or quizzes to sync.', 'info');
       return;
     }
 
-    setSyncProgress({ current: 0, total: listToScan.length, label: 'Iniciando escaneo masivo...' });
+    setSyncProgress({ current: 0, total: listToScan.length, label: language === 'es' ? 'Iniciando escaneo masivo...' : 'Starting bulk scan...' });
     const importedList: TodoTask[] = [];
 
     for (let i = 0; i < listToScan.length; i++) {
@@ -258,7 +260,7 @@ export default function MoodleBrowser({
       setSyncProgress({
         current: i + 1,
         total: listToScan.length,
-        label: `Analizando: ${act.name.substring(0, 30)}...`
+        label: `${language === 'es' ? 'Analizando' : 'Analyzing'}: ${act.name.substring(0, 30)}...`
       });
 
       try {
@@ -329,7 +331,12 @@ export default function MoodleBrowser({
     }
     
     setSyncProgress(null);
-    showToast(`Sincronización completada. Se importaron o actualizaron ${importedList.length} actividades formativas en tu agenda.`, 'success');
+    showToast(
+      language === 'es'
+        ? `Sincronización completada. Se importaron o actualizaron ${importedList.length} actividades formativas en tu agenda.`
+        : `Synchronization completed. Imported or updated ${importedList.length} activities in your agenda.`,
+      'success'
+    );
   };
 
   const normalizeName = (name: string) => {
@@ -352,7 +359,7 @@ export default function MoodleBrowser({
         minute: '2-digit',
         timeZone: 'America/Guayaquil'
       };
-      return date.toLocaleDateString('es-EC', options);
+      return date.toLocaleDateString(language === 'es' ? 'es-EC' : 'en-US', options);
     } catch {
       return '';
     }
@@ -459,11 +466,20 @@ export default function MoodleBrowser({
   // Global automatic synchronizer for ALL courses mapped in Moodle
   const syncAllCoursesDeadlines = async () => {
     if (!courses.length) {
-      showToast('No se detectaron materias. Por favor refresca la lista antes de sincronizar.', 'error');
+      showToast(
+        language === 'es'
+          ? 'No se detectaron materias. Por favor refresca la lista antes de sincronizar.'
+          : 'No courses detected. Please refresh the list before syncing.',
+        'error'
+      );
       return;
     }
 
-    setSyncProgress({ current: 0, total: courses.length, label: 'Mapeando materias de Moodle en paralelo...' });
+    setSyncProgress({
+      current: 0,
+      total: courses.length,
+      label: language === 'es' ? 'Mapeando materias de Moodle en paralelo...' : 'Mapping Moodle courses in parallel...'
+    });
     const globalImportedList: TodoTask[] = [];
 
     try {
@@ -507,11 +523,20 @@ export default function MoodleBrowser({
 
       if (allActionableActs.length === 0) {
         setSyncProgress(null);
-        showToast('Sincronización global terminada. No descubrimos nuevas tareas o cuestionarios en tus materias.', 'info');
+        showToast(
+          language === 'es'
+            ? 'Sincronización global terminada. No descubrimos nuevas tareas o cuestionarios en tus materias.'
+            : 'Global sync completed. No new assignments or quizzes were found in your courses.',
+          'info'
+        );
         return;
       }
 
-      setSyncProgress({ current: 0, total: allActionableActs.length, label: `Iniciando consulta para ${allActionableActs.length} actividades...` });
+      setSyncProgress({
+        current: 0,
+        total: allActionableActs.length,
+        label: language === 'es' ? `Iniciando consulta para ${allActionableActs.length} actividades...` : `Starting scan for ${allActionableActs.length} activities...`
+      });
 
       // 2. Fetch activity details concurrently (batch size: 4)
       const concurrencyLimit = 4;
@@ -524,7 +549,9 @@ export default function MoodleBrowser({
             setSyncProgress(prev => ({
               current: currentNum <= allActionableActs.length ? currentNum : prev?.current || currentNum,
               total: allActionableActs.length,
-              label: `[Actividad ${currentNum}/${allActionableActs.length}] Extrayendo fechas para: ${act.name.substring(0, 20)}...`
+              label: language === 'es'
+                ? `[Actividad ${currentNum}/${allActionableActs.length}] Extrayendo fechas para: ${act.name.substring(0, 20)}...`
+                : `[Activity ${currentNum}/${allActionableActs.length}] Extracting deadlines for: ${act.name.substring(0, 20)}...`
             }));
 
             try {
@@ -592,14 +619,29 @@ export default function MoodleBrowser({
 
       if (globalImportedList.length > 0) {
         onImportTasks(globalImportedList);
-        showToast(`¡Sincronización terminada! Procesadas y guardadas exitosamente ${globalImportedList.length} actividades formativas.`, 'success');
+        showToast(
+          language === 'es'
+            ? `¡Sincronización terminada! Procesadas y guardadas exitosamente ${globalImportedList.length} actividades formativas.`
+            : `Sync completed! Successfully processed and saved ${globalImportedList.length} activities.`,
+          'success'
+        );
       } else {
-        showToast('Sincronización global finalizada. No se encontraron nuevas actividades.', 'info');
+        showToast(
+          language === 'es'
+            ? 'Sincronización global finalizada. No se encontraron nuevas actividades.'
+            : 'Global sync completed. No new activities were found.',
+          'info'
+        );
       }
 
     } catch (errSyncAll) {
       console.error('Error general in global synchronization:', errSyncAll);
-      showToast('Sucedió un error general de comunicación al sincronizar tus materias.', 'error');
+      showToast(
+        language === 'es'
+          ? 'Sucedió un error general de comunicación al sincronizar tus materias.'
+          : 'A general communication error occurred while syncing your courses.',
+        'error'
+      );
     } finally {
       setSyncProgress(null);
     }
@@ -646,7 +688,10 @@ export default function MoodleBrowser({
     };
 
     onImportTasks([newTodo]);
-    showToast('¡Actividad agendada con éxito en tu calendario!', 'success');
+    showToast(
+      language === 'es' ? '¡Actividad agendada con éxito en tu calendario!' : 'Activity successfully scheduled in your calendar!',
+      'success'
+    );
   };
 
   const viewRawHtml = async () => {
@@ -669,10 +714,10 @@ export default function MoodleBrowser({
         window.open(urlObj, '_blank');
         setTimeout(() => window.URL.revokeObjectURL(urlObj), 15000);
       } else {
-        showToast(data.error || 'Error al ver la página HTML de Moodle.', 'error');
+        showToast(data.error || (language === 'es' ? 'Error al ver la página HTML de Moodle.' : 'Error viewing Moodle HTML page.'), 'error');
       }
     } catch (err) {
-      showToast('Error de comunicación al intentar ver el documento.', 'error');
+      showToast(language === 'es' ? 'Error de comunicación al intentar ver el documento.' : 'Communication error while viewing document.', 'error');
     } finally {
       setDownloadingHtml(false);
     }
@@ -698,11 +743,11 @@ export default function MoodleBrowser({
         window.open(urlObj, '_blank');
         setTimeout(() => window.URL.revokeObjectURL(urlObj), 15000);
       } else {
-        showToast(data.error || 'Error al ver la página HTML del curso.', 'error');
+        showToast(data.error || (language === 'es' ? 'Error al ver la página HTML del curso.' : 'Error viewing course HTML page.'), 'error');
       }
     } catch (err) {
       console.error(err);
-      showToast('Error de comunicación al intentar ver el curso.', 'error');
+      showToast(language === 'es' ? 'Error de comunicación al intentar ver el curso.' : 'Communication error while viewing course.', 'error');
     } finally {
       setDownloadingCourseHtml(false);
     }
@@ -722,9 +767,11 @@ export default function MoodleBrowser({
           <AlertTriangle className="w-10 h-10" />
         </div>
         <div>
-          <h3 className="text-base font-bold text-gray-900 mb-2">Conexión Expirada</h3>
+          <h3 className="text-base font-bold text-gray-900 mb-2">{language === 'es' ? 'Conexión Expirada' : 'Connection Expired'}</h3>
           <p className="text-xs text-gray-500 max-w-sm leading-relaxed mx-auto">
-            La sesión del aula virtual para la cuenta <strong className="font-mono text-gray-800">{session.username}</strong> ({session.server === 'a' ? 'Aula Grado A' : 'Aula Grado B'}) ha caducado o requiere re-autenticación.
+            {language === 'es'
+              ? `La sesión del aula virtual para la cuenta ${session.username} (${session.server === 'a' ? 'Aula Grado A' : 'Aula Grado B'}) ha caducado o requiere re-autenticación.`
+              : `The virtual classroom session for account ${session.username} (${session.server === 'a' ? 'Grade Classroom A' : 'Grade Classroom B'}) has expired or requires re-authentication.`}
           </p>
         </div>
         <div className="w-full pt-1">
@@ -736,7 +783,7 @@ export default function MoodleBrowser({
             }}
             className="w-full inline-flex items-center justify-center space-x-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer active:scale-[0.98]"
           >
-            <span>Ir a Reconectar Cuenta</span>
+            <span>{language === 'es' ? 'Ir a Reconectar Cuenta' : 'Go to Reconnect Account'}</span>
           </button>
         </div>
       </div>
@@ -763,7 +810,7 @@ export default function MoodleBrowser({
               className="flex items-center space-x-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors mb-3"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Ver mis materias</span>
+              <span>{language === 'es' ? 'Ver mis materias' : 'View my courses'}</span>
             </button>
             <div className="flex items-start justify-between space-x-3">
               <div className="flex items-start space-x-3 min-w-0">
@@ -780,7 +827,7 @@ export default function MoodleBrowser({
                 onClick={viewCourseRawHtml}
                 disabled={downloadingCourseHtml}
                 className="p-2 text-slate-500 hover:text-slate-800 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl cursor-pointer transition-all shrink-0"
-                title="Ver vista general del curso (link temporal)"
+                title={language === 'es' ? 'Ver vista general del curso (link temporal)' : 'View course overview (temporary link)'}
               >
                 <Eye className={`w-4 h-4 ${downloadingCourseHtml ? 'animate-pulse' : ''}`} />
               </button>
@@ -795,7 +842,7 @@ export default function MoodleBrowser({
                 className="w-full flex items-center justify-center space-x-2 text-xs font-semibold bg-gray-900 text-white rounded-xl py-2.5 hover:bg-gray-800 disabled:opacity-50 hover:scale-[1.01] active:scale-[0.99] transition-all"
               >
                 <Sparkles className="w-4 h-4 animate-pulse text-amber-300" />
-                <span>Sincronizar Fechas y Agenda</span>
+                <span>{language === 'es' ? 'Sincronizar Fechas y Agenda' : 'Sync Deadlines & Agenda'}</span>
               </button>
             </div>
           </div>
@@ -805,14 +852,14 @@ export default function MoodleBrowser({
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center space-x-2.5">
                 <Layers className="w-5 h-5 text-gray-700" />
-                <h2 className="text-base font-bold text-gray-900">Navegador Moodle</h2>
+                <h2 className="text-base font-bold text-gray-900">{language === 'es' ? 'Navegador Moodle' : 'Moodle Browser'}</h2>
               </div>
               <button
                 id="refresh-courses"
                 onClick={fetchCourses}
                 disabled={loadingCourses}
                 className="p-1.5 hover:bg-gray-50 rounded-lg text-gray-400 hover:text-gray-900 transition-colors"
-                title="Refrescar materias"
+                title={language === 'es' ? 'Refrescar materias' : 'Refresh courses'}
               >
                 <RefreshCw className={`w-4 h-4 ${loadingCourses ? 'animate-spin' : ''}`} />
               </button>
@@ -823,7 +870,7 @@ export default function MoodleBrowser({
                 <div className="flex items-start space-x-2.5">
                   <AlertTriangle className="w-4.5 h-4.5 text-red-500 shrink-0 mt-0.5" />
                   <div className="space-y-1">
-                    <p className="font-extrabold text-red-800">Error de Conexión</p>
+                    <p className="font-extrabold text-red-800">{language === 'es' ? 'Error de Conexión' : 'Connection Error'}</p>
                     <p className="leading-relaxed opacity-90">{error}</p>
                   </div>
                 </div>
@@ -833,7 +880,7 @@ export default function MoodleBrowser({
                     onClick={fetchCourses}
                     className="px-3.5 py-1.5 bg-white border border-red-200 hover:bg-red-50 text-red-700 font-bold rounded-xl transition-colors cursor-pointer"
                   >
-                    Reintentar
+                    {language === 'es' ? 'Reintentar' : 'Retry'}
                   </button>
                   <button
                     type="button"
@@ -844,7 +891,7 @@ export default function MoodleBrowser({
                     }}
                     className="px-3.5 py-1.5 bg-red-650 hover:bg-red-700 text-white font-bold rounded-xl transition-colors cursor-pointer"
                   >
-                    Reconectar o Añadir Cuenta
+                    {language === 'es' ? 'Reconectar o Añadir Cuenta' : 'Reconnect or Add Account'}
                   </button>
                 </div>
               </div>
@@ -861,7 +908,9 @@ export default function MoodleBrowser({
               <div className="text-center py-10 px-4 space-y-4">
                 <BookOpen className="w-8 h-8 text-gray-300 mx-auto mb-1 animate-pulse" />
                 <p className="text-xs text-gray-500 max-w-xs mx-auto leading-relaxed">
-                  No se encontraron materias cargadas. Si tienes un error de red o de clave, puedes reconectar o añadir tu cuenta.
+                  {language === 'es'
+                    ? 'No se encontraron materias cargadas. Si tienes un error de red o de clave, puedes reconectar o añadir tu cuenta.'
+                    : 'No courses found. If you have a network or password issue, you can reconnect or add your account.'}
                 </p>
                 <button
                   type="button"
@@ -872,7 +921,7 @@ export default function MoodleBrowser({
                   }}
                   className="inline-flex items-center space-x-1 px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 text-xs font-bold rounded-xl transition-all cursor-pointer"
                 >
-                  <span>Reconectar / Añadir Cuenta</span>
+                  <span>{language === 'es' ? 'Reconectar / Añadir Cuenta' : 'Reconnect / Add Account'}</span>
                 </button>
               </div>
             ) : (
@@ -896,10 +945,14 @@ export default function MoodleBrowser({
                       ? 'bg-amber-500 hover:bg-amber-600 text-white border border-amber-300 animate-pulse'
                       : 'bg-blue-600 hover:bg-blue-700 text-white'
                   }`}
-                  title="Sincronizar tareas y exámenes de todas las materias de forma automática"
+                  title={language === 'es' ? 'Sincronizar tareas y exámenes de todas las materias de forma automática' : 'Automatically sync assignments and exams from all courses'}
                 >
                   <Sparkles className={`w-3.5 h-3.5 animate-pulse ${confirmSyncAll ? 'text-white' : 'text-amber-300'}`} />
-                  <span>{confirmSyncAll ? '¿CONFIRMAR ESCANEO EN TODAS LAS MATERIAS?' : 'Sincronizar Todas las Materias'}</span>
+                  <span>
+                    {confirmSyncAll
+                      ? (language === 'es' ? '¿CONFIRMAR ESCANEO EN TODAS LAS MATERIAS?' : 'CONFIRM SCAN ACROSS ALL COURSES?')
+                      : (language === 'es' ? 'Sincronizar Todas las Materias' : 'Sync All Courses')}
+                  </span>
                 </button>
 
                 <div className="space-y-1.5 max-h-[380px] overflow-y-auto pr-1">
@@ -930,7 +983,9 @@ export default function MoodleBrowser({
         {syncProgress && (
           <div id="moodle-sync-status" className="bg-blue-50 border border-blue-100 rounded-2xl p-4 shadow-xs">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-blue-800">Sincronizando Materia</span>
+              <span className="text-xs font-bold text-blue-800">
+                {language === 'es' ? 'Sincronizando Materia' : 'Syncing Course'}
+              </span>
               <span className="text-xs font-mono font-bold text-blue-800">
                 {syncProgress.current} / {syncProgress.total}
               </span>
@@ -953,9 +1008,13 @@ export default function MoodleBrowser({
         {!selectedCourse && (
           <div className="bg-white border border-gray-100 rounded-3xl p-12 text-center h-full flex flex-col justify-center items-center shadow-xs min-h-[300px]">
             <Layers className="w-12 h-12 text-gray-200 mb-3 stroke-[1.5]" />
-            <h3 className="text-sm font-bold text-gray-800 mb-1">Explorador de Cursos</h3>
+            <h3 className="text-sm font-bold text-gray-800 mb-1">
+              {language === 'es' ? 'Explorador de Cursos' : 'Course Explorer'}
+            </h3>
             <p className="text-xs text-gray-400 max-w-sm leading-relaxed">
-              Elige una materia del menú lateral para auditar sus tareas, lecciones, cuestionarios e inclusive ver tus notas y retroalimentaciones directas del catedrático.
+              {language === 'es'
+                ? 'Elige una materia del menú lateral para auditar sus tareas, lecciones, cuestionarios e inclusive ver tus notas y retroalimentaciones directas del catedrático.'
+                : 'Select a course from the side menu to review assignments, lessons, quizzes, and even view your grades and instructor feedback.'}
             </p>
           </div>
         )}
@@ -964,7 +1023,11 @@ export default function MoodleBrowser({
         {selectedCourse && loadingActivities && (
           <div className="bg-white border border-gray-100 rounded-3xl p-12 text-center shadow-xs min-h-[350px] flex flex-col justify-center items-center">
             <RefreshCw className="w-8 h-8 text-blue-600 animate-spin mb-3 stroke-[2]" />
-            <p className="text-xs text-gray-500 font-medium">Leyendo las carpetas y actividades en {selectedCourse.text}...</p>
+            <p className="text-xs text-gray-500 font-medium">
+              {language === 'es'
+                ? `Leyendo las carpetas y actividades en ${selectedCourse.text}...`
+                : `Reading folders and activities in ${selectedCourse.text}...`}
+            </p>
           </div>
         )}
 
@@ -977,12 +1040,18 @@ export default function MoodleBrowser({
               
               {/* TREE SUB-PANEL */}
               <div className="md:col-span-7 bg-white border border-gray-100 rounded-2xl p-5 shadow-xs max-h-[560px] overflow-y-auto">
-                <h3 className="text-xs font-bold text-gray-400 mb-4 uppercase tracking-wider">Actividades del Curso</h3>
+                <h3 className="text-xs font-bold text-gray-400 mb-4 uppercase tracking-wider">
+                  {language === 'es' ? 'Actividades del Curso' : 'Course Activities'}
+                </h3>
 
                 {activities.length === 0 ? (
                   <div className="text-center py-10">
                     <HelpCircle className="w-6 h-6 text-gray-300 mx-auto mb-2" />
-                    <p className="text-xs text-gray-400">No se encontraron actividades mapeables en las secciones académicas.</p>
+                    <p className="text-xs text-gray-400">
+                      {language === 'es'
+                        ? 'No se encontraron actividades mapeables en las secciones académicas.'
+                        : 'No trackable activities found in academic sections.'}
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -1060,7 +1129,7 @@ export default function MoodleBrowser({
                                           ))}
                                           {isSavedInAgenda && (
                                             <span className="text-[9px] font-mono font-bold bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100">
-                                              En Agenda
+                                              {language === 'es' ? 'En Agenda' : 'In Agenda'}
                                             </span>
                                           )}
                                         </div>
@@ -1089,7 +1158,7 @@ export default function MoodleBrowser({
                                     ) : (
                                       <div className="flex items-center space-x-1.5 text-[10px] font-medium text-slate-400 italic">
                                         <Clock className="w-3 h-3 text-slate-300 shrink-0" />
-                                        <span>Sin fecha límite</span>
+                                        <span>{language === 'es' ? 'Sin fecha límite' : 'No deadline'}</span>
                                       </div>
                                     )}
 
@@ -1102,7 +1171,7 @@ export default function MoodleBrowser({
                                         }}
                                         className="px-2 py-0.5 text-[9px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-150 rounded-md flex items-center space-x-0.5 cursor-pointer transition-all active:scale-95 shrink-0"
                                       >
-                                        <span>Ver en Agenda</span>
+                                        <span>{language === 'es' ? 'Ver en Agenda' : 'View in Agenda'}</span>
                                         <ChevronRight className="w-3 h-3 shrink-0" />
                                       </button>
                                     )}
@@ -1120,12 +1189,18 @@ export default function MoodleBrowser({
 
               {/* DETAILED SCRAPER INFORMATION SIDE BAR */}
               <div id="activity-details-panel" className="md:col-span-5 bg-white border border-gray-100 rounded-2xl p-5 shadow-xs max-h-[560px] overflow-y-auto">
-                <h3 className="text-xs font-bold text-gray-400 mb-4 uppercase tracking-wider">Auditoría de Actividad</h3>
+                <h3 className="text-xs font-bold text-gray-400 mb-4 uppercase tracking-wider">
+                  {language === 'es' ? 'Auditoría de Actividad' : 'Activity Audit'}
+                </h3>
 
                 {!selectedActivity ? (
                   <div className="text-center py-20 text-gray-400">
                     <Eye className="w-8 h-8 mx-auto mb-2 text-gray-200 stroke-[1.5]" />
-                    <p className="text-xs leading-relaxed max-w-[200px] mx-auto">Selecciona cualquier tarea o cuestionario para extraer su estado.</p>
+                    <p className="text-xs leading-relaxed max-w-[200px] mx-auto">
+                      {language === 'es'
+                        ? 'Selecciona cualquier tarea o cuestionario para extraer su estado.'
+                        : 'Select any assignment or quiz to extract its status.'}
+                    </p>
                   </div>
                 ) : loadingDetails ? (
                   <div className="text-center py-20 flex flex-col items-center">
@@ -1134,7 +1209,9 @@ export default function MoodleBrowser({
                   </div>
                 ) : !activityDetails ? (
                   <div className="text-center py-10 text-red-600 text-xs">
-                    No se pudieron descargar los detalles de esta actividad específica.
+                    {language === 'es'
+                      ? 'No se pudieron descargar los detalles de esta actividad específica.'
+                      : 'Could not download details for this specific activity.'}
                   </div>
                 ) : (
                   /* Formatted scrape details sheet */
@@ -1152,10 +1229,10 @@ export default function MoodleBrowser({
                     <div className="bg-slate-50 border border-slate-100 rounded-xl p-3">
                       <div className="flex items-center space-x-2 text-gray-800 text-xs mb-1.5">
                         <Calendar className="w-4 h-4 text-slate-500 shrink-0" />
-                        <span className="font-semibold">Fecha de Cierre:</span>
+                        <span className="font-semibold">{language === 'es' ? 'Fecha de Cierre:' : 'Deadline:'}</span>
                       </div>
                       <p className="text-xs font-semibold text-slate-900 leading-relaxed max-w-[200px]">
-                        {activityDetails.closure || 'Indeterminada / No especificada'}
+                        {activityDetails.closure || (language === 'es' ? 'Indeterminada / No especificada' : 'Undetermined / Not specified')}
                       </p>
                       {activityDetails.tiempo_restante && (
                         <div className="flex items-center space-x-1.5 text-[10px] text-amber-700 bg-amber-50 rounded-md px-2 py-1 mt-2">
@@ -1170,7 +1247,7 @@ export default function MoodleBrowser({
                       <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3 text-xs flex items-start space-x-2 animate-in fade-in duration-300">
                         <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                         <div className="flex-1 space-y-0.5">
-                          <p className="font-bold text-amber-800">Aviso General Moodle:</p>
+                          <p className="font-bold text-amber-800">{language === 'es' ? 'Aviso General Moodle:' : 'General Moodle Notice:'}</p>
                           <p className="text-[11px] leading-relaxed text-amber-700">{activityDetails.advertencia_preguntas}</p>
                         </div>
                       </div>
@@ -1180,9 +1257,12 @@ export default function MoodleBrowser({
                       <div className="bg-amber-50 border border-amber-200 text-amber-950 rounded-xl p-3 text-xs flex items-start space-x-2 animate-in fade-in duration-300">
                         <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                         <div className="flex-1 space-y-0.5">
-                          <p className="font-bold text-amber-900">Actividad Pendiente:</p>
+                          <p className="font-bold text-amber-900">{language === 'es' ? 'Actividad Pendiente:' : 'Pending Activity:'}</p>
                           <p className="text-[11px] leading-relaxed text-amber-800">
-                            <strong>Por hacer - Recibir una calificación:</strong> Esta actividad o test aún no ha sido realizado o enviado en Moodle.
+                            <strong>{language === 'es' ? 'Por hacer - Recibir una calificación:' : 'To do - Receive a grade:'}</strong>{' '}
+                            {language === 'es'
+                              ? 'Esta actividad o test aún no ha sido realizado o enviado en Moodle.'
+                              : 'This activity or quiz has not yet been taken or submitted in Moodle.'}
                           </p>
                         </div>
                       </div>
@@ -1192,9 +1272,12 @@ export default function MoodleBrowser({
                       <div className="bg-emerald-50 border border-emerald-200 text-emerald-950 rounded-xl p-3 text-xs flex items-start space-x-2 animate-in fade-in duration-300">
                         <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                         <div className="flex-1 space-y-0.5">
-                          <p className="font-bold text-emerald-900">Actividad Completada:</p>
+                          <p className="font-bold text-emerald-900">{language === 'es' ? 'Actividad Completada:' : 'Completed Activity:'}</p>
                           <p className="text-[11px] leading-relaxed text-emerald-800">
-                            <strong>Hecho - Recibir una calificación:</strong> La actividad/test ha sido completado y entregado con éxito. Sin embargo, la calificación está en proceso de revisión o aún no es visible para estudiantes.
+                            <strong>{language === 'es' ? 'Hecho - Recibir una calificación:' : 'Done - Receive a grade:'}</strong>{' '}
+                            {language === 'es'
+                              ? 'La actividad/test ha sido completado y entregado con éxito. Sin embargo, la calificación está en proceso de revisión o aún no es visible para estudiantes.'
+                              : 'The activity/quiz has been successfully completed and submitted. However, the grade is pending review or not yet visible.'}
                           </p>
                         </div>
                       </div>
@@ -1205,7 +1288,7 @@ export default function MoodleBrowser({
                       <div className="space-y-2.5 border-t border-gray-100 pt-3 text-xs text-gray-700">
                         {activityDetails.grupo && (
                           <div className="flex justify-between items-center bg-blue-50/40 border border-blue-100/50 p-2.5 rounded-lg text-blue-900">
-                            <span className="font-semibold text-blue-700">Grupo:</span>
+                            <span className="font-semibold text-blue-700">{language === 'es' ? 'Grupo:' : 'Group:'}</span>
                             <span className="font-bold bg-blue-100/70 border border-blue-200/50 px-2.5 py-0.5 rounded text-[10px]">
                               {activityDetails.grupo}
                             </span>
@@ -1213,7 +1296,7 @@ export default function MoodleBrowser({
                         )}
                         {activityDetails.estado_entrega && (
                           <div className="flex justify-between items-center bg-gray-50/50 p-2 rounded-lg">
-                            <span className="font-semibold text-gray-500">Entrega:</span>
+                            <span className="font-semibold text-gray-500">{language === 'es' ? 'Entrega:' : 'Submission:'}</span>
                             <span className={`font-semibold py-0.5 px-2 rounded-full text-[10px] ${
                               isStatusSubmitted(activityDetails.estado_entrega)
                                 ? 'bg-emerald-50 text-emerald-700'
@@ -1225,13 +1308,13 @@ export default function MoodleBrowser({
                         )}
                         {activityDetails.estado_calificacion && (
                           <div className="flex justify-between items-center bg-gray-50/50 p-2 rounded-lg">
-                            <span className="font-semibold text-gray-500">Estado Calif:</span>
+                            <span className="font-semibold text-gray-500">{language === 'es' ? 'Estado Calif:' : 'Grading Status:'}</span>
                             <span className="font-semibold">{activityDetails.estado_calificacion}</span>
                           </div>
                         )}
                         {activityDetails.calificacion && (
                           <div className="flex justify-between items-center bg-emerald-50/50 border border-emerald-100/50 p-2.5 rounded-lg text-emerald-900">
-                            <span className="font-bold">Calificación:</span>
+                            <span className="font-bold">{language === 'es' ? 'Calificación:' : 'Grade:'}</span>
                             <span className="font-mono font-bold text-sm">
                               {activityDetails.calificacion} / {activityDetails.calificacion_sobre || '10'}
                             </span>
@@ -1239,7 +1322,7 @@ export default function MoodleBrowser({
                         )}
                         {(activityDetails.comentario_calificador || (activityDetails.comentario_imagenes && activityDetails.comentario_imagenes.length > 0)) && (
                           <div className="bg-gray-50/80 border border-gray-100 rounded-xl p-3 text-gray-600 mt-2">
-                            <p className="font-bold text-gray-700 mb-1">Comentario del Docente:</p>
+                            <p className="font-bold text-gray-700 mb-1">{language === 'es' ? 'Comentario del Docente:' : 'Instructor Feedback:'}</p>
                             {activityDetails.comentario_calificador && (
                               <p className="leading-relaxed text-[11px] font-mono italic">{activityDetails.comentario_calificador}</p>
                             )}
@@ -1271,26 +1354,30 @@ export default function MoodleBrowser({
                           <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl text-emerald-800 flex items-center space-x-2">
                             <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-pulse" />
                             <span className="font-extrabold tracking-wide uppercase text-[11px]">opened</span>
-                            <span className="text-emerald-700 font-medium">· El cuestionario está abierto, puedes intentarlo ahora.</span>
+                            <span className="text-emerald-700 font-medium">
+                              {language === 'es' ? '· El cuestionario está abierto, puedes intentarlo ahora.' : '· The quiz is open, you can attempt it now.'}
+                            </span>
                           </div>
                         )}
                         {activityDetails.quiz_info.abierto === false && (
                           <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-slate-500 flex items-center space-x-2">
                             <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0" />
-                            <span className="font-extrabold tracking-wide uppercase text-[11px]">Cerrado</span>
-                            <span className="font-medium">· El cuestionario no está disponible para intentar ahora.</span>
+                            <span className="font-extrabold tracking-wide uppercase text-[11px]">{language === 'es' ? 'Cerrado' : 'Closed'}</span>
+                            <span className="font-medium">
+                              {language === 'es' ? '· El cuestionario no está disponible para intentar ahora.' : '· The quiz is not available to attempt now.'}
+                            </span>
                           </div>
                         )}
                         <div className="grid grid-cols-2 gap-2 text-gray-700">
                           {activityDetails.quiz_info.intentos_permitidos && (
                             <div className="bg-gray-50 p-2 rounded-lg">
-                              <span className="block text-[10px] text-gray-400 font-bold uppercase">Intentos Máx</span>
+                              <span className="block text-[10px] text-gray-400 font-bold uppercase">{language === 'es' ? 'Intentos Máx' : 'Max Attempts'}</span>
                               <span className="font-semibold text-gray-800">{activityDetails.quiz_info.intentos_permitidos}</span>
                             </div>
                           )}
                           {activityDetails.quiz_info.limite_tiempo && (
                             <div className="bg-gray-50 p-2 rounded-lg">
-                              <span className="block text-[10px] text-gray-400 font-bold uppercase">Límite</span>
+                              <span className="block text-[10px] text-gray-400 font-bold uppercase">{language === 'es' ? 'Límite' : 'Time Limit'}</span>
                               <span className="font-semibold text-gray-800">{activityDetails.quiz_info.limite_tiempo}</span>
                             </div>
                           )}
@@ -1298,7 +1385,7 @@ export default function MoodleBrowser({
 
                         {activityDetails.quiz_info.calificacion_final && (
                           <div className="bg-emerald-50 border border-emerald-100 p-2.5 rounded-xl text-emerald-900 flex justify-between items-center">
-                            <span className="font-bold">Nota Cuestionario:</span>
+                            <span className="font-bold">{language === 'es' ? 'Nota Cuestionario:' : 'Quiz Grade:'}</span>
                             <span className="font-mono font-bold text-sm">
                               {activityDetails.quiz_info.calificacion_final} / {activityDetails.quiz_info.calificacion_sobre || '10'}
                               {activityDetails.quiz_info.porcentaje && <span className="text-[11px] font-normal ml-1">({activityDetails.quiz_info.porcentaje}%)</span>}
@@ -1309,16 +1396,16 @@ export default function MoodleBrowser({
                         {/* Attempts detail lists */}
                         {activityDetails.quiz_info.intentos.length > 0 && (
                           <div className="space-y-2 mt-2">
-                            <p className="font-bold text-gray-800 text-[11px] uppercase tracking-wider">Historial de Intentos:</p>
+                            <p className="font-bold text-gray-800 text-[11px] uppercase tracking-wider">{language === 'es' ? 'Historial de Intentos:' : 'Attempt History:'}</p>
                             {activityDetails.quiz_info.intentos.map((att) => (
                               <div key={att.numero} className="border border-gray-100 rounded-xl p-2.5 space-y-1.5 bg-gray-50/20 text-[11px]">
                                 <div className="flex justify-between font-bold text-gray-800">
-                                  <span>Intento #{att.numero}</span>
+                                  <span>{language === 'es' ? `Intento #${att.numero}` : `Attempt #${att.numero}`}</span>
                                   <span className="text-blue-600 font-mono">{att.calificacion ? `${att.calificacion} pts` : att.estado}</span>
                                 </div>
                                 <div className="text-gray-500 font-mono text-[10px] space-y-0.5">
-                                  {att.comenzado && <p>Comienzo: {att.comenzado}</p>}
-                                  {att.duracion && <p>Duración: {att.duracion}</p>}
+                                  {att.comenzado && <p>{language === 'es' ? 'Comienzo:' : 'Started:'} {att.comenzado}</p>}
+                                  {att.duracion && <p>{language === 'es' ? 'Duración:' : 'Duration:'} {att.duracion}</p>}
                                 </div>
                               </div>
                             ))}
@@ -1330,7 +1417,7 @@ export default function MoodleBrowser({
                     {/* Description attachment listing */}
                     {activityDetails.archivos_adicionales && activityDetails.archivos_adicionales.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Guías y Materiales Adjuntos:</p>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{language === 'es' ? 'Guías y Materiales Adjuntos:' : 'Attached Guidelines & Files:'}</p>
                         {activityDetails.archivos_adicionales.map((file, idx) => (
                           <a
                             key={idx}
@@ -1355,7 +1442,7 @@ export default function MoodleBrowser({
                           className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition-shadow shadow-sm active:scale-[0.99] duration-100 shrink-0 cursor-pointer text-center"
                         >
                           <ChevronRight className="w-4 h-4 text-white shrink-0" />
-                          <span>Ver en Mi Agenda</span>
+                          <span>{language === 'es' ? 'Ver en Mi Agenda' : 'View in My Agenda'}</span>
                         </button>
                       ) : (
                         <button
@@ -1364,7 +1451,7 @@ export default function MoodleBrowser({
                           className="w-full py-2.5 bg-gray-950 hover:bg-gray-800 text-white rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all"
                         >
                           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                          <span>Agendar Actividad</span>
+                          <span>{language === 'es' ? 'Agendar Actividad' : 'Schedule Activity'}</span>
                         </button>
                       )}
                       <div className="grid grid-cols-2 gap-2">
@@ -1376,7 +1463,7 @@ export default function MoodleBrowser({
                           className="py-2 border border-gray-200 hover:bg-gray-50 text-gray-700 bg-white rounded-xl text-xs font-semibold flex items-center justify-center space-x-1 transition-all"
                         >
                           <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                          <span className="truncate">Abrir en el Aula</span>
+                          <span className="truncate">{language === 'es' ? 'Abrir en el Aula' : 'Open in Classroom'}</span>
                         </a>
                         <button
                           id="view-moodle-html"
@@ -1389,7 +1476,7 @@ export default function MoodleBrowser({
                           ) : (
                             <Eye className="w-3.5 h-3.5 shrink-0" />
                           )}
-                          <span className="truncate">Ver HTML</span>
+                          <span className="truncate">{language === 'es' ? 'Ver HTML' : 'View HTML'}</span>
                         </button>
                       </div>
                     </div>
@@ -1429,7 +1516,7 @@ export default function MoodleBrowser({
             onClick={() => setToastMsg(null)}
             className="text-[10px] bg-white/50 hover:bg-white rounded px-1.5 py-0.5 ml-2 font-mono hover:scale-105 active:scale-[0.93] text-gray-500 hover:text-gray-900 border border-transparent hover:border-gray-200 cursor-pointer transition-all"
           >
-            cerrar
+            {language === 'es' ? 'cerrar' : 'close'}
           </button>
         </div>
       )}

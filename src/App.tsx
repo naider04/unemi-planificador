@@ -13,6 +13,8 @@ import NewTaskModal from './components/NewTaskModal';
 import StatsPanel from './components/StatsPanel';
 import SyncStatusBar from './components/SyncStatusBar';
 import { fetchUserCacheFromFirestore, saveUserCacheToFirestore } from './firebase';
+import { useLanguage } from './context/LanguageContext';
+import LanguageToggle from './components/LanguageToggle';
 
 export function mergeTasksLists(currentTasks: TodoTask[], newTasks: TodoTask[]): TodoTask[] {
   const merged = [...currentTasks];
@@ -56,6 +58,7 @@ const isStatusSubmittedLocal = (estadoEntrega: string | null | undefined): boole
 };
 
 export default function App() {
+  const { t, language } = useLanguage();
   const [sessions, setSessions] = useState<MoodleSession[]>([]);
   const [activeSessionIndex, setActiveSessionIndex] = useState<number>(0);
   const [isDbLoaded, setIsDbLoaded] = useState<boolean>(false);
@@ -315,11 +318,11 @@ export default function App() {
       const isToday = isTodayValue(task.closureDate);
 
       if (isQuiz && isToday && isPending(task) && timeDiff > 0) {
-        const timeStr = taskDate.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const timeStr = taskDate.toLocaleTimeString(language === 'en' ? 'en-US' : 'es-EC', { hour: '2-digit', minute: '2-digit', hour12: false });
         const notifId = `local_quiz_today_${task.id}_${task.closureDate}`;
         triggerNativeNotification(
-          '🏁 Examen/Test vence hoy',
-          `Test de "${task.type === 'CUESTIONARIO' ? task.title : (task.courseName || '')}" vence hoy a las ${timeStr}.`,
+          t('notif.quizDueTodayTitle'),
+          t('notif.quizDueTodayBody', { title: task.type === 'CUESTIONARIO' ? task.title : (task.courseName || ''), time: timeStr }),
           notifId
         );
       }
@@ -332,8 +335,8 @@ export default function App() {
       if (!isQuiz && !isGroup && isToday && isPending(task) && timeDiff > 0 && timeDiff <= 3 * 60 * 60 * 1000) {
         const notifId = `local_warn_3h_${task.id}_${task.closureDate}`;
         triggerNativeNotification(
-          '⚠️ Entrega pendiente hoy',
-          `La actividad "${task.title}" vence hoy y no ha sido entregada aún.`,
+          t('notif.pendingDueTodayTitle'),
+          t('notif.pendingDueTodayBody', { title: task.title }),
           notifId
         );
       }
@@ -377,8 +380,8 @@ export default function App() {
 
         if (testsCount > 0 || tasksCount > 0) {
           triggerNativeNotification(
-            '📅 Resumen semanal de pendientes',
-            `Tienes ${tasksCount} tareas y ${testsCount} tests para la próxima semana.`,
+            t('notif.weeklySummaryTitle'),
+            t('notif.weeklySummaryBody', { tasks: tasksCount, tests: testsCount }),
             sundayKey
           );
         }
@@ -410,16 +413,16 @@ export default function App() {
         tracker.sent3 = true;
         localStorage.setItem('unemi_sync_reminder_history', JSON.stringify(tracker));
         triggerNativeNotification(
-          '🔄 Recordatorio de Sincronización',
-          `Sincroniza tus actividades: No has sincronizado tus actividades desde hace 3 días.`,
+          t('notif.syncReminderTitle'),
+          t('notif.syncReminderBody', { days: 3 }),
           `sync_reminder_3d_${lastSyncedTime}`
         );
       } else if (daysDiff >= 7 && !tracker.sent7) {
         tracker.sent7 = true;
         localStorage.setItem('unemi_sync_reminder_history', JSON.stringify(tracker));
         triggerNativeNotification(
-          '🔄 Recordatorio de Sincronización',
-          `Sincroniza tus actividades: No has sincronizado tus actividades desde hace 7 días.`,
+          t('notif.syncReminderTitle'),
+          t('notif.syncReminderBody', { days: 7 }),
           `sync_reminder_7d_${lastSyncedTime}`
         );
       }
@@ -429,12 +432,12 @@ export default function App() {
   const getRelativeNotifTime = (timestamp: number) => {
     const diffMs = Date.now() - timestamp;
     const diffMins = Math.floor(diffMs / 60000);
-    if (diffMins < 1) return 'ahora';
-    if (diffMins < 60) return `hace ${diffMins}m`;
+    if (diffMins < 1) return t('time.justNow');
+    if (diffMins < 60) return t('time.minutesAgo', { min: diffMins });
     const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `hace ${diffHours}h`;
+    if (diffHours < 24) return t('time.hoursAgo', { hrs: diffHours });
     const diffDays = Math.floor(diffHours / 24);
-    return `hace ${diffDays}d`;
+    return t('time.daysAgo', { days: diffDays });
   };
 
   const markNotificationRead = (notifId: string) => {
@@ -494,9 +497,9 @@ export default function App() {
             try {
               const d = new Date(isoStr);
               if (isNaN(d.getTime())) return 'Sin fecha de cierre';
-              return d.toLocaleString('es-EC', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+              return d.toLocaleString(language === 'en' ? 'en-US' : 'es-EC', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
             } catch {
-              return 'Sin fecha de cierre';
+              return t('time.noDeadline');
             }
           };
 
@@ -507,8 +510,8 @@ export default function App() {
             moodleUsername: incomingTask.moodleUsername || '',
             moodleServer: incomingTask.moodleServer || 'a',
             timestamp: now,
-            title: '🆕 Nueva Actividad Detectada',
-            message: `Materia: ${incomingTask.courseName || 'Moodle'}\nCierre: ${formattedClosureDate}`,
+            title: t('notif.newActivityTitle'),
+            message: t('notif.newActivityBody', { course: incomingTask.courseName || 'Moodle', date: formattedClosureDate }),
             type: 'new',
             read: false,
             activityUrl: incomingTask.activityUrl,
@@ -519,7 +522,7 @@ export default function App() {
             const formatShortDate = (isoStr: string) => {
               try {
                 const date = new Date(isoStr);
-                return date.toLocaleString('es-EC', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+                return date.toLocaleString(language === 'en' ? 'en-US' : 'es-EC', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
               } catch {
                 return isoStr;
               }
@@ -529,8 +532,8 @@ export default function App() {
               moodleUsername: incomingTask.moodleUsername || '',
               moodleServer: incomingTask.moodleServer || 'a',
               timestamp: now,
-              title: '📅 Cambio de Deadline',
-              message: `El plazo de "${existingTask.title}" cambió de ${formatShortDate(existingTask.closureDate)} a ${formatShortDate(incomingTask.closureDate)}.`,
+              title: t('notif.deadlineChangeTitle'),
+              message: t('notif.deadlineChangeBody', { title: existingTask.title, oldDate: formatShortDate(existingTask.closureDate), newDate: formatShortDate(incomingTask.closureDate) }),
               type: 'deadline',
               read: false,
               activityUrl: incomingTask.activityUrl,
@@ -544,8 +547,8 @@ export default function App() {
               moodleUsername: incomingTask.moodleUsername || '',
               moodleServer: incomingTask.moodleServer || 'a',
               timestamp: now,
-              title: '⭐ Nueva Calificación',
-              message: `Recibiste una nota para "${existingTask.title}": ${incomingTask.grade}/${incomingTask.gradeOver || '10'}.`,
+              title: t('notif.newGradeTitle'),
+              message: t('notif.newGradeBody', { title: existingTask.title, grade: incomingTask.grade, gradeOver: incomingTask.gradeOver || '10' }),
               type: 'grade',
               read: false,
               activityUrl: incomingTask.activityUrl,
@@ -559,8 +562,8 @@ export default function App() {
               moodleUsername: incomingTask.moodleUsername || '',
               moodleServer: incomingTask.moodleServer || 'a',
               timestamp: now,
-              title: '🔄 Estado Actualizado',
-              message: `El estado de "${existingTask.title}" cambió de "${existingTask.status}" a "${incomingTask.status}".`,
+              title: t('notif.statusUpdatedTitle'),
+              message: t('notif.statusUpdatedBody', { title: existingTask.title, oldStatus: existingTask.status, newStatus: incomingTask.status }),
               type: 'status',
               read: false,
               activityUrl: incomingTask.activityUrl,
@@ -1275,7 +1278,7 @@ export default function App() {
   const startGlobalSync = async (sessionsToSync?: MoodleSession[]) => {
     const list = sessionsToSync || sessions;
     if (list.length === 0) {
-      alert('Por favor conecta al menos una cuenta de Moodle para poder sincronizar.');
+      alert(t('app.syncConnectAtLeastOne'));
       return;
     }
 
@@ -1571,7 +1574,7 @@ export default function App() {
             const formatShortDate = (isoStr: string) => {
               try {
                 const date = new Date(isoStr);
-                return date.toLocaleString('es-EC', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+                return date.toLocaleString(language === 'en' ? 'en-US' : 'es-EC', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
               } catch {
                 return isoStr;
               }
@@ -1581,8 +1584,8 @@ export default function App() {
               moodleUsername: updatedTask.moodleUsername || '',
               moodleServer: updatedTask.moodleServer || 'a',
               timestamp: nowNotif,
-              title: '📅 Cambio de Deadline',
-              message: `El plazo de "${updatedTask.title}" cambió de ${formatShortDate(rawMatch.closureDate)} a ${formatShortDate(updatedTask.closureDate)}.`,
+              title: t('notif.deadlineChangeTitle'),
+              message: t('notif.deadlineChangeBody', { title: updatedTask.title, oldDate: formatShortDate(rawMatch.closureDate), newDate: formatShortDate(updatedTask.closureDate) }),
               type: 'deadline',
               read: false,
               activityUrl: updatedTask.activityUrl,
@@ -1596,8 +1599,8 @@ export default function App() {
               moodleUsername: updatedTask.moodleUsername || '',
               moodleServer: updatedTask.moodleServer || 'a',
               timestamp: nowNotif,
-              title: '⭐ Nueva Calificación',
-              message: `Recibiste una nota para "${updatedTask.title}": ${updatedTask.grade}/${updatedTask.gradeOver || '10'}.`,
+              title: t('notif.newGradeTitle'),
+              message: t('notif.newGradeBody', { title: updatedTask.title, grade: updatedTask.grade, gradeOver: updatedTask.gradeOver || '10' }),
               type: 'grade',
               read: false,
               activityUrl: updatedTask.activityUrl,
@@ -1611,8 +1614,8 @@ export default function App() {
               moodleUsername: updatedTask.moodleUsername || '',
               moodleServer: updatedTask.moodleServer || 'a',
               timestamp: nowNotif,
-              title: '🔄 Estado Actualizado',
-              message: `El estado de "${updatedTask.title}" cambió de "${rawMatch.status}" a "${updatedTask.status}".`,
+              title: t('notif.statusUpdatedTitle'),
+              message: t('notif.statusUpdatedBody', { title: updatedTask.title, oldStatus: rawMatch.status, newStatus: updatedTask.status }),
               type: 'status',
               read: false,
               activityUrl: updatedTask.activityUrl,
@@ -1642,9 +1645,9 @@ export default function App() {
         const data = await res.json().catch(() => ({}));
         const errStr = data.error || '';
         if (errStr.includes('sesión') || errStr.includes('sesion') || errStr.includes('expiró') || errStr.includes('expirada') || errStr.includes('inválida') || errStr.includes('invalida') || res.status === 401) {
-          handleSessionError(sess, errStr || 'La sesión expiró.', false);
+          handleSessionError(sess, errStr || t('app.sessionExpired'), false);
         } else {
-          alert('No se pudo actualizar de forma remota la actividad seleccionada.');
+          alert(t('app.singleTaskUpdateFailed'));
         }
       }
     } catch (e) {
@@ -1658,7 +1661,7 @@ export default function App() {
     if (!task.activityUrl || !task.moodleUsername || !task.moodleServer) return;
     const matchSess = sessions.find(s => s.username.toLowerCase() === task.moodleUsername?.toLowerCase() && s.server === task.moodleServer);
     if (!matchSess) {
-      alert('No se encontró una sesión activa para esta cuenta. Por favor vuelve a conectar la cuenta.');
+      alert(t('app.noActiveSessionDownload'));
       return;
     }
     
@@ -1689,11 +1692,11 @@ export default function App() {
         document.body.removeChild(a);
         window.URL.revokeObjectURL(urlObj);
       } else {
-        alert(data.error || 'Error al descargar la página de Moodle.');
+        alert(data.error || t('app.downloadHtmlError'));
       }
     } catch (err) {
       console.error('Error downloading HTML:', err);
-      alert('Error de red al intentar descargar la página.');
+      alert(t('app.networkErrorDownload'));
     }
   };
 
@@ -1734,11 +1737,11 @@ export default function App() {
           a.click();
         }
       } else {
-        alert(data.error || 'Error al obtener la página de Moodle.');
+        alert(data.error || t('app.viewHtmlError'));
       }
     } catch (err) {
       console.error('Error viewing HTML:', err);
-      alert('Error de red al intentar cargar la página.');
+      alert(t('app.networkErrorViewHtml'));
     } finally {
       setViewingTaskId(null);
     }
@@ -1766,13 +1769,13 @@ export default function App() {
               <Calendar className="w-5 h-5 stroke-[2.2]" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-gray-900 leading-tight">Moodle Agenda</h1>
-              <p className="text-[10px] text-gray-400 font-medium">Gestor de Aula Virtual Moodle</p>
+              <h1 className="text-sm font-bold text-gray-900 leading-tight">{t('nav.title')}</h1>
+              <p className="text-[10px] text-gray-400 font-medium">{t('nav.subtitle')}</p>
             </div>
           </div>
 
           {/* Connection badge status & Notifications bell */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-3">
             {sessions.filter(s => !s.expired).length > 0 ? (
               <div className="hidden md:flex flex-wrap items-center gap-1.5">
                 {sessions.map((sess, idx) => {
@@ -1789,7 +1792,7 @@ export default function App() {
                           ? 'bg-blue-50 text-blue-700 border-blue-200'
                           : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
                       }`}
-                      title={`Hacer activo: ${sess.username}`}
+                      title={t('nav.setActive', { username: sess.username })}
                     >
                       <span className={`w-1.5 h-1.5 rounded-full ${idx === activeSessionIndex ? 'bg-blue-500 animate-pulse' : 'bg-gray-400'}`}></span>
                       <span>{sess.username} ({sess.server === 'upsdt' ? 'UPSDT' : (sess.server === 'a' ? 'UNEMI P/S' : 'UNEMI Online')})</span>
@@ -1799,9 +1802,12 @@ export default function App() {
               </div>
             ) : (
               <span className="hidden md:flex items-center space-x-1 text-xs text-gray-400 bg-gray-50 border border-gray-100 px-3 py-1 rounded-full">
-                Moodle Desconectado
+                {t('nav.disconnected')}
               </span>
             )}
+
+            {/* Language Switcher */}
+            <LanguageToggle />
 
             {/* Notification Bell Icon & dropdown */}
             <div className="relative">
@@ -1816,7 +1822,7 @@ export default function App() {
                 }}
                 className="relative p-2 text-gray-600 hover:text-blue-600 bg-gray-50 hover:bg-blue-100/50 rounded-xl transition-all border border-gray-100 cursor-pointer flex items-center justify-center focus:outline-hidden"
                 id="bell-icon-btn"
-                title="Notificaciones de cambios"
+                title={t('nav.notifications')}
               >
                 <Bell className={`w-4.5 h-4.5 ${notifications.some(n => !n.read) ? 'text-blue-600' : 'text-gray-500'}`} />
                 {notifications.some(n => !n.read) && (
@@ -1843,7 +1849,7 @@ export default function App() {
                   <div className="p-3 bg-gray-50/80 border-b border-gray-100 flex items-center justify-between">
                     <div className="flex items-center space-x-1.5">
                       <span className="p-1 px-1.5 bg-blue-100 text-blue-700 rounded-sm font-bold text-[9px] uppercase tracking-wider">Moodle</span>
-                      <h4 className="text-xs font-extrabold text-gray-800">Alertas de Actividades</h4>
+                      <h4 className="text-xs font-extrabold text-gray-800">{t('nav.activityAlerts')}</h4>
                     </div>
                     <div className="flex items-center space-x-2">
                       {notifications.some(n => !n.read) && (
@@ -1851,7 +1857,7 @@ export default function App() {
                           onClick={(e) => { e.stopPropagation(); markAllNotificationsRead(); }}
                           className="text-[9px] text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer whitespace-nowrap"
                         >
-                          Marcar leídas
+                          {t('nav.markRead')}
                         </button>
                       )}
                       {notifications.length > 0 && (
@@ -1859,7 +1865,7 @@ export default function App() {
                           onClick={(e) => { e.stopPropagation(); clearAllNotifications(); }}
                           className="text-[9px] text-gray-400 hover:text-rose-600 font-bold hover:underline cursor-pointer whitespace-nowrap"
                         >
-                          Limpiar
+                          {t('nav.clear')}
                         </button>
                       )}
                     </div>
@@ -1867,10 +1873,10 @@ export default function App() {
 
                   {('Notification' in window) && (
                     <div className="p-2.5 bg-blue-50/70 border-b border-blue-100 flex items-center justify-between text-[11px] text-blue-800 font-bold px-3">
-                      <span>🔔 Notificaciones integradas</span>
+                      <span>{t('nav.integratedNotifications')}</span>
                       {Notification.permission === 'granted' ? (
                         <span className="text-[10px] text-emerald-600 bg-emerald-100/50 px-2 py-0.5 rounded-full font-extrabold select-none">
-                          Activadas
+                          {t('nav.notificationsEnabled')}
                         </span>
                       ) : (
                         <button
@@ -1879,15 +1885,15 @@ export default function App() {
                             e.stopPropagation();
                             const granted = await requestNotificationPermission();
                             if (granted) {
-                              alert('¡Notificaciones del navegador activadas!');
+                              alert(t('nav.notifBrowserGranted'));
                             } else {
-                              alert('Por favor, habilita las notificaciones en el candado de la URL de tu navegador.');
+                              alert(t('nav.notifBrowserPrompt'));
                             }
                             setTimeTick(t => t + 1);
                           }}
                           className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-[10px] font-bold shadow-xs cursor-pointer select-none whitespace-nowrap transition-all"
                         >
-                          Habilitar
+                          {t('nav.notificationsEnableBtn')}
                         </button>
                       )}
                     </div>
@@ -1900,8 +1906,8 @@ export default function App() {
                         <div className="mx-auto w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center">
                           <BellOff className="w-4 h-4 text-gray-400" />
                         </div>
-                        <p className="text-[11px] text-gray-500 font-bold">¡Sin notificaciones!</p>
-                        <p className="text-[10px] text-gray-400 leading-normal">Aquí se anunciarán los cambios en tus materias cada vez que sincronices.</p>
+                        <p className="text-[11px] text-gray-500 font-bold">{t('nav.noNotifications')}</p>
+                        <p className="text-[10px] text-gray-400 leading-normal">{t('nav.noNotificationsDesc')}</p>
                       </div>
                     ) : (
                       notifications.map((notif) => {
@@ -1966,7 +1972,7 @@ export default function App() {
                     )}
                   </div>
                   <div className="p-2 border-t border-gray-100 bg-gray-50 text-center">
-                    <p className="text-[9px] text-gray-400 font-semibold">Alertas Inteligentes Moodle</p>
+                    <p className="text-[9px] text-gray-400 font-semibold">{t('nav.smartAlerts')}</p>
                   </div>
                 </div>
                 </>
@@ -1993,7 +1999,7 @@ export default function App() {
               }`}
             >
               <Calendar className="w-4 h-4 shrink-0" />
-              <span>Mi Agenda</span>
+              <span>{t('tab.agenda')}</span>
               <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
                 activeTab === "agenda" ? "bg-blue-50 text-blue-700" : "bg-slate-200/60 text-slate-600"
               }`}>
@@ -2017,7 +2023,7 @@ export default function App() {
               }`}
             >
               <BookOpen className="w-4 h-4 shrink-0" />
-              <span>Explorar Moodle</span>
+              <span>{t('tab.browser')}</span>
             </button>
 
             <button
@@ -2033,7 +2039,7 @@ export default function App() {
               } ${isShaking ? "animate-shake" : ""}`}
             >
               <Lock className="w-4 h-4 shrink-0" />
-              <span>Conexiones</span>
+              <span>{t('tab.connections')}</span>
               {sessions.length > 0 ? (
                 <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.2 rounded-full font-bold">
                   {sessions.length}
@@ -2053,7 +2059,7 @@ export default function App() {
               }`}
             >
               <BarChart3 className="w-4 h-4 shrink-0" />
-              <span>Estadísticas</span>
+              <span>{t('tab.stats')}</span>
             </button>
 
             <button
@@ -2066,7 +2072,7 @@ export default function App() {
               }`}
             >
               <Terminal className="w-4 h-4 shrink-0" />
-              <span>Sandbox</span>
+              <span>{t('tab.sandbox')}</span>
             </button>
           </div>
 
@@ -2075,9 +2081,9 @@ export default function App() {
               type="button"
               onClick={() => setIsNewTaskModalOpen(true)}
               className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-2xs cursor-pointer"
-              title="Crear nueva actividad manual"
+              title={t('tab.newTaskTitle')}
             >
-              <span>+ Nueva Tarea</span>
+              <span>{t('tab.newTask')}</span>
             </button>
           </div>
         </div>
@@ -2154,7 +2160,7 @@ export default function App() {
               {/* Elegant accounts / active browsers tab list */}
               <div id="moodle-browser-tabs" className="flex flex-wrap items-center bg-gray-100/70 p-2 rounded-2xl gap-2 border border-gray-200/50 shadow-3xs">
                 <span className="text-[10px] uppercase font-bold text-gray-500 px-2 tracking-wider">
-                  Navegadores Activos:
+                  {t('browser.activeBrowsers')}
                 </span>
                 {sessions.map((sess, idx) => (
                   <button
@@ -2180,10 +2186,10 @@ export default function App() {
                     setActiveTab('login');
                   }}
                   className="flex items-center space-x-1 py-1.5 px-3 rounded-xl text-xs font-bold border border-dashed border-gray-300 bg-white text-gray-500 hover:text-blue-600 hover:border-blue-600 cursor-pointer transition-all duration-150"
-                  title="Conectar otra cuenta en un navegador nuevo"
+                  title={t('browser.newAccountTitle')}
                 >
                   <span className="font-semibold text-xs">+</span>
-                  <span>Nueva Cuenta</span>
+                  <span>{t('browser.newAccount')}</span>
                 </button>
               </div>
 
@@ -2356,24 +2362,24 @@ export default function App() {
                       <div className="p-2 bg-blue-500/20 text-blue-300 rounded-xl">
                         <Terminal className="w-5 h-5" />
                       </div>
-                      <h2 className="text-lg font-bold tracking-tight">Developer Sandbox & Tracker Logs</h2>
+                      <h2 className="text-lg font-bold tracking-tight">{t('dev.title')}</h2>
                     </div>
                     <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-                      Explora Moodle interactivamente a través de nuestro proxy de seguridad. Todas tus interacciones (clicks en botones, enlaces, y metadatos de archivos que cargues) se registrarán en tiempo real en la consola de eventos para su análisis técnico.
+                      {t('dev.desc')}
                     </p>
                   </div>
                   <div className="flex items-center space-x-3.5">
                     <button
                       onClick={() => {
-                        if (confirm('¿Estás seguro de que deseas limpiar el historial de logs de eventos?')) {
+                        if (confirm(t('dev.clearConfirm'))) {
                           setDevLogs([]);
                         }
                       }}
                       className="flex items-center space-x-2 text-xs font-semibold bg-white/10 hover:bg-white/20 text-white rounded-xl py-2 px-4 border border-white/15 hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer"
-                      title="Borrar todos los eventos registrados"
+                      title={t('dev.clearTooltip')}
                     >
                       <Trash2 className="w-4 h-4 text-rose-300" />
-                      <span>Limpiar Logs</span>
+                      <span>{t('dev.clearBtn')}</span>
                     </button>
                   </div>
                 </div>
@@ -2384,15 +2390,15 @@ export default function App() {
                   <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
                     <Lock className="w-8 h-8" />
                   </div>
-                  <h3 className="text-sm font-bold text-gray-800 mb-1">Sin Conexiones Activas de Moodle</h3>
+                  <h3 className="text-sm font-bold text-gray-800 mb-1">{t('dev.noConnectionsTitle')}</h3>
                   <p className="text-xs text-gray-400 max-w-sm mx-auto mb-6">
-                    Esta sección requiere un navegador de Moodle conectado. Ve a la sección de Conexión de Moodle para iniciar sesión con tus credenciales.
+                    {t('dev.noConnectionsDesc')}
                   </p>
                   <button
                     onClick={() => setActiveTab('login')}
                     className="inline-flex items-center space-x-2 text-xs font-bold bg-blue-600 text-white rounded-xl py-2.5 px-6 hover:bg-blue-700 transition"
                   >
-                    <span>Conectar Moodle Ahora</span>
+                    <span>{t('dev.connectNowBtn')}</span>
                   </button>
                 </div>
               ) : (
@@ -2407,7 +2413,7 @@ export default function App() {
                       <div className="flex flex-wrap items-center justify-between gap-2.5">
                         <div className="flex items-center space-x-2.5 min-w-0">
                           <label className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">
-                            Sesión Activa:
+                            {t('dev.activeSessionLabel')}
                           </label>
                           <select
                             value={devSessionIndex}
@@ -2417,7 +2423,7 @@ export default function App() {
                               const sess = sessions[idx];
                               if (sess) {
                                 const base = sess.server === 'upsdt'
-                                  ? 'https://aulas.upsdt.edu.ec'
+                                   ? 'https://aulas.upsdt.edu.ec'
                                   : (sess.server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
                                 setDevBrowserUrl(`${base}/my/`);
                                 setDevIframeKey(k => k + 1); // reload iframe
@@ -2446,14 +2452,14 @@ export default function App() {
                               }
                             }}
                             className="bg-white hover:bg-gray-100 text-gray-500 border border-gray-200 hover:text-gray-800 p-2 rounded-xl transition cursor-pointer"
-                            title="Ir al home dashboard (/my/)"
+                            title={t('dev.homeDashboardTooltip')}
                           >
                             <Globe className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={() => setDevIframeKey(k => k + 1)}
                             className="bg-white hover:bg-gray-100 text-gray-500 border border-gray-200 hover:text-gray-800 p-2 rounded-xl transition cursor-pointer"
-                            title="Recargar página"
+                            title={t('dev.reloadTooltip')}
                           >
                             <RefreshCw className="w-3.5 h-3.5" />
                           </button>
@@ -2463,7 +2469,7 @@ export default function App() {
                       {/* URL input field */}
                       <div className="flex items-center bg-white border border-gray-200 rounded-xl p-1.5 shadow-3xs min-w-0">
                         <span className="p-1 px-2.5 text-[10px] font-bold text-gray-400 font-mono bg-gray-50 rounded-lg select-none shrink-0 mr-2">
-                          PROXY HTTP
+                          {t('dev.proxyLabel')}
                         </span>
                         <input
                           type="text"
@@ -2481,7 +2487,7 @@ export default function App() {
                           onClick={() => setDevIframeKey(k => k + 1)}
                           className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] rounded-lg px-3 py-1.5 cursor-pointer"
                         >
-                          Ir
+                          {t('dev.goBtn')}
                         </button>
                       </div>
 
@@ -2498,7 +2504,7 @@ export default function App() {
                         />
                       ) : (
                         <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-gray-400">
-                          <p className="text-xs">Cargando navegador proxy de Moodle...</p>
+                          <p className="text-xs">{t('dev.loadingProxy')}</p>
                         </div>
                       )}
                     </div>
@@ -2512,24 +2518,24 @@ export default function App() {
                     <div className="p-4 bg-gray-50/70 border-b border-gray-200/60 flex items-center justify-between">
                       <div className="flex items-center space-x-2">
                         <div className="w-2.5 h-2.5 bg-emerald-500 animate-pulse rounded-full" />
-                        <h3 className="text-xs font-extrabold uppercase tracking-widest text-gray-500">Log de Eventos Detectados</h3>
+                        <h3 className="text-xs font-extrabold uppercase tracking-widest text-gray-500">{t('dev.eventLogsTitle')}</h3>
                       </div>
                       <span className="text-[10px] font-mono font-extrabold bg-blue-50 text-blue-600 border border-blue-100 px-2 py-0.5 rounded-lg shrink-0">
-                        {devLogs.length} eventos
+                        {t('dev.eventsCount', { count: devLogs.length })}
                       </span>
                     </div>
 
                     {/* Filters & Actions */}
                     <div className="p-3 bg-white/70 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-[10px] text-gray-400 font-medium">Interacciones del usuario registradas:</p>
+                      <p className="text-[10px] text-gray-400 font-medium">{t('dev.userInteractionsDesc')}</p>
                       <button
                         onClick={() => {
                           navigator.clipboard.writeText(JSON.stringify(devLogs, null, 2));
-                          alert('Logs copiados al portapapeles con éxito.');
+                          alert(t('dev.copiedSuccess'));
                         }}
                         className="text-[10px] font-bold text-gray-650 hover:bg-gray-100 px-2.5 py-1 rounded-lg border border-gray-200 shrink-0 transition cursor-pointer"
                       >
-                        Copiar JSON
+                        {t('dev.copyJson')}
                       </button>
                     </div>
 
@@ -2538,8 +2544,8 @@ export default function App() {
                       {devLogs.length === 0 ? (
                         <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-500">
                           <Cpu className="w-10 h-10 mb-2 opacity-30 animate-pulse text-gray-400" />
-                          <p className="text-[11px] font-medium font-sans">Esperando interacciones en el navegador...</p>
-                          <p className="text-[10px] font-sans mt-1 max-w-[200px]">Haz click en materias, botones u opte por subir archivos para ver el log en vivo.</p>
+                          <p className="text-[11px] font-medium font-sans">{t('dev.waitingInteractions')}</p>
+                          <p className="text-[10px] font-sans mt-1 max-w-[200px]">{t('dev.waitingInteractionsDesc')}</p>
                         </div>
                       ) : (
                         devLogs.map((log) => {
@@ -2553,7 +2559,7 @@ export default function App() {
                                   <span className="text-sky-400 font-bold">[PAGE_LOAD]</span>
                                   <span className="text-slate-500 text-[9px]">{timeStr}</span>
                                 </div>
-                                <p className="font-bold text-slate-100 font-sans">{log.data.title || '(Sin título)'}</p>
+                                <p className="font-bold text-slate-100 font-sans">{log.data.title || t('dev.untitled')}</p>
                                 <p className="text-[10px] text-slate-400 truncate select-all">{log.data.url}</p>
                               </div>
                             );
@@ -2567,25 +2573,25 @@ export default function App() {
                                   <span className="text-slate-500 text-[9px]">{timeStr}</span>
                                 </div>
                                 <div className="grid grid-cols-4 gap-x-1 gap-y-0.5 text-[10px] leading-relaxed">
-                                  <span className="text-slate-500 font-bold">Elemento:</span>
+                                  <span className="text-slate-500 font-bold">{t('dev.element')}</span>
                                   <span className="col-span-3 text-slate-100 font-bold">
                                     &lt;{log.data.tag}&gt; {log.data.text}
                                   </span>
                                   {log.data.id && (
                                     <>
-                                      <span className="text-slate-500">ID:</span>
+                                      <span className="text-slate-500">{t('dev.id')}</span>
                                       <span className="col-span-3 text-yellow-200">{log.data.id}</span>
                                     </>
                                   )}
                                   {log.data.className && (
                                     <>
-                                      <span className="text-slate-500">Clase:</span>
+                                      <span className="text-slate-500">{t('dev.class')}</span>
                                       <span className="col-span-3 text-slate-400 truncate">{log.data.className}</span>
                                     </>
                                   )}
                                   {log.data.href && (
                                     <>
-                                      <span className="text-slate-500">Href:</span>
+                                      <span className="text-slate-500">{t('dev.href')}</span>
                                       <span className="col-span-3 text-blue-400 truncate select-all">{log.data.href}</span>
                                     </>
                                   )}
@@ -2605,7 +2611,7 @@ export default function App() {
                                   <span className="text-slate-500 text-[9px]">{timeStr}</span>
                                 </div>
                                 <p className="text-[10px] text-slate-400">
-                                  Campo: <span className="font-bold text-slate-300 font-mono">{log.data.inputName}</span>
+                                  {t('dev.field')} <span className="font-bold text-slate-300 font-mono">{log.data.inputName}</span>
                                 </p>
                                 <div className="space-y-1">
                                   {log.data.files && log.data.files.map((file: any, fIdx: number) => {
@@ -2614,8 +2620,8 @@ export default function App() {
                                       <div key={fIdx} className="bg-emerald-950/20 border border-emerald-800/40 p-2 rounded-lg space-y-0.5">
                                         <p className="text-emerald-300 font-bold break-all font-sans">{file.name}</p>
                                         <div className="flex items-center justify-between text-[9px] text-emerald-400/80 font-mono">
-                                          <span>Tamaño: {sizeMb}</span>
-                                          <span>Tipo: {file.type}</span>
+                                          <span>{t('dev.size')} {sizeMb}</span>
+                                          <span>{t('dev.type')} {file.type}</span>
                                         </div>
                                       </div>
                                     );

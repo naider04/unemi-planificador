@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Calendar, BookOpen, Tag, PlusCircle, AlignLeft } from 'lucide-react';
 import { TodoTask, Course } from '../types';
+import { useLanguage } from '../context/LanguageContext';
 
 interface NewTaskModalProps {
   courses: Course[];
@@ -10,6 +11,7 @@ interface NewTaskModalProps {
 }
 
 export default function NewTaskModal({ courses, isOpen, onClose, onSaveTask }: NewTaskModalProps) {
+  const { t } = useLanguage();
   const [title, setTitle] = useState('');
   const [courseId, setCourseId] = useState('manual');
   const [customCourseName, setCustomCourseName] = useState('');
@@ -22,7 +24,7 @@ export default function NewTaskModal({ courses, isOpen, onClose, onSaveTask }: N
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title) {
-      alert('Por favor, ingresa el título de la actividad.');
+      alert(t('modal.enterTitleAlert'));
       return;
     }
 
@@ -74,12 +76,12 @@ export default function NewTaskModal({ courses, isOpen, onClose, onSaveTask }: N
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50">
           <div className="flex items-center space-x-2">
             <PlusCircle className="text-blue-600 w-5 h-5" />
-            <h3 className="text-sm font-bold text-gray-900">Programar Nueva Actividad</h3>
+            <h3 className="text-sm font-bold text-gray-900">{t('modal.newTaskTitle')}</h3>
           </div>
           <button 
             id="close-modal-btn"
             onClick={onClose} 
-            className="p-1 hover:bg-gray-150 rounded-lg text-gray-400 hover:text-gray-900 transition-colors"
+            className="p-1 hover:bg-gray-150 rounded-lg text-gray-400 hover:text-gray-900 transition-colors cursor-pointer"
           >
             <X className="w-4.5 h-4.5" />
           </button>
@@ -89,14 +91,14 @@ export default function NewTaskModal({ courses, isOpen, onClose, onSaveTask }: N
         <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto flex-1">
           {/* Title */}
           <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">Título de la Actividad *</label>
+            <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">{t('modal.activityTitle')}</label>
             <input
               id="new-task-title"
               type="text"
               required
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="ej. Resolver cuestionario de Práctica 1"
+              placeholder={t('modal.activityTitlePlaceholder')}
               className="text-xs w-full px-3.5 py-2.5 border border-gray-200 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
@@ -104,7 +106,7 @@ export default function NewTaskModal({ courses, isOpen, onClose, onSaveTask }: N
           {/* Sourcing Category */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">Tipo Actividad</label>
+              <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">{t('modal.activityType')}</label>
               <div className="relative">
                 <Tag className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
                 <select
@@ -113,17 +115,17 @@ export default function NewTaskModal({ courses, isOpen, onClose, onSaveTask }: N
                   onChange={(e: any) => setType(e.target.value)}
                   className="text-xs w-full pl-9 pr-3 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                 >
-                  <option value="MANUAL">⚙️ Actividad Manual</option>
-                  <option value="TAREA">📝 Tarea Académica</option>
-                  <option value="CUESTIONARIO">📋 Cuestionario / Examen</option>
-                  <option value="ACTIVIDAD">📚 General</option>
+                  <option value="MANUAL">{t('modal.typeManual')}</option>
+                  <option value="TAREA">{t('modal.typeTask')}</option>
+                  <option value="CUESTIONARIO">{t('modal.typeQuiz')}</option>
+                  <option value="ACTIVIDAD">{t('modal.typeActivity')}</option>
                 </select>
               </div>
             </div>
 
             {/* Closing Deadline Date */}
             <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">Cierre (Fecha & Hora)</label>
+              <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">{t('modal.deadline')}</label>
               <div className="relative">
                 <Calendar className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
                 <input
@@ -140,7 +142,7 @@ export default function NewTaskModal({ courses, isOpen, onClose, onSaveTask }: N
           {/* Context Course Association */}
           <div className="space-y-3">
             <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">Asociar Materia</label>
+              <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">{t('modal.associateCourse')}</label>
               <div className="relative">
                 <BookOpen className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
                 <select
@@ -149,7 +151,7 @@ export default function NewTaskModal({ courses, isOpen, onClose, onSaveTask }: N
                   onChange={(e) => setCourseId(e.target.value)}
                   className="text-xs w-full pl-9 pr-3 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                 >
-                  <option value="manual">Materia Personalizada / Ninguna</option>
+                  <option value="manual">{t('modal.customCourseNone')}</option>
                   {courses.map(course => (
                     <option key={course.id} value={course.id}>{course.text}</option>
                   ))}
@@ -159,13 +161,13 @@ export default function NewTaskModal({ courses, isOpen, onClose, onSaveTask }: N
 
             {courseId === 'manual' && (
               <div className="animate-fade-in">
-                <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wider">Nombre Materia Personalizada</label>
+                <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wider">{t('modal.customCourseName')}</label>
                 <input
                   id="new-task-custom-course"
                   type="text"
                   value={customCourseName}
                   onChange={(e) => setCustomCourseName(e.target.value)}
-                  placeholder="ej. Algebra Lineal o Investigaciones Libres"
+                  placeholder={t('modal.customCoursePlaceholder')}
                   className="text-xs w-full px-3.5 py-2.5 border border-gray-200 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
@@ -174,7 +176,7 @@ export default function NewTaskModal({ courses, isOpen, onClose, onSaveTask }: N
 
           {/* Helper notes / descriptor */}
           <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">Detalles / Anotaciones</label>
+            <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">{t('modal.notes')}</label>
             <div className="relative">
               <AlignLeft className="absolute left-3 top-3.5 w-4 h-4 text-gray-400" />
               <textarea
@@ -182,7 +184,7 @@ export default function NewTaskModal({ courses, isOpen, onClose, onSaveTask }: N
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
-                placeholder="Apunta guías de estudio, temas de examen, compañeros de grupo..."
+                placeholder={t('modal.notesPlaceholder')}
                 className="text-xs w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
@@ -194,16 +196,16 @@ export default function NewTaskModal({ courses, isOpen, onClose, onSaveTask }: N
               id="cancel-modal-btn"
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-gray-900 bg-gray-50 hover:bg-gray-100 rounded-xl transition-all"
+              className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-gray-900 bg-gray-50 hover:bg-gray-100 rounded-xl transition-all cursor-pointer"
             >
-              Cancelar
+              {t('modal.cancel')}
             </button>
             <button
               id="save-task-btn"
               type="submit"
-              className="px-6 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-all"
+              className="px-6 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-all cursor-pointer"
             >
-              Guardar Actividad
+              {t('modal.save')}
             </button>
           </div>
         </form>
@@ -211,3 +213,4 @@ export default function NewTaskModal({ courses, isOpen, onClose, onSaveTask }: N
     </div>
   );
 }
+

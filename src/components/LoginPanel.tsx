@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Key, User, Server, AlertCircle, CheckCircle, RefreshCw } from 'lucide-react';
 import { MoodleSession } from '../types';
+import { useLanguage } from '../context/LanguageContext';
 
 interface LoginPanelProps {
   onLoginSuccess: (session: MoodleSession) => void;
@@ -11,27 +12,6 @@ interface LoginPanelProps {
   loginErrorMessage?: string | null;
 }
 
-const platformOptions = [
-  {
-    id: 'a' as const,
-    name: 'UNEMI presencial/semipresencial',
-    logo: '/aula-unemi.png',
-    sub: 'aulagradoa.unemi.edu.ec'
-  },
-  {
-    id: 'b' as const,
-    name: 'UNEMI online',
-    logo: '/aula-unemi.png',
-    sub: 'aulagradob.unemi.edu.ec'
-  },
-  {
-    id: 'upsdt' as const,
-    name: 'UPSDT',
-    logo: '/aula-upsdt.png',
-    sub: 'aulas.upsdt.edu.ec'
-  }
-];
-
 export default function LoginPanel({ 
   onLoginSuccess, 
   activeSession, 
@@ -40,12 +20,37 @@ export default function LoginPanel({
   prefillServer = 'a',
   loginErrorMessage = null
 }: LoginPanelProps) {
+  const { t } = useLanguage();
   const [username, setUsername] = useState(prefillUsername);
   const [password, setPassword] = useState('');
   const [server, setServer] = useState<'a' | 'b' | 'upsdt'>(prefillServer);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(loginErrorMessage);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const platformOptions = [
+    {
+      id: 'a' as const,
+      name: t('login.unemiPS'),
+      shortName: 'UNEMI P/S',
+      logo: '/aula-unemi.png',
+      sub: 'aulagradoa.unemi.edu.ec'
+    },
+    {
+      id: 'b' as const,
+      name: t('login.unemiOnline'),
+      shortName: 'UNEMI Online',
+      logo: '/aula-unemi.png',
+      sub: 'aulagradob.unemi.edu.ec'
+    },
+    {
+      id: 'upsdt' as const,
+      name: t('login.upsdt'),
+      shortName: 'UPSDT',
+      logo: '/aula-upsdt.png',
+      sub: 'aulas.upsdt.edu.ec'
+    }
+  ];
 
   useEffect(() => {
     if (prefillUsername) {
@@ -74,7 +79,7 @@ export default function LoginPanel({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !password) {
-      setError('Por favor, ingresa tu usuario y contraseña.');
+      setError(t('login.enterCredentials'));
       return;
     }
 
@@ -98,14 +103,14 @@ export default function LoginPanel({
           cookies: data.moodleSession
         };
         onLoginSuccess(sessionObj);
-        setSuccessMsg('¡Conexión establecida con éxito!');
+        setSuccessMsg(t('login.connectedSuccess'));
         setUsername('');
         setPassword('');
       } else {
-        setError(data.error || 'La autenticación falló. Revisa tus credenciales.');
+        setError(data.error || t('login.authFailed'));
       }
     } catch (err: any) {
-      setError('Error al conectar con el servidor. Revisa tu conexión de red o vuelve a intentarlo.');
+      setError(t('login.networkError'));
     } finally {
       setLoading(false);
     }
@@ -121,9 +126,9 @@ export default function LoginPanel({
               <CheckCircle className="w-6 h-6" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-gray-900">Moodle Conectado</h2>
+              <h2 className="text-base font-semibold text-gray-900">{t('login.connected')}</h2>
               <p className="text-xs text-gray-500 mt-0.5">
-                Usuario: <span className="font-mono text-gray-700">{activeSession.username}</span>
+                {t('login.user')} <span className="font-mono text-gray-700">{activeSession.username}</span>
               </p>
               <div className="flex items-center space-x-1.5 mt-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -136,9 +141,9 @@ export default function LoginPanel({
           <button
             id="btn-logout"
             onClick={onLogout}
-            className="text-xs font-medium text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100/70 px-3 py-1.5 rounded-lg transition-colors duration-150"
+            className="text-xs font-medium text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100/70 px-3 py-1.5 rounded-lg transition-colors duration-150 cursor-pointer"
           >
-            Desconectar
+            {t('login.disconnect')}
           </button>
         </div>
       </div>
@@ -152,8 +157,8 @@ export default function LoginPanel({
           <Shield className="w-5 h-5" />
         </div>
         <div>
-          <h2 className="text-sm sm:text-base font-bold text-gray-900">Conectar Aula Virtual</h2>
-          <p className="hidden sm:block text-[10px] sm:text-xs text-gray-500">Accede de forma segura para sincronizar tus fechas y tareas.</p>
+          <h2 className="text-sm sm:text-base font-bold text-gray-900">{t('login.connectTitle')}</h2>
+          <p className="hidden sm:block text-[10px] sm:text-xs text-gray-500">{t('login.connectSubtitle')}</p>
         </div>
       </div>
 
@@ -174,7 +179,7 @@ export default function LoginPanel({
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Server selection */}
         <div>
-          <label className="block text-[10px] sm:text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wider">Aula Virtual / Institución</label>
+          <label className="block text-[10px] sm:text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wider">{t('login.institution')}</label>
           <div className="grid grid-cols-3 sm:grid-cols-1 gap-2">
             {platformOptions.map((opt) => (
               <button
@@ -198,7 +203,7 @@ export default function LoginPanel({
                 </div>
                 <div className="flex-1 min-w-0">
                   <span className="font-bold block text-gray-950 truncate text-[10px] sm:text-xs">
-                    <span className="sm:hidden">{opt.id === 'a' ? 'UNEMI P/S' : opt.id === 'b' ? 'UNEMI Online' : 'UPSDT'}</span>
+                    <span className="sm:hidden">{opt.shortName}</span>
                     <span className="hidden sm:inline">{opt.name}</span>
                   </span>
                   <span className="hidden sm:block text-[10px] text-gray-400 font-mono mt-0.5">
@@ -212,7 +217,7 @@ export default function LoginPanel({
 
         {/* Username */}
         <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wider">Usuario / Correo</label>
+          <label className="block text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wider">{t('login.username')}</label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
               <User className="w-4 h-4" />
@@ -223,7 +228,7 @@ export default function LoginPanel({
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="ej. mi_usuario"
+              placeholder={t('login.usernamePlaceholder')}
               disabled={loading}
               className="block w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-xs placeholder-gray-400 focus:outline-hidden focus:ring-2 focus:ring-blue-100 focus:border-blue-500 disabled:opacity-50"
             />
@@ -232,7 +237,7 @@ export default function LoginPanel({
 
         {/* Password */}
         <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wider">Contraseña</label>
+          <label className="block text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wider">{t('login.password')}</label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
               <Key className="w-4 h-4" />
@@ -243,7 +248,7 @@ export default function LoginPanel({
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••••••"
+              placeholder={t('login.passwordPlaceholder')}
               disabled={loading}
               className="block w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-xs placeholder-gray-400 focus:outline-hidden focus:ring-2 focus:ring-blue-100 focus:border-blue-500 disabled:opacity-50"
             />
@@ -254,18 +259,19 @@ export default function LoginPanel({
           id="btn-submit-login"
           type="submit"
           disabled={loading}
-          className="w-full flex items-center justify-center space-x-2 py-3 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-400 text-white font-medium text-xs rounded-xl transition-all shadow-sm focus:outline-hidden"
+          className="w-full flex items-center justify-center space-x-2 py-3 bg-gray-900 hover:bg-gray-800 disabled:bg-gray-400 text-white font-medium text-xs rounded-xl transition-all shadow-sm focus:outline-hidden cursor-pointer"
         >
           {loading ? (
             <>
               <RefreshCw className="w-4 h-4 animate-spin" />
-              <span>Conectando con Moodle...</span>
+              <span>{t('login.connectingBtn')}</span>
             </>
           ) : (
-            <span>Conectar Cuenta</span>
+            <span>{t('login.connectBtn')}</span>
           )}
         </button>
       </form>
     </div>
   );
 }
+
