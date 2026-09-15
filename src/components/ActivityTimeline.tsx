@@ -11,9 +11,7 @@ interface ActivityTimelineProps {
   tasks: TodoTask[];
   onToggleComplete: (id: string) => void;
   onDeleteTask: (id: string) => void;
-  onOpenNewTaskModal: () => void;
-  onNavigateToMoodleActivity?: (courseId: string, activityUrl: string) => void;
-  onClearAgenda?: () => void;
+  onOpenNewTaskModal?: () => void;
   navigationTrigger?: string | null;
   onClearNavigationTrigger?: () => void;
   onRefreshSingleTask?: (id: string) => void;
@@ -31,8 +29,6 @@ export default function ActivityTimeline({
   onToggleComplete, 
   onDeleteTask, 
   onOpenNewTaskModal,
-  onNavigateToMoodleActivity,
-  onClearAgenda,
   navigationTrigger,
   onClearNavigationTrigger,
   onRefreshSingleTask,
@@ -689,20 +685,6 @@ export default function ActivityTimeline({
               </button>
             )}
 
-            {task.type !== 'MANUAL' && onNavigateToMoodleActivity && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onNavigateToMoodleActivity(task.courseId || '', task.activityUrl || '');
-                }}
-                className="text-[10px] font-medium text-slate-400 hover:text-blue-600 p-1 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
-                title={language === 'es' ? 'Abrir en Moodle interno' : 'Open in internal Moodle'}
-              >
-                <Terminal className="w-3 h-3" />
-              </button>
-            )}
-
             {onDeleteTask && task.type === 'MANUAL' && (
               <button
                 type="button"
@@ -764,41 +746,6 @@ export default function ActivityTimeline({
             >
               <Info className="w-3.5 h-3.5" />
               <span>{language === 'es' ? 'Leyenda' : 'Legend'}</span>
-            </button>
-
-            {/* Clear agenda button with confirmation */}
-            {onClearAgenda && tasks.length > 0 && (
-              <button
-                id="btn-clear-agenda"
-                onClick={() => {
-                  if (confirmClear) {
-                    onClearAgenda();
-                    setConfirmClear(false);
-                  } else {
-                    setConfirmClear(true);
-                    setTimeout(() => setConfirmClear(false), 5000);
-                  }
-                }}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer border ${
-                  confirmClear
-                    ? 'bg-rose-600 text-white border-rose-600 animate-pulse'
-                    : 'bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-100'
-                }`}
-                title={confirmClear ? (language === 'es' ? 'Haz clic de nuevo para vaciar' : 'Click again to clear') : (language === 'es' ? 'Vaciar la agenda' : 'Clear agenda')}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>{confirmClear ? (language === 'es' ? '¿Confirmar?' : 'Confirm?') : (language === 'es' ? 'Vaciar' : 'Clear')}</span>
-              </button>
-            )}
-
-            {/* New Task button */}
-            <button
-              id="btn-add-manual-task"
-              onClick={onOpenNewTaskModal}
-              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-2xs flex items-center space-x-1.5 transition-colors cursor-pointer"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>{t('tab.newTask')}</span>
             </button>
           </div>
         </div>
@@ -929,7 +876,7 @@ export default function ActivityTimeline({
               }`}
             >
               <EyeOff className="w-3.5 h-3.5" />
-              <span>{showCompleted ? (language === 'es' ? 'Ocultar hechas' : 'Hide completed') : (language === 'es' ? 'Ver hechas' : 'Show completed')}</span>
+              <span>{showCompleted ? (language === 'es' ? 'Ocultar Hechas' : 'Hide Completed') : (language === 'es' ? 'Ver Hechas' : 'Show Completed')}</span>
             </button>
           </div>
         </div>
@@ -1003,7 +950,7 @@ export default function ActivityTimeline({
 
                     <div className="flex items-center space-x-2 text-xs text-slate-400 font-medium">
                       <span>
-                        {language === 'es' ? 'hechas' : 'done'}: {completedInGroup}/{group.tasks.length}
+                        {t('timeline.done')}: {completedInGroup}/{group.tasks.length}
                       </span>
                     </div>
                   </div>

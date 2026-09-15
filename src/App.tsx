@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Calendar, Lock, Award, CheckCircle2, 
   Sparkles, Clock, AlertCircle, Bookmark, CheckSquare, Eye, RefreshCw, Download, BarChart3,
-  Bell, BellOff, Terminal, Cpu, Trash2, ArrowLeft, ArrowRight, ExternalLink, Globe
+  Bell, BellOff, Trash2, ArrowLeft, ArrowRight, ExternalLink
 } from 'lucide-react';
 
 import { MoodleSession, TodoTask, Course, MoodleNotification } from './types';
@@ -64,67 +64,12 @@ export default function App() {
   const [isDbLoaded, setIsDbLoaded] = useState<boolean>(false);
   const [tasks, setTasks] = useState<TodoTask[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
-  const [activeTab, setActiveTab] = useState<'agenda' | 'login' | 'stats' | 'developer'>('agenda');
-
-  // Developer Log State
-  const [devLogs, setDevLogs] = useState<{
-    id: string;
-    timestamp: string;
-    type: string;
-    data: any;
-  }[]>(() => {
-    try {
-      const cached = localStorage.getItem('moodle_dev_logs');
-      return cached ? JSON.parse(cached) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    localStorage.setItem('moodle_dev_logs', JSON.stringify(devLogs));
-  }, [devLogs]);
-
-  // Listener for events sent by the proxied iframe
-  useEffect(() => {
-    const handleMoodleProxyMessage = (e: MessageEvent) => {
-      if (e.data && e.data.source === 'moodle-proxy') {
-        const { type, data, timestamp } = e.data;
-        const newLog = {
-          id: `${Date.now()}-${Math.random()}`,
-          timestamp: timestamp || new Date().toISOString(),
-          type,
-          data
-        };
-        setDevLogs(prev => [newLog, ...prev]);
-      }
-    };
-    window.addEventListener('message', handleMoodleProxyMessage);
-    return () => window.removeEventListener('message', handleMoodleProxyMessage);
-  }, []);
-  // Developer Sandboxed Browser States
-  const [devSessionIndex, setDevSessionIndex] = useState<number>(0);
-  const [devBrowserUrl, setDevBrowserUrl] = useState<string>('');
-  const [devIframeKey, setDevIframeKey] = useState<number>(0);
+  const [activeTab, setActiveTab] = useState<'agenda' | 'login' | 'stats'>('agenda');
 
   // Alert and Loading states for Activity detail fetching/opening
   const [showConnectionsAlert, setShowConnectionsAlert] = useState<boolean>(false);
   const [isShaking, setIsShaking] = useState<boolean>(false);
   const [viewingTaskId, setViewingTaskId] = useState<string | null>(null);
-
-  // Sync state between accounts list changes and developer view
-  useEffect(() => {
-    if (sessions.length > 0) {
-      const activeIdx = devSessionIndex < sessions.length ? devSessionIndex : 0;
-      const sess = sessions[activeIdx];
-      if (sess && !devBrowserUrl) {
-        const base = sess.server === 'upsdt'
-          ? 'https://aulas.upsdt.edu.ec'
-          : (sess.server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
-        setDevBrowserUrl(`${base}/my/`);
-      }
-    }
-  }, [sessions, devSessionIndex]);
 
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
   const [agendaNavigation, setAgendaNavigation] = useState<string | null>(null);
@@ -469,13 +414,49 @@ export default function App() {
     });
   };
 
-  const markAllNotificationsRead = () => {
+  const notifPanelRef = useRef<HTMLDivElement>(null);
+  const notifBtnRef = useRef<HTMLButtonElement>(null);
+
+  const markAllNotificationsRead = useCallback(() => {
     setNotifications(prev => {
       const updated = prev.map(n => ({ ...n, read: true }));
       localStorage.setItem('unemi_notifications', JSON.stringify(updated));
       return updated;
     });
-  };
+  }, []);
+
+  const closeNotifications = useCallback(() => {
+    setIsNotifOpen(false);
+    // Mark seen notifications as read when closing.
+    // When opened next time: if no new notifications arrived, they will be blurred.
+    // If new notifications arrived, only new ones will be unblurred.
+    setNotifications(prev => {
+      const updated = prev.map(n => ({ ...n, read: true }));
+      localStorage.setItem('unemi_notifications', JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isNotifOpen) return;
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node;
+      if (
+        notifPanelRef.current &&
+        !notifPanelRef.current.contains(target) &&
+        notifBtnRef.current &&
+        !notifBtnRef.current.contains(target)
+      ) {
+        closeNotifications();
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside, true);
+    document.addEventListener('touchstart', handleClickOutside, true);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      document.removeEventListener('touchstart', handleClickOutside, true);
+    };
+  }, [isNotifOpen, closeNotifications]);
 
   const clearAllNotifications = () => {
     if (window.confirm('¿Seguro que deseas limpiar todas las notificaciones?')) {
@@ -1737,25 +1718,82 @@ export default function App() {
       {/* Visual background gradient accents */}
       <span className="absolute top-0 left-0 right-0 h-64 bg-linear-to-b from-blue-50/50 to-transparent pointer-events-none" />
 
-      {/* Navigation Top Header */}
-      <nav id="navbar-top-wrapper" className="relative sticky top-0 bg-white/80 backdrop-blur-md border-b border-gray-100 z-40">
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-3.5 flex items-center justify-between">
+      {/* Navigation Top Header - Sticky & Frozen on top */}
+      <header id="navbar-top-wrapper" className="sticky top-0 bg-white/95 backdrop-blur-md border-b border-slate-200/80 z-40 shadow-xs">
+        <div className="max-w-7xl mx-auto px-4 md:px-6 py-2.5 flex items-center justify-between gap-3">
           
           {/* Logo Name */}
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3 shrink-0">
             <div className="p-2 bg-blue-600 rounded-xl text-white shadow-xs">
               <Calendar className="w-5 h-5 stroke-[2.2]" />
             </div>
-            <div>
+            <div className="hidden sm:block">
               <h1 className="text-sm font-bold text-gray-900 leading-tight">{t('nav.title')}</h1>
               <p className="text-[10px] text-gray-400 font-medium">{t('nav.subtitle')}</p>
             </div>
           </div>
 
+          {/* Frozen Tab Navigation Menu */}
+          <div id="tab-controls-root" className="flex items-center space-x-1 sm:space-x-1.5 overflow-x-auto bg-slate-100/90 p-1.5 rounded-2xl border border-slate-200/70">
+            <button
+              id="tab-agenda-btn"
+              onClick={() => setActiveTab("agenda")}
+              className={`px-3 sm:px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
+                activeTab === "agenda"
+                  ? "bg-white text-blue-600 shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
+              }`}
+            >
+              <Calendar className="w-4 h-4 shrink-0" />
+              <span>{t('tab.agenda')}</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                activeTab === "agenda" ? "bg-blue-50 text-blue-700" : "bg-slate-200/60 text-slate-600"
+              }`}>
+                {totalTasks}
+              </span>
+            </button>
+
+            <button
+              id="tab-login-btn"
+              onClick={() => {
+                setActiveTab("login");
+                setShowConnectionsAlert(false);
+              }}
+              className={`px-3 sm:px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
+                activeTab === "login"
+                  ? "bg-white text-blue-600 shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
+              } ${isShaking ? "animate-shake" : ""}`}
+            >
+              <Lock className="w-4 h-4 shrink-0" />
+              <span>{t('tab.connections')}</span>
+              {sessions.length > 0 ? (
+                <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.2 rounded-full font-bold">
+                  {sessions.length}
+                </span>
+              ) : showConnectionsAlert && (
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+              )}
+            </button>
+
+            <button
+              id="tab-stats-btn"
+              onClick={() => setActiveTab("stats")}
+              className={`px-3 sm:px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
+                activeTab === "stats"
+                  ? "bg-white text-blue-600 shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
+              }`}
+            >
+              <BarChart3 className="w-4 h-4 shrink-0" />
+              <span>{t('tab.stats')}</span>
+            </button>
+          </div>
+
           {/* Connection badge status & Notifications bell */}
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
             {sessions.filter(s => !s.expired).length > 0 ? (
-              <div className="hidden md:flex flex-wrap items-center gap-1.5">
+              <div className="hidden xl:flex flex-wrap items-center gap-1.5">
                 {sessions.map((sess, idx) => {
                   if (sess.expired) return null;
                   return (
@@ -1779,7 +1817,7 @@ export default function App() {
                 })}
               </div>
             ) : (
-              <span className="hidden md:flex items-center space-x-1 text-xs text-gray-400 bg-gray-50 border border-gray-100 px-3 py-1 rounded-full">
+              <span className="hidden xl:flex items-center space-x-1 text-xs text-gray-400 bg-gray-50 border border-gray-100 px-3 py-1 rounded-full">
                 {t('nav.disconnected')}
               </span>
             )}
@@ -1791,11 +1829,12 @@ export default function App() {
             <div className="relative">
               <button 
                 type="button"
+                ref={notifBtnRef}
                 onClick={() => {
-                  const nextOpen = !isNotifOpen;
-                  setIsNotifOpen(nextOpen);
-                  if (nextOpen) {
-                    markAllNotificationsRead();
+                  if (isNotifOpen) {
+                    closeNotifications();
+                  } else {
+                    setIsNotifOpen(true);
                   }
                 }}
                 className="relative p-2 text-gray-600 hover:text-blue-600 bg-gray-50 hover:bg-blue-100/50 rounded-xl transition-all border border-gray-100 cursor-pointer flex items-center justify-center focus:outline-hidden"
@@ -1812,17 +1851,12 @@ export default function App() {
 
               {/* Notifications Popover dropdown */}
               {isNotifOpen && (
-                <>
-                  {/* Backdrop to close notifications when clicking outside */}
-                  <div 
-                    className="fixed inset-0 z-40 bg-transparent cursor-default" 
-                    onClick={() => setIsNotifOpen(false)} 
-                  />
-                  <div 
-                    id="notifications-popover-panel"
-                    onClick={(e) => e.stopPropagation()}
-                    className="absolute right-0 mt-2.5 w-80 md:w-96 bg-white border border-gray-150 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-3 duration-200"
-                  >
+                <div 
+                  ref={notifPanelRef}
+                  id="notifications-popover-panel"
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute right-0 mt-2.5 w-80 md:w-96 bg-white border border-gray-150 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-3 duration-200"
+                >
                   {/* Popover Header */}
                   <div className="p-3 bg-gray-50/80 border-b border-gray-100 flex items-center justify-between">
                     <div className="flex items-center space-x-1.5">
@@ -1836,14 +1870,6 @@ export default function App() {
                           className="text-[9px] text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer whitespace-nowrap"
                         >
                           {t('nav.markRead')}
-                        </button>
-                      )}
-                      {notifications.length > 0 && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); clearAllNotifications(); }}
-                          className="text-[9px] text-gray-400 hover:text-rose-600 font-bold hover:underline cursor-pointer whitespace-nowrap"
-                        >
-                          {t('nav.clear')}
                         </button>
                       )}
                     </div>
@@ -1922,7 +1948,7 @@ export default function App() {
                                   setAgendaNavigation(notif.activityUrl);
                                 }, 20);
                                 setActiveTab('agenda');
-                                setIsNotifOpen(false);
+                                closeNotifications();
                               }
                             }}
                             className={`p-3 flex items-start space-x-2.5 cursor-pointer hover:bg-gray-50 transition-all border-l-3 ${borderLeft} ${notif.read ? 'bg-white opacity-60' : bgClass}`}
@@ -1953,99 +1979,15 @@ export default function App() {
                     <p className="text-[9px] text-gray-400 font-semibold">{t('nav.smartAlerts')}</p>
                   </div>
                 </div>
-                </>
               )}
             </div>
           </div>
 
         </div>
-      </nav>
+      </header>
 
       {/* Main Container Grid layout */}
       <main className="max-w-7xl mx-auto px-4 md:px-6 mt-6 relative z-10 space-y-6">
-        
-        {/* Modern Segmented Tab Navigation Controls */}
-        <div id="tab-controls-root" className="flex items-center justify-between gap-2 flex-wrap border-b border-slate-200/80 pb-3">
-          <div className="flex items-center space-x-1 sm:space-x-1.5 overflow-x-auto bg-slate-100/90 p-1.5 rounded-2xl border border-slate-200/70">
-            <button
-              id="tab-agenda-btn"
-              onClick={() => setActiveTab("agenda")}
-              className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
-                activeTab === "agenda"
-                  ? "bg-white text-blue-600 shadow-2xs"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
-              }`}
-            >
-              <Calendar className="w-4 h-4 shrink-0" />
-              <span>{t('tab.agenda')}</span>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                activeTab === "agenda" ? "bg-blue-50 text-blue-700" : "bg-slate-200/60 text-slate-600"
-              }`}>
-                {totalTasks}
-              </span>
-            </button>
-
-            <button
-              id="tab-login-btn"
-              onClick={() => {
-                setActiveTab("login");
-                setShowConnectionsAlert(false);
-              }}
-              className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
-                activeTab === "login"
-                  ? "bg-white text-blue-600 shadow-2xs"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
-              } ${isShaking ? "animate-shake" : ""}`}
-            >
-              <Lock className="w-4 h-4 shrink-0" />
-              <span>{t('tab.connections')}</span>
-              {sessions.length > 0 ? (
-                <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.2 rounded-full font-bold">
-                  {sessions.length}
-                </span>
-              ) : showConnectionsAlert && (
-                <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-              )}
-            </button>
-
-            <button
-              id="tab-stats-btn"
-              onClick={() => setActiveTab("stats")}
-              className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
-                activeTab === "stats"
-                  ? "bg-white text-blue-600 shadow-2xs"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
-              }`}
-            >
-              <BarChart3 className="w-4 h-4 shrink-0" />
-              <span>{t('tab.stats')}</span>
-            </button>
-
-            <button
-              id="tab-developer-btn"
-              onClick={() => setActiveTab("developer")}
-              className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
-                activeTab === "developer"
-                  ? "bg-white text-blue-600 shadow-2xs"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
-              }`}
-            >
-              <Terminal className="w-4 h-4 shrink-0" />
-              <span>{t('tab.sandbox')}</span>
-            </button>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <button
-              type="button"
-              onClick={() => setIsNewTaskModalOpen(true)}
-              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-2xs cursor-pointer"
-              title={t('tab.newTaskTitle')}
-            >
-              <span>{t('tab.newTask')}</span>
-            </button>
-          </div>
-        </div>
 
         {/* Sync & Overview Status Bar (Shown on Agenda or when sync in progress) */}
         {(activeTab === "agenda" || sessions.some(s => {
@@ -2078,22 +2020,6 @@ export default function App() {
               onToggleComplete={onToggleComplete}
               onDeleteTask={onDeleteTask}
               onOpenNewTaskModal={() => setIsNewTaskModalOpen(true)}
-              onNavigateToMoodleActivity={(courseId, activityUrl) => {
-                const matchedTask = tasks.find(t => t.activityUrl === activityUrl);
-                if (matchedTask && matchedTask.moodleUsername && matchedTask.moodleServer) {
-                  const sIdx = sessions.findIndex(
-                    s => s.username.toLowerCase() === matchedTask.moodleUsername?.toLowerCase() && s.server === matchedTask.moodleServer
-                  );
-                  if (sIdx !== -1) {
-                    setActiveSessionIndex(sIdx);
-                    setDevSessionIndex(sIdx);
-                  }
-                }
-                setDevBrowserUrl(activityUrl);
-                setDevIframeKey(k => k + 1);
-                setActiveTab('developer');
-              }}
-              onClearAgenda={onClearAgenda}
               navigationTrigger={agendaNavigation}
               onClearNavigationTrigger={() => setAgendaNavigation(null)}
               onRefreshSingleTask={handleUpdateSingleTask}
@@ -2245,298 +2171,6 @@ export default function App() {
                 setActiveTab('agenda');
               }}
             />
-          )}
-
-          {/* TAB 5: DEVELOPER SANDBOX & TRACKER LOGS */}
-          {activeTab === 'developer' && (
-            <div className="space-y-6">
-              <div className="bg-gradient-to-r from-gray-900 to-slate-800 rounded-3xl p-6 text-white shadow-md">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div>
-                    <div className="flex items-center space-x-2.5">
-                      <div className="p-2 bg-blue-500/20 text-blue-300 rounded-xl">
-                        <Terminal className="w-5 h-5" />
-                      </div>
-                      <h2 className="text-lg font-bold tracking-tight">{t('dev.title')}</h2>
-                    </div>
-                    <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-                      {t('dev.desc')}
-                    </p>
-                  </div>
-                  <div className="flex items-center space-x-3.5">
-                    <button
-                      onClick={() => {
-                        if (confirm(t('dev.clearConfirm'))) {
-                          setDevLogs([]);
-                        }
-                      }}
-                      className="flex items-center space-x-2 text-xs font-semibold bg-white/10 hover:bg-white/20 text-white rounded-xl py-2 px-4 border border-white/15 hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer"
-                      title={t('dev.clearTooltip')}
-                    >
-                      <Trash2 className="w-4 h-4 text-rose-300" />
-                      <span>{t('dev.clearBtn')}</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {sessions.length === 0 ? (
-                <div className="bg-white border border-gray-150-40 p-10 rounded-3xl text-center shadow-xs">
-                  <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                    <Lock className="w-8 h-8" />
-                  </div>
-                  <h3 className="text-sm font-bold text-gray-800 mb-1">{t('dev.noConnectionsTitle')}</h3>
-                  <p className="text-xs text-gray-400 max-w-sm mx-auto mb-6">
-                    {t('dev.noConnectionsDesc')}
-                  </p>
-                  <button
-                    onClick={() => setActiveTab('login')}
-                    className="inline-flex items-center space-x-2 text-xs font-bold bg-blue-600 text-white rounded-xl py-2.5 px-6 hover:bg-blue-700 transition"
-                  >
-                    <span>{t('dev.connectNowBtn')}</span>
-                  </button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-                  
-                  {/* Left Column: Interactive Sandboxed Browser Frame */}
-                  <div className="lg:col-span-7 bg-white border border-gray-200/60 rounded-3xl overflow-hidden shadow-xs flex flex-col h-[750px]">
-                    
-                    {/* Browser Address Bar & Controls */}
-                    <div className="p-4 bg-gray-50/70 border-b border-gray-200/60 flex flex-col gap-3 min-w-0">
-                      
-                      <div className="flex flex-wrap items-center justify-between gap-2.5">
-                        <div className="flex items-center space-x-2.5 min-w-0">
-                          <label className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">
-                            {t('dev.activeSessionLabel')}
-                          </label>
-                          <select
-                            value={devSessionIndex}
-                            onChange={(e) => {
-                              const idx = parseInt(e.target.value, 10);
-                              setDevSessionIndex(idx);
-                              const sess = sessions[idx];
-                              if (sess) {
-                                const base = sess.server === 'upsdt'
-                                   ? 'https://aulas.upsdt.edu.ec'
-                                  : (sess.server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
-                                setDevBrowserUrl(`${base}/my/`);
-                                setDevIframeKey(k => k + 1); // reload iframe
-                              }
-                            }}
-                            className="text-xs font-mono font-semibold bg-white border border-gray-200 rounded-xl py-1 px-3 focus:outline-none focus:border-blue-500"
-                          >
-                            {sessions.map((sess, idx) => (
-                              <option key={idx} value={idx}>
-                                {sess.username} ({sess.server === 'upsdt' ? 'UPSDT' : sess.server === 'a' ? 'UNEMI P/S' : 'UNEMI Online'})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        
-                        <div className="flex items-center space-x-1.5 shrink-0">
-                          <button
-                            onClick={() => {
-                              const s = sessions[devSessionIndex] || sessions[0];
-                              if (s) {
-                                const base = s.server === 'upsdt'
-                                  ? 'https://aulas.upsdt.edu.ec'
-                                  : (s.server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
-                                setDevBrowserUrl(`${base}/my/`);
-                                setDevIframeKey(k => k + 1);
-                              }
-                            }}
-                            className="bg-white hover:bg-gray-100 text-gray-500 border border-gray-200 hover:text-gray-800 p-2 rounded-xl transition cursor-pointer"
-                            title={t('dev.homeDashboardTooltip')}
-                          >
-                            <Globe className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setDevIframeKey(k => k + 1)}
-                            className="bg-white hover:bg-gray-100 text-gray-500 border border-gray-200 hover:text-gray-800 p-2 rounded-xl transition cursor-pointer"
-                            title={t('dev.reloadTooltip')}
-                          >
-                            <RefreshCw className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* URL input field */}
-                      <div className="flex items-center bg-white border border-gray-200 rounded-xl p-1.5 shadow-3xs min-w-0">
-                        <span className="p-1 px-2.5 text-[10px] font-bold text-gray-400 font-mono bg-gray-50 rounded-lg select-none shrink-0 mr-2">
-                          {t('dev.proxyLabel')}
-                        </span>
-                        <input
-                          type="text"
-                          value={devBrowserUrl}
-                          onChange={(e) => setDevBrowserUrl(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              setDevIframeKey(k => k + 1);
-                            }
-                          }}
-                          className="flex-1 text-xs font-mono text-gray-700 bg-transparent py-1 focus:outline-none placeholder-gray-300 min-w-0"
-                          placeholder="https://aulagradoa.unemi.edu.ec/my/"
-                        />
-                        <button
-                          onClick={() => setDevIframeKey(k => k + 1)}
-                          className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] rounded-lg px-3 py-1.5 cursor-pointer"
-                        >
-                          {t('dev.goBtn')}
-                        </button>
-                      </div>
-
-                    </div>
-
-                    {/* IFrame area */}
-                    <div className="flex-1 w-full bg-gray-100/50 relative">
-                      {sessions[devSessionIndex] ? (
-                        <iframe
-                          key={`${devSessionIndex}-${devIframeKey}`}
-                          src={`/api/moodle/proxy?url=${encodeURIComponent(devBrowserUrl)}&server=${sessions[devSessionIndex].server}&username=${sessions[devSessionIndex].username}&session=${encodeURIComponent(sessions[devSessionIndex].cookies)}`}
-                          className="w-full h-full border-none"
-                          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-                        />
-                      ) : (
-                        <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-gray-400">
-                          <p className="text-xs">{t('dev.loadingProxy')}</p>
-                        </div>
-                      )}
-                    </div>
-
-                  </div>
-
-                  {/* Right Column: Actividades/Clicks logs terminal panel */}
-                  <div className="lg:col-span-5 bg-white border border-gray-200/60 rounded-3xl overflow-hidden shadow-xs flex flex-col h-[750px]">
-                    
-                    {/* Panel Header */}
-                    <div className="p-4 bg-gray-50/70 border-b border-gray-200/60 flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-2.5 h-2.5 bg-emerald-500 animate-pulse rounded-full" />
-                        <h3 className="text-xs font-extrabold uppercase tracking-widest text-gray-500">{t('dev.eventLogsTitle')}</h3>
-                      </div>
-                      <span className="text-[10px] font-mono font-extrabold bg-blue-50 text-blue-600 border border-blue-100 px-2 py-0.5 rounded-lg shrink-0">
-                        {t('dev.eventsCount', { count: devLogs.length })}
-                      </span>
-                    </div>
-
-                    {/* Filters & Actions */}
-                    <div className="p-3 bg-white/70 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-[10px] text-gray-400 font-medium">{t('dev.userInteractionsDesc')}</p>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(JSON.stringify(devLogs, null, 2));
-                          alert(t('dev.copiedSuccess'));
-                        }}
-                        className="text-[10px] font-bold text-gray-650 hover:bg-gray-100 px-2.5 py-1 rounded-lg border border-gray-200 shrink-0 transition cursor-pointer"
-                      >
-                        {t('dev.copyJson')}
-                      </button>
-                    </div>
-
-                    {/* Logs Streams */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3 font-mono text-[11px] bg-slate-950 text-slate-200">
-                      {devLogs.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-500">
-                          <Cpu className="w-10 h-10 mb-2 opacity-30 animate-pulse text-gray-400" />
-                          <p className="text-[11px] font-medium font-sans">{t('dev.waitingInteractions')}</p>
-                          <p className="text-[10px] font-sans mt-1 max-w-[200px]">{t('dev.waitingInteractionsDesc')}</p>
-                        </div>
-                      ) : (
-                        devLogs.map((log) => {
-                          const timeStr = new Date(log.timestamp).toLocaleTimeString();
-                          
-                          // Format details per event type
-                          if (log.type === 'page_load') {
-                            return (
-                              <div key={log.id} className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-sky-400 font-bold">[PAGE_LOAD]</span>
-                                  <span className="text-slate-500 text-[9px]">{timeStr}</span>
-                                </div>
-                                <p className="font-bold text-slate-100 font-sans">{log.data.title || t('dev.untitled')}</p>
-                                <p className="text-[10px] text-slate-400 truncate select-all">{log.data.url}</p>
-                              </div>
-                            );
-                          }
-
-                          if (log.type === 'click') {
-                            return (
-                              <div key={log.id} className="p-2.5 rounded-xl bg-slate-900 border border-lime-950/40 space-y-1">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-amber-400 font-bold">[CLICK]</span>
-                                  <span className="text-slate-500 text-[9px]">{timeStr}</span>
-                                </div>
-                                <div className="grid grid-cols-4 gap-x-1 gap-y-0.5 text-[10px] leading-relaxed">
-                                  <span className="text-slate-500 font-bold">{t('dev.element')}</span>
-                                  <span className="col-span-3 text-slate-100 font-bold">
-                                    &lt;{log.data.tag}&gt; {log.data.text}
-                                  </span>
-                                  {log.data.id && (
-                                    <>
-                                      <span className="text-slate-500">{t('dev.id')}</span>
-                                      <span className="col-span-3 text-yellow-200">{log.data.id}</span>
-                                    </>
-                                  )}
-                                  {log.data.className && (
-                                    <>
-                                      <span className="text-slate-500">{t('dev.class')}</span>
-                                      <span className="col-span-3 text-slate-400 truncate">{log.data.className}</span>
-                                    </>
-                                  )}
-                                  {log.data.href && (
-                                    <>
-                                      <span className="text-slate-500">{t('dev.href')}</span>
-                                      <span className="col-span-3 text-blue-400 truncate select-all">{log.data.href}</span>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          if (log.type === 'file_selected') {
-                            return (
-                              <div key={log.id} className="p-2.5 rounded-xl bg-slate-900 border border-emerald-950 space-y-1.5">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-emerald-400 font-bold flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping" />
-                                    [FICHERO_DETECTADO]
-                                  </span>
-                                  <span className="text-slate-500 text-[9px]">{timeStr}</span>
-                                </div>
-                                <p className="text-[10px] text-slate-400">
-                                  {t('dev.field')} <span className="font-bold text-slate-300 font-mono">{log.data.inputName}</span>
-                                </p>
-                                <div className="space-y-1">
-                                  {log.data.files && log.data.files.map((file: any, fIdx: number) => {
-                                    const sizeMb = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
-                                    return (
-                                      <div key={fIdx} className="bg-emerald-950/20 border border-emerald-800/40 p-2 rounded-lg space-y-0.5">
-                                        <p className="text-emerald-300 font-bold break-all font-sans">{file.name}</p>
-                                        <div className="flex items-center justify-between text-[9px] text-emerald-400/80 font-mono">
-                                          <span>{t('dev.size')} {sizeMb}</span>
-                                          <span>{t('dev.type')} {file.type}</span>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          return null;
-                        })
-                      )}
-                    </div>
-
-                  </div>
-
-                </div>
-              )}
-
-            </div>
           )}
 
         </div>
