@@ -35,6 +35,19 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState<boolean>(false);
 
+  // A task belongs to a previous period when its deadline closed well before
+  // today (21-day grace), matching how "Mi agenda" separates semesters.
+  const PAST_SEMESTER_GRACE_MS = 21 * 24 * 60 * 60 * 1000;
+  const isPastSemesterTask = (task: TodoTask, nowTime: number): boolean => {
+    if (!task.closureDate) return false;
+    return new Date(task.closureDate).getTime() < nowTime - PAST_SEMESTER_GRACE_MS;
+  };
+
+  // Only consider tasks from the current period so subjects of previous
+  // periods do not show up in the statistics.
+  const nowTime = Date.now();
+  const currentPeriodTasks = tasks.filter(t => !isPastSemesterTask(t, nowTime));
+
   const parseVal = (v: string | null | undefined): number | null => {
     if (v === null || v === undefined) return null;
     const clean = v.replace(/,/g, '.').trim();
@@ -84,7 +97,7 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
   // Find unique account-career combinations in task base
   const uniqueAccountCareers = Array.from(
     new Set(
-      tasks
+      currentPeriodTasks
         .map(t => {
           const username = t.moodleUsername || 'Manual';
           const carrera = getCourseDetails(t.courseName).carrera;
@@ -95,7 +108,7 @@ export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUp
   ).sort() as string[];
 
   // Filter tasks by selected account-career combinations
-  const filteredTasks = tasks.filter(task => {
+  const filteredTasks = currentPeriodTasks.filter(task => {
     if (selectedAccounts.length === 0) return true;
     return selectedAccounts.includes(`${task.moodleUsername || 'Manual'}|${getCourseDetails(task.courseName).carrera}`);
   });

@@ -2334,7 +2334,8 @@ async function runBackgroundSync(key: string, sessions: any[]) {
                       wsRequisitosCompletados,
                       wsAssignId,
                       wsQuizId,
-                      wsGradeMax
+                      wsGradeMax,
+                      section: sectionName
                     });
                     wsActivitiesCount++;
                   }
@@ -2669,7 +2670,8 @@ async function runBackgroundSync(key: string, sessions: any[]) {
               courseName: course.text,
               activityUrl: act.url,
               type: act.type,
-              activityName: act.name
+              activityName: act.name,
+              section: act.section || null
             });
           });
 
@@ -3008,6 +3010,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
             closureDate: detailsInfo.closureDateISO || null,
             aperture: detailsInfo.aperture || null,
             apertureDateISO: detailsInfo.apertureDateISO || null,
+            section: currentItem.section || null,
             completed: !detailsInfo.por_hacer_calificacion && (
                          isStatusSubmittedServer(detailsInfo.estado_entrega) || 
                          detailsInfo.quiz_info?.intentos?.some((att: any) => att.estado?.toLowerCase().includes('terminado')) || 
@@ -3310,6 +3313,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
           closureDate: detailsInfo.closureDateISO || null,
           aperture: detailsInfo.aperture || null,
           apertureDateISO: detailsInfo.apertureDateISO || null,
+          section: currentItem.section || null,
           completed: !detailsInfo.por_hacer_calificacion && (
                        isStatusSubmittedServer(detailsInfo.estado_entrega) || 
                        detailsInfo.quiz_info?.intentos?.some((att: any) => att.estado?.toLowerCase().includes('terminado')) || 

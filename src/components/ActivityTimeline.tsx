@@ -973,6 +973,7 @@ export default function ActivityTimeline({
                 ? collapsedWeeks[group.label] 
                 : !isCurrent;
               const pendingInGroup = group.tasks.filter(t => !t.completed).length;
+                const completedInGroup = group.tasks.length - pendingInGroup;
 
               return (
                 <div key={group.label} className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-2xs">
@@ -1002,8 +1003,7 @@ export default function ActivityTimeline({
 
                     <div className="flex items-center space-x-2 text-xs text-slate-400 font-medium">
                       <span>
-                        {group.tasks.length} {group.tasks.length === 1 ? (language === 'es' ? "actividad" : "activity") : (language === 'es' ? "actividades" : "activities")}
-                        {pendingInGroup > 0 && ` • ${pendingInGroup} ${language === 'es' ? 'pendientes' : 'pending'}`}
+                        {language === 'es' ? 'hechas' : 'done'}: {completedInGroup}/{group.tasks.length}
                       </span>
                     </div>
                   </div>

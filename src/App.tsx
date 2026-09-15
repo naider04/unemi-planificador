@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Calendar, Layers, Lock, BookOpen, Award, CheckCircle2, 
+  Calendar, Lock, Award, CheckCircle2, 
   Sparkles, Clock, AlertCircle, Bookmark, CheckSquare, Eye, RefreshCw, Download, BarChart3,
   Bell, BellOff, Terminal, Cpu, Trash2, ArrowLeft, ArrowRight, ExternalLink, Globe
 } from 'lucide-react';
 
 import { MoodleSession, TodoTask, Course, MoodleNotification } from './types';
 import LoginPanel from './components/LoginPanel';
-import MoodleBrowser from './components/MoodleBrowser';
 import ActivityTimeline from './components/ActivityTimeline';
 import NewTaskModal from './components/NewTaskModal';
 import StatsPanel from './components/StatsPanel';
@@ -31,6 +30,7 @@ export function mergeTasksLists(currentTasks: TodoTask[], newTasks: TodoTask[]):
         ...merged[idx],
         ...nt,
         completed: merged[idx].completed || nt.completed,
+        section: nt.section ?? merged[idx].section ?? null,
       };
     } else {
       merged.push(nt);
@@ -64,7 +64,7 @@ export default function App() {
   const [isDbLoaded, setIsDbLoaded] = useState<boolean>(false);
   const [tasks, setTasks] = useState<TodoTask[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
-  const [activeTab, setActiveTab] = useState<'agenda' | 'browser' | 'login' | 'stats' | 'developer'>('agenda');
+  const [activeTab, setActiveTab] = useState<'agenda' | 'login' | 'stats' | 'developer'>('agenda');
 
   // Developer Log State
   const [devLogs, setDevLogs] = useState<{
@@ -127,7 +127,6 @@ export default function App() {
   }, [sessions, devSessionIndex]);
 
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
-  const [moodleNavigation, setMoodleNavigation] = useState<{ courseId: string; activityUrl: string } | null>(null);
   const [agendaNavigation, setAgendaNavigation] = useState<string | null>(null);
   const [prefillLogin, setPrefillLogin] = useState<{ username: string; server: 'a' | 'b' | 'upsdt'; errorMsg: string } | null>(null);
   const [timelineFilterCourseId, setTimelineFilterCourseId] = useState<string | null>(null);
@@ -1020,49 +1019,6 @@ export default function App() {
     }
   };
 
-  const handleImportTasks = (newTasks: TodoTask[]) => {
-    const merged = [...tasks];
-    newTasks.forEach(nt => {
-      // Deduplicate by activityUrl
-      const existingIdx = merged.findIndex(t => t.activityUrl === nt.activityUrl && nt.activityUrl);
-      if (existingIdx !== -1) {
-        const currentTitle = merged[existingIdx].title;
-        const incomingTitle = nt.title || '';
-        const isGeneric = (t: string) => {
-          const l = (t || '').toLowerCase();
-          return l.includes('continuar') || l.includes('volver') || l.includes('regresar') || l.includes('siguiente') || l === 'ver' || l === 'ir' || l === 'ir a';
-        };
-        const updatedTitle = (!isGeneric(incomingTitle) || isGeneric(currentTitle)) ? incomingTitle : currentTitle;
-
-        // Keep descriptions intact if modified, but update dates & completions from scraper details
-        merged[existingIdx] = {
-          ...merged[existingIdx],
-          title: updatedTitle,
-          closureDate: nt.closureDate,
-          aperture: nt.aperture,
-          apertureDateISO: nt.apertureDateISO,
-          completed: nt.completed,
-          status: nt.status,
-          grade: nt.grade,
-          gradeOver: nt.gradeOver,
-          gradingStatus: nt.gradingStatus,
-          estado_calificacion: nt.estado_calificacion,
-          advertencia_preguntas: nt.advertencia_preguntas,
-          por_hacer_calificacion: nt.por_hacer_calificacion,
-          hecho_calificacion: nt.hecho_calificacion,
-          grupo: nt.grupo,
-          moodleUsername: nt.moodleUsername,
-          moodleServer: nt.moodleServer
-        };
-      } else {
-        merged.push(nt);
-      }
-    });
-
-    setTasks(merged);
-    localStorage.setItem('unemi_tasks', JSON.stringify(merged));
-  };
-
   const handleSaveManualTask = (newTask: TodoTask) => {
     const updatedTask = { ...newTask };
     if (session) {
@@ -1807,7 +1763,7 @@ export default function App() {
                       key={idx}
                       onClick={() => {
                         setActiveSessionIndex(idx);
-                        setActiveTab('browser');
+                        setActiveTab('agenda');
                       }}
                       className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border cursor-pointer select-none transition-all ${
                         idx === activeSessionIndex
@@ -2030,25 +1986,6 @@ export default function App() {
             </button>
 
             <button
-              id="tab-browser-btn"
-              onClick={() => {
-                if (sessions.length === 0) {
-                  setActiveTab("login");
-                } else {
-                  setActiveTab("browser");
-                }
-              }}
-              className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
-                activeTab === "browser"
-                  ? "bg-white text-blue-600 shadow-2xs"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
-              }`}
-            >
-              <BookOpen className="w-4 h-4 shrink-0" />
-              <span>{t('tab.browser')}</span>
-            </button>
-
-            <button
               id="tab-login-btn"
               onClick={() => {
                 setActiveTab("login");
@@ -2176,70 +2113,6 @@ export default function App() {
             />
           )}
 
-          {/* TAB 2: MOODLE BROWSER */}
-          {activeTab === 'browser' && (
-            <div className="space-y-4">
-              {/* Elegant accounts / active browsers tab list */}
-              <div id="moodle-browser-tabs" className="flex flex-wrap items-center bg-gray-100/70 p-2 rounded-2xl gap-2 border border-gray-200/50 shadow-3xs">
-                <span className="text-[10px] uppercase font-bold text-gray-500 px-2 tracking-wider">
-                  {t('browser.activeBrowsers')}
-                </span>
-                {sessions.map((sess, idx) => (
-                  <button
-                    key={`${sess.username}-${sess.server}-${idx}`}
-                    onClick={() => setActiveSessionIndex(idx)}
-                    className={`flex items-center space-x-2 py-1.5 px-3.5 rounded-xl text-xs font-bold border transition-all duration-150 cursor-pointer ${
-                      activeSessionIndex === idx
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                        : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                    <span className="truncate max-w-[120px] font-mono">{sess.username}</span>
-                    <span className="text-[9px] opacity-75 font-mono px-1 bg-black/10 rounded uppercase">
-                      {sess.server === 'upsdt' ? 'UPSDT' : (sess.server === 'a' ? 'UNEMI P/S' : 'UNEMI Online')}
-                    </span>
-                  </button>
-                ))}
-
-                <button
-                  onClick={() => {
-                    setPrefillLogin(null);
-                    setActiveTab('login');
-                  }}
-                  className="flex items-center space-x-1 py-1.5 px-3 rounded-xl text-xs font-bold border border-dashed border-gray-300 bg-white text-gray-500 hover:text-blue-600 hover:border-blue-600 cursor-pointer transition-all duration-150"
-                  title={t('browser.newAccountTitle')}
-                >
-                  <span className="font-semibold text-xs">+</span>
-                  <span>{t('browser.newAccount')}</span>
-                </button>
-              </div>
-
-              {/* Render all browsers, showing only the active one */}
-              {sessions.map((sess, idx) => (
-                <div 
-                  key={`${sess.username}-${sess.server}-${idx}`}
-                  style={{ display: activeSessionIndex === idx ? 'block' : 'none' }}
-                >
-                  <MoodleBrowser
-                    session={sess}
-                    existingTaskUrls={tasks.filter(t => t.activityUrl).map(t => t.activityUrl as string)}
-                    tasks={tasks}
-                    onImportTasks={handleImportTasks}
-                    navigationTrigger={activeSessionIndex === idx ? moodleNavigation : null}
-                    onClearNavigationTrigger={activeSessionIndex === idx ? () => setMoodleNavigation(null) : undefined}
-                    onNavigateToAgendaActivity={(activityUrl) => {
-                      setAgendaNavigation(activityUrl);
-                      setActiveTab('agenda');
-                    }}
-                    onSessionError={(sess, msg) => handleSessionError(sess, msg, false)}
-                    onGoToConnections={() => setActiveTab('login')}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-
           {/* TAB 3: LOGIN PANEL */}
           {activeTab === 'login' && (
             <div className="max-w-md mx-auto space-y-4">
@@ -2316,11 +2189,11 @@ export default function App() {
                                 <button
                                   onClick={() => {
                                     setActiveSessionIndex(idx);
-                                    setActiveTab('browser');
+                                    setActiveTab('agenda');
                                   }}
                                   className="text-[10px] font-semibold text-blue-600 hover:bg-blue-50 hover:text-blue-700 px-2.5 py-1 rounded-lg border border-blue-100 transition-colors cursor-pointer mr-1"
                                 >
-                                  Ver navegador
+                                  Ver agenda
                                 </button>
                               )}
                             </>
@@ -2364,8 +2237,8 @@ export default function App() {
                     setActiveSessionIndex(sIdx);
                   }
                 }
-                setMoodleNavigation({ courseId, activityUrl });
-                setActiveTab('browser');
+                setAgendaNavigation(activityUrl);
+                setActiveTab('agenda');
               }}
               onViewUpcomingActivities={(courseId) => {
                 setTimelineFilterCourseId(courseId);

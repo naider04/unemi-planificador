@@ -35,7 +35,7 @@ interface SyncStatusBarProps {
   completedTasks: number;
   pendingTasks: number;
   percentComplete: number;
-  onNavigateToTab?: (tab: 'login' | 'browser' | 'agenda') => void;
+  onNavigateToTab?: (tab: 'login' | 'agenda') => void;
 }
 
 export default function SyncStatusBar({

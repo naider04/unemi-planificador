@@ -100,6 +100,7 @@ export interface TodoTask {
   por_hacer_calificacion?: boolean;
   hecho_calificacion?: boolean;
   grupo?: string | null;
+  section?: string | null;
   moodleUsername?: string | null;
   moodleServer?: 'a' | 'b' | 'upsdt' | null;
   lastSyncedAt?: string;
