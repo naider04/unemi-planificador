@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Calendar, Lock, Award, CheckCircle2, 
   Sparkles, Clock, AlertCircle, Bookmark, CheckSquare, Eye, RefreshCw, Download, BarChart3,
-  Bell, BellOff, Trash2, ArrowLeft, ArrowRight, ExternalLink
+  Bell, BellOff, Trash2, ArrowLeft, ArrowRight, ExternalLink,
+  SlidersHorizontal, ChevronDown, UserPlus, LogOut, X, Users, Settings2
 } from 'lucide-react';
 
 import { MoodleSession, TodoTask, Course, MoodleNotification } from './types';
@@ -176,6 +177,43 @@ export default function App() {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [showSyncLogs, setShowSyncLogs] = useState(false);
   const [showLogsAccountKey, setShowLogsAccountKey] = useState<string | null>(null);
+
+  // First week of academic calendar state
+  const [firstWeekDate, setFirstWeekDate] = useState<string>(() => {
+    try {
+      return localStorage.getItem('moodle_first_week_date') || '2026-04-13';
+    } catch {
+      return '2026-04-13';
+    }
+  });
+
+  const handleFirstWeekDateChange = (date: string) => {
+    setFirstWeekDate(date);
+    try {
+      localStorage.setItem('moodle_first_week_date', date);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // More options dropdown state & ref for click outside
+  const [isMoreOptionsOpen, setIsMoreOptionsOpen] = useState(false);
+  const moreOptionsRef = useRef<HTMLDivElement>(null);
+  const [isAddAccountModalOpen, setIsAddAccountModalOpen] = useState(false);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (moreOptionsRef.current && !moreOptionsRef.current.contains(event.target as Node)) {
+        setIsMoreOptionsOpen(false);
+      }
+    };
+    if (isMoreOptionsOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isMoreOptionsOpen]);
 
   const updateLastSyncedTimeAndHistory = (time: number) => {
     setLastSyncedTime(time);
@@ -1733,12 +1771,12 @@ export default function App() {
             </div>
           </div>
 
-          {/* Frozen Tab Navigation Menu */}
-          <div id="tab-controls-root" className="flex items-center space-x-1 sm:space-x-1.5 overflow-x-auto bg-slate-100/90 p-1.5 rounded-2xl border border-slate-200/70">
+          {/* Frozen Tab Navigation Menu - Simplified to 2 core views */}
+          <div id="tab-controls-root" className="flex items-center space-x-1 sm:space-x-1.5 bg-slate-100/90 p-1.5 rounded-2xl border border-slate-200/70">
             <button
               id="tab-agenda-btn"
               onClick={() => setActiveTab("agenda")}
-              className={`px-3 sm:px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
+              className={`px-3.5 sm:px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
                 activeTab === "agenda"
                   ? "bg-white text-blue-600 shadow-2xs"
                   : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
@@ -1754,32 +1792,9 @@ export default function App() {
             </button>
 
             <button
-              id="tab-login-btn"
-              onClick={() => {
-                setActiveTab("login");
-                setShowConnectionsAlert(false);
-              }}
-              className={`px-3 sm:px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
-                activeTab === "login"
-                  ? "bg-white text-blue-600 shadow-2xs"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
-              } ${isShaking ? "animate-shake" : ""}`}
-            >
-              <Lock className="w-4 h-4 shrink-0" />
-              <span>{t('tab.connections')}</span>
-              {sessions.length > 0 ? (
-                <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.2 rounded-full font-bold">
-                  {sessions.length}
-                </span>
-              ) : showConnectionsAlert && (
-                <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-              )}
-            </button>
-
-            <button
               id="tab-stats-btn"
               onClick={() => setActiveTab("stats")}
-              className={`px-3 sm:px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
+              className={`px-3.5 sm:px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
                 activeTab === "stats"
                   ? "bg-white text-blue-600 shadow-2xs"
                   : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
@@ -1790,40 +1805,8 @@ export default function App() {
             </button>
           </div>
 
-          {/* Connection badge status & Notifications bell */}
-          <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
-            {sessions.filter(s => !s.expired).length > 0 ? (
-              <div className="hidden xl:flex flex-wrap items-center gap-1.5">
-                {sessions.map((sess, idx) => {
-                  if (sess.expired) return null;
-                  return (
-                    <div 
-                      key={idx}
-                      onClick={() => {
-                        setActiveSessionIndex(idx);
-                        setActiveTab('agenda');
-                      }}
-                      className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border cursor-pointer select-none transition-all ${
-                        idx === activeSessionIndex
-                          ? 'bg-blue-50 text-blue-700 border-blue-200'
-                          : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
-                      }`}
-                      title={t('nav.setActive', { username: sess.username })}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full ${idx === activeSessionIndex ? 'bg-blue-500 animate-pulse' : 'bg-gray-400'}`}></span>
-                      <span>{sess.username} ({sess.server === 'upsdt' ? 'UPSDT' : (sess.server === 'a' ? 'UNEMI P/S' : 'UNEMI Online')})</span>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <span className="hidden xl:flex items-center space-x-1 text-xs text-gray-400 bg-gray-50 border border-gray-100 px-3 py-1 rounded-full">
-                {t('nav.disconnected')}
-              </span>
-            )}
-
-            {/* Language Switcher */}
-            <LanguageToggle />
+          {/* Connection badge status, Notifications bell, and More Options */}
+          <div className="flex items-center space-x-2 sm:space-x-2.5 shrink-0">
 
             {/* Notification Bell Icon & dropdown */}
             <div className="relative">
@@ -1981,6 +1964,214 @@ export default function App() {
                 </div>
               )}
             </div>
+
+            {/* FROZEN "MORE OPTIONS" BUTTON & DROPDOWN */}
+            <div className="relative" ref={moreOptionsRef}>
+              <button
+                id="more-options-btn"
+                type="button"
+                onClick={() => setIsMoreOptionsOpen(!isMoreOptionsOpen)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 border cursor-pointer select-none ${
+                  isMoreOptionsOpen
+                    ? 'bg-blue-50 text-blue-700 border-blue-300 shadow-2xs'
+                    : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-2xs'
+                }`}
+                title={t('nav.moreOptions')}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 text-slate-600" />
+                <span className="hidden sm:inline">{t('nav.moreOptions')}</span>
+                
+                {/* Account status indicator badge */}
+                {sessions.length > 0 ? (
+                  <span className={`w-2 h-2 rounded-full ${sessions.some(s => s.expired) ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                ) : (
+                  <span className="w-2 h-2 rounded-full bg-slate-300" />
+                )}
+                
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-150 ${isMoreOptionsOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* More Options Dropdown Panel */}
+              {isMoreOptionsOpen && (
+                <div
+                  id="more-options-dropdown-panel"
+                  className="absolute right-0 mt-2 w-80 sm:w-96 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-150"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Dropdown Header */}
+                  <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+                    <div className="flex items-center space-x-2">
+                      <Settings2 className="w-4 h-4 text-blue-600" />
+                      <h3 className="text-xs font-bold text-slate-900">{t('options.title')}</h3>
+                    </div>
+                    <LanguageToggle />
+                  </div>
+
+                  {/* Section 1: Connected Accounts */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                        {t('options.connectedAccounts')} ({sessions.length})
+                      </span>
+                      {sessions.length > 0 && (
+                        <span className="text-[10px] text-slate-400">
+                          {sessions.filter(s => !s.expired).length} {language === 'es' ? 'activas' : 'active'}
+                        </span>
+                      )}
+                    </div>
+
+                    {sessions.length === 0 ? (
+                      <div className="p-3 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-center">
+                        <p className="text-xs text-slate-500">{t('options.noAccounts')}</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                        {sessions.map((sess, idx) => {
+                          const isActive = idx === activeSessionIndex;
+                          const serverLabel = sess.server === 'upsdt' 
+                            ? 'UPSDT' 
+                            : (sess.server === 'a' ? 'UNEMI P/S' : 'UNEMI Online');
+
+                          return (
+                            <div
+                              key={idx}
+                              className={`p-2.5 rounded-xl border transition-all flex items-center justify-between text-xs ${
+                                isActive 
+                                  ? 'bg-blue-50/70 border-blue-200 text-blue-900' 
+                                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                              }`}
+                            >
+                              <div className="flex items-center space-x-2 min-w-0">
+                                <span className={`w-2 h-2 rounded-full shrink-0 ${
+                                  sess.expired ? 'bg-rose-500' : (isActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400')
+                                }`} />
+                                <div className="min-w-0">
+                                  <div className="flex items-center space-x-1.5 truncate">
+                                    <span className="font-bold truncate">{sess.username}</span>
+                                    <span className="text-[9px] px-1.5 py-0.2 bg-white/80 border border-slate-200 rounded font-semibold text-slate-500 shrink-0">
+                                      {serverLabel}
+                                    </span>
+                                  </div>
+                                  {sess.expired ? (
+                                    <span className="text-[10px] text-rose-500 font-bold block">{t('options.expired')}</span>
+                                  ) : isActive ? (
+                                    <span className="text-[10px] text-blue-600 font-semibold block">{t('options.activeSession')}</span>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center space-x-1 shrink-0 ml-2">
+                                {!isActive && !sess.expired && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveSessionIndex(idx);
+                                      setActiveTab('agenda');
+                                      setIsMoreOptionsOpen(false);
+                                    }}
+                                    className="px-2 py-0.8 text-[10px] font-bold bg-white text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors cursor-pointer"
+                                  >
+                                    {t('options.switch')}
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = sessions.filter((_, sIdx) => sIdx !== idx);
+                                    setSessions(updated);
+                                    localStorage.setItem('unemi_sessions', JSON.stringify(updated));
+                                    if (updated.length === 0) {
+                                      setActiveSessionIndex(0);
+                                      setActiveTab('login');
+                                    } else if (activeSessionIndex >= updated.length) {
+                                      setActiveSessionIndex(updated.length - 1);
+                                    }
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-white rounded-lg transition-colors cursor-pointer"
+                                  title={language === 'es' ? 'Quitar cuenta' : 'Remove account'}
+                                >
+                                  <LogOut className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Button to add an account */}
+                    <button
+                      id="add-account-from-options-btn"
+                      type="button"
+                      onClick={() => {
+                        setIsMoreOptionsOpen(false);
+                        setIsAddAccountModalOpen(true);
+                      }}
+                      className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>{t('options.addAccount')}</span>
+                    </button>
+                  </div>
+
+                  {/* Section 2: First Week Date Configuration */}
+                  <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label htmlFor="first-week-date-input" className="text-[11px] font-bold text-slate-700 flex items-center space-x-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                        <span>{t('options.firstWeekDate')}</span>
+                      </label>
+                      {firstWeekDate !== '2026-04-13' && (
+                        <button
+                          type="button"
+                          onClick={() => handleFirstWeekDateChange('2026-04-13')}
+                          className="text-[10px] text-blue-600 hover:underline font-semibold cursor-pointer"
+                        >
+                          {language === 'es' ? 'Restablecer' : 'Reset'}
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-tight">
+                      {t('options.firstWeekDesc')}
+                    </p>
+                    <input
+                      id="first-week-date-input"
+                      type="date"
+                      value={firstWeekDate}
+                      onChange={(e) => handleFirstWeekDateChange(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 font-medium text-slate-800"
+                    />
+                  </div>
+
+                  {/* Quick Connections view shortcut */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('login');
+                        setIsMoreOptionsOpen(false);
+                      }}
+                      className="text-slate-500 hover:text-blue-600 font-bold transition-colors cursor-pointer flex items-center space-x-1"
+                    >
+                      <Lock className="w-3 h-3" />
+                      <span>{language === 'es' ? 'Ver conexiones' : 'View connections'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        startGlobalSync();
+                        setIsMoreOptionsOpen(false);
+                      }}
+                      className="text-blue-600 hover:text-blue-700 font-bold transition-colors cursor-pointer flex items-center space-x-1"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>{language === 'es' ? 'Sincronizar' : 'Sync'}</span>
+                    </button>
+                  </div>
+
+                </div>
+              )}
+            </div>
           </div>
 
         </div>
@@ -2029,6 +2220,8 @@ export default function App() {
               filterCourseIdTrigger={timelineFilterCourseId}
               onClearFilterCourseIdTrigger={() => setTimelineFilterCourseId(null)}
               viewingTaskId={viewingTaskId}
+              firstWeekDate={firstWeekDate}
+              onFirstWeekDateChange={handleFirstWeekDateChange}
               getFeedbackImageUrl={(task, fileUrl) => {
                 const match = sessions.find(
                   s => s.username.toLowerCase() === task.moodleUsername?.toLowerCase() && s.server === task.moodleServer
@@ -2039,113 +2232,175 @@ export default function App() {
             />
           )}
 
-          {/* TAB 3: LOGIN PANEL */}
+          {/* TAB 3: SIMPLIFIED CONNECTIONS PANEL */}
           {activeTab === 'login' && (
-            <div className="max-w-md mx-auto space-y-4">
-              <LoginPanel
-                onLoginSuccess={handleLoginSuccess}
-                activeSession={null}
-                onLogout={handleLogout}
-                prefillUsername={prefillLogin?.username}
-                prefillServer={prefillLogin?.server}
-                loginErrorMessage={prefillLogin?.errorMsg}
-              />
+            <div className="max-w-2xl mx-auto space-y-5">
+              {/* Back to Agenda button */}
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('agenda')}
+                  className="text-xs font-bold text-slate-600 hover:text-blue-600 flex items-center space-x-1.5 transition-colors cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>{language === 'es' ? 'Volver a Mi Agenda' : 'Back to My Agenda'}</span>
+                </button>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs text-slate-400 font-medium">
+                    {sessions.length} {language === 'es' ? 'cuentas conectadas' : 'connected accounts'}
+                  </span>
+                </div>
+              </div>
 
+              {/* Connected Accounts Card (if any) */}
               {sessions.length > 0 && (
-                <div className="bg-white border border-gray-150/40 rounded-2xl p-5 shadow-xs space-y-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Cuentas Conectadas ({sessions.length})</h3>
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                    <div className="flex items-center space-x-2">
+                      <Users className="w-4 h-4 text-blue-600" />
+                      <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                        {t('options.connectedAccounts')} ({sessions.length})
+                      </h3>
+                    </div>
                     {isVerifyingSessions && (
-                      <span className="text-[10px] text-blue-650 font-extrabold animate-pulse flex items-center space-x-1">
+                      <span className="text-[10px] text-blue-600 font-bold animate-pulse flex items-center space-x-1">
                         <RefreshCw className="w-3 h-3 shrink-0 animate-spin" />
-                        <span>Verificando sesión...</span>
+                        <span>Verificando...</span>
                       </span>
                     )}
                   </div>
+
                   <div className="space-y-2">
-                    {sessions.map((sess, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-100 rounded-xl">
-                        <div className="flex items-center space-x-2.5 min-w-0">
-                          <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                            sess.expired 
-                              ? 'bg-rose-500' 
-                              : idx === activeSessionIndex 
-                                ? 'bg-emerald-500 animate-pulse' 
-                                : 'bg-emerald-400'
-                          }`}></span>
-                          <div className="min-w-0">
-                            <p className="text-xs font-bold text-gray-800 truncate font-mono">{sess.username}</p>
-                            <p className="text-[10px] text-gray-400 capitalize">
-                              {sess.server === 'upsdt' ? 'UPSDT' : (sess.server === 'a' ? 'UNEMI Presencial/Semipresencial' : 'UNEMI Online')}{' '}
-                              {sess.expired ? (
-                                <span className="text-rose-500 font-semibold">(Sesión Expirada)</span>
-                              ) : (
-                                idx === activeSessionIndex ? '(Navegador Actual)' : ''
-                              )}
-                            </p>
+                    {sessions.map((sess, idx) => {
+                      const isActive = idx === activeSessionIndex;
+                      const serverLabel = sess.server === 'upsdt' 
+                        ? 'UPSDT' 
+                        : (sess.server === 'a' ? 'UNEMI Presencial / Semi' : 'UNEMI Online');
+
+                      return (
+                        <div 
+                          key={idx} 
+                          className={`p-3.5 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                            isActive 
+                              ? 'bg-blue-50/70 border-blue-200 shadow-2xs' 
+                              : 'bg-slate-50 border-slate-200/80'
+                          }`}
+                        >
+                          <div className="flex items-center space-x-3 min-w-0">
+                            <span className={`w-3 h-3 rounded-full shrink-0 ${
+                              sess.expired 
+                                ? 'bg-rose-500' 
+                                : isActive 
+                                  ? 'bg-emerald-500 animate-pulse' 
+                                  : 'bg-slate-400'
+                            }`} />
+                            <div className="min-w-0">
+                              <div className="flex items-center space-x-2">
+                                <span className="text-xs font-bold text-slate-900 font-mono truncate">{sess.username}</span>
+                                <span className="text-[10px] px-2 py-0.5 bg-white border border-slate-200 rounded-md font-bold text-slate-600">
+                                  {serverLabel}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                {sess.expired ? (
+                                  <span className="text-rose-600 font-bold">{t('options.expired')}</span>
+                                ) : isActive ? (
+                                  <span className="text-blue-600 font-semibold">{t('options.activeSession')}</span>
+                                ) : (
+                                  language === 'es' ? 'Cuenta secundaria' : 'Secondary account'
+                                )}
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex items-center space-x-1.5">
-                          {sess.expired ? (
-                            <button
-                              onClick={() => {
-                                setPrefillLogin({
-                                  username: sess.username,
-                                  server: sess.server,
-                                  errorMsg: 'Por favor, ingresa tus datos de acceso para volver a conectar tu cuenta.'
-                                });
-                                setActiveTab('login');
-                              }}
-                              className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer mr-1"
-                            >
-                              Reconectar
-                            </button>
-                          ) : (
-                            <>
+
+                          <div className="flex items-center space-x-2 self-end sm:self-auto shrink-0">
+                            {sess.expired ? (
                               <button
                                 onClick={() => {
-                                  setActiveSessionIndex(idx);
-                                  setActiveTab('agenda');
+                                  setPrefillLogin({
+                                    username: sess.username,
+                                    server: sess.server,
+                                    errorMsg: 'Por favor ingresa tus credenciales para reactivar esta cuenta.'
+                                  });
                                 }}
-                                className="text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer mr-1"
+                                className="text-xs font-bold text-blue-600 bg-white hover:bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-xl transition-colors cursor-pointer"
                               >
-                                Ver actividades
+                                Reconectar
                               </button>
-                              {idx !== activeSessionIndex && (
+                            ) : (
+                              <>
+                                {!isActive && (
+                                  <button
+                                    onClick={() => {
+                                      setActiveSessionIndex(idx);
+                                      setActiveTab('agenda');
+                                    }}
+                                    className="text-xs font-bold text-blue-600 bg-white hover:bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-xl transition-colors cursor-pointer"
+                                  >
+                                    {t('options.switch')}
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => {
                                     setActiveSessionIndex(idx);
                                     setActiveTab('agenda');
                                   }}
-                                  className="text-[10px] font-semibold text-blue-600 hover:bg-blue-50 hover:text-blue-700 px-2.5 py-1 rounded-lg border border-blue-100 transition-colors cursor-pointer mr-1"
+                                  className="text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-xl transition-colors cursor-pointer"
                                 >
-                                  Ver agenda
+                                  Ver actividades
                                 </button>
-                              )}
-                            </>
-                          )}
-                          <button
-                            onClick={() => {
-                              const updated = sessions.filter((_, sIdx) => sIdx !== idx);
-                              setSessions(updated);
-                              localStorage.setItem('unemi_sessions', JSON.stringify(updated));
-                              if (updated.length === 0) {
-                                setActiveSessionIndex(0);
-                                setActiveTab('login');
-                              } else if (activeSessionIndex >= updated.length) {
-                                setActiveSessionIndex(updated.length - 1);
-                              }
-                            }}
-                            className="text-[10px] font-semibold text-red-600 hover:bg-red-50 hover:text-red-700 px-2.5 py-1 rounded-lg border border-red-100 transition-colors cursor-pointer"
-                          >
-                            {sess.expired ? 'Quitar Cuenta' : 'Cerrar Sesión'}
-                          </button>
+                              </>
+                            )}
+
+                            <button
+                              onClick={() => {
+                                const updated = sessions.filter((_, sIdx) => sIdx !== idx);
+                                setSessions(updated);
+                                localStorage.setItem('unemi_sessions', JSON.stringify(updated));
+                                if (updated.length === 0) {
+                                  setActiveSessionIndex(0);
+                                  setActiveTab('login');
+                                } else if (activeSessionIndex >= updated.length) {
+                                  setActiveSessionIndex(updated.length - 1);
+                                }
+                              }}
+                              className="text-xs font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl transition-colors cursor-pointer"
+                            >
+                              <LogOut className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
+
+              {/* Login / Add Account Form Card */}
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs space-y-4">
+                <div className="flex items-center space-x-2.5 pb-2 border-b border-slate-100">
+                  <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+                    <UserPlus className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      {sessions.length > 0 ? (language === 'es' ? 'Agregar otra cuenta' : 'Add another account') : (language === 'es' ? 'Conectar tu cuenta' : 'Connect your account')}
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      {language === 'es' ? 'Soporte para UNEMI (Presencial, Semipresencial, Online) y UPSDT' : 'Support for UNEMI and UPSDT'}
+                    </p>
+                  </div>
+                </div>
+
+                <LoginPanel
+                  onLoginSuccess={handleLoginSuccess}
+                  activeSession={null}
+                  onLogout={handleLogout}
+                  prefillUsername={prefillLogin?.username}
+                  prefillServer={prefillLogin?.server}
+                  loginErrorMessage={prefillLogin?.errorMsg}
+                />
+              </div>
             </div>
           )}
 
@@ -2176,6 +2431,49 @@ export default function App() {
         </div>
 
       </main>
+
+      {/* Quick Add Account Modal Dialog */}
+      {isAddAccountModalOpen && (
+        <div 
+          id="add-account-modal-overlay"
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setIsAddAccountModalOpen(false)}
+        >
+          <div 
+            id="add-account-modal-card"
+            className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-4 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+                  <UserPlus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">{t('options.addAccount')}</h3>
+                  <p className="text-xs text-slate-400">UNEMI (Presencial, Semi, Online) o UPSDT</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddAccountModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <LoginPanel
+              onLoginSuccess={(newSession) => {
+                handleLoginSuccess(newSession);
+                setIsAddAccountModalOpen(false);
+              }}
+              activeSession={null}
+              onLogout={() => {}}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Insertion manual task modal popup */}
       <NewTaskModal

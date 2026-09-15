@@ -22,6 +22,8 @@ interface ActivityTimelineProps {
   onClearFilterCourseIdTrigger?: () => void;
   viewingTaskId?: string | null;
   getFeedbackImageUrl?: (task: TodoTask, fileUrl: string) => string | null;
+  firstWeekDate?: string;
+  onFirstWeekDateChange?: (date: string) => void;
 }
 
 export default function ActivityTimeline({ 
@@ -38,7 +40,9 @@ export default function ActivityTimeline({
   filterCourseIdTrigger,
   onClearFilterCourseIdTrigger,
   viewingTaskId,
-  getFeedbackImageUrl
+  getFeedbackImageUrl,
+  firstWeekDate,
+  onFirstWeekDateChange
 }: ActivityTimelineProps) {
   const { t, language } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
@@ -219,7 +223,16 @@ export default function ActivityTimeline({
   const getWeekInfo = (dateStr: string | null) => {
     if (!dateStr) return { weekNumber: 9999, label: t('timeline.weekNoDeadline'), mondaySort: 9999999999999 };
     const d = new Date(dateStr);
-    const BASING_START = new Date('2026-04-13T00:00:00'); // Start of Semester Week 1 (Monday)
+    
+    // Basing date from custom selected first week or default
+    const startDateStr = firstWeekDate || '2026-04-13';
+    const [sy, sm, sd] = startDateStr.split('-').map(Number);
+    const basingDate = new Date(sy || 2026, (sm || 4) - 1, sd || 13, 0, 0, 0);
+    const baseDay = basingDate.getDay();
+    const baseDiffToMonday = baseDay === 0 ? -6 : 1 - baseDay;
+    const basingMonday = new Date(basingDate);
+    basingMonday.setDate(basingDate.getDate() + baseDiffToMonday);
+    basingMonday.setHours(0, 0, 0, 0);
     
     // Find the Monday of the week date d belongs to
     const day = d.getDay(); // 0 is Sunday, 1 is Monday...
@@ -229,12 +242,8 @@ export default function ActivityTimeline({
     monday.setDate(d.getDate() + diffToMonday);
     monday.setHours(0, 0, 0, 0);
 
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
-    sunday.setHours(23, 59, 59, 999);
-
     const msInWeek = 7 * 24 * 60 * 60 * 1000;
-    const weekIndex = Math.floor((monday.getTime() - BASING_START.getTime()) / msInWeek);
+    const weekIndex = Math.floor((monday.getTime() - basingMonday.getTime()) / msInWeek);
     const weekNumber = weekIndex + 1;
 
     const label = weekNumber === 9999
@@ -639,6 +648,114 @@ export default function ActivityTimeline({
                 </span>
               )}
 
+              {/* DEDICATED QUIZ OPEN DURATION & STATUS BADGE - ONLY ON QUIZZES */}
+              {task.type === 'CUESTIONARIO' && (() => {
+                const nowMs = now.getTime();
+                const apMs = task.apertureDateISO ? new Date(task.apertureDateISO).getTime() : null;
+                const clMs = task.closureDate ? new Date(task.closureDate).getTime() : null;
+
+                let isOpenNow = false;
+                if (task.quiz_info?.abierto !== undefined && task.quiz_info?.abierto !== null) {
+                  isOpenNow = task.quiz_info.abierto;
+                } else if (apMs && clMs) {
+                  isOpenNow = nowMs >= apMs && nowMs <= clMs;
+                } else if (clMs) {
+                  isOpenNow = nowMs <= clMs;
+                } else if (apMs) {
+                  isOpenNow = nowMs >= apMs;
+                }
+
+                // Calculate duration of the open window
+                let windowDuration = '';
+                if (apMs && clMs && clMs > apMs) {
+                  const durMs = clMs - apMs;
+                  const days = Math.floor(durMs / (24 * 3600 * 1000));
+                  const hrs = Math.floor((durMs % (24 * 3600 * 1000)) / (3600 * 1000));
+                  const mins = Math.round((durMs % (3600 * 1000)) / (60 * 1000));
+                  if (days > 0) {
+                    windowDuration = hrs > 0 ? `${days}d ${hrs}h` : `${days}d`;
+                  } else if (hrs > 0) {
+                    windowDuration = mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+                  } else {
+                    windowDuration = `${mins}m`;
+                  }
+                } else if (task.quiz_info?.limite_tiempo) {
+                  windowDuration = task.quiz_info.limite_tiempo;
+                }
+
+                // Calculate remaining time until close if currently open
+                let remainingStr = '';
+                if (clMs && clMs > nowMs) {
+                  const diff = clMs - nowMs;
+                  const d = Math.floor(diff / (24 * 3600 * 1000));
+                  const h = Math.floor((diff % (24 * 3600 * 1000)) / (3600 * 1000));
+                  const m = Math.floor((diff % (3600 * 1000)) / (60 * 1000));
+                  remainingStr = d > 0 ? `${d}d ${h}h` : (h > 0 ? `${h}h ${m}m` : `${m}m`);
+                }
+
+                if (isOpenNow) {
+                  return (
+                    <span 
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-emerald-50 text-emerald-800 border-emerald-300 shadow-2xs flex items-center gap-1.5"
+                      title={language === 'es' ? 'El cuestionario se encuentra abierto ahora' : 'The quiz is currently open'}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+                      <span>
+                        {language === 'es' 
+                          ? (windowDuration ? `Abierto ahora (Ventana: ${windowDuration})` : (remainingStr ? `Abierto ahora (Quedan ${remainingStr})` : 'Abierto ahora'))
+                          : (windowDuration ? `Open now (Window: ${windowDuration})` : (remainingStr ? `Open now (${remainingStr} left)` : 'Open now'))}
+                      </span>
+                    </span>
+                  );
+                } else {
+                  const isPastClose = clMs && nowMs > clMs;
+                  const isFutureOpen = apMs && nowMs < apMs;
+
+                  if (isPastClose) {
+                    return (
+                      <span 
+                        className="text-[10px] font-medium px-2 py-0.5 rounded-md border bg-slate-100 text-slate-600 border-slate-200 flex items-center gap-1"
+                        title={language === 'es' ? 'El cuestionario ya cerró su plazo' : 'The quiz has closed'}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0"></span>
+                        <span>
+                          {language === 'es'
+                            ? (windowDuration ? `Cerrado • Estuvo abierto ${windowDuration}` : 'Cerrado')
+                            : (windowDuration ? `Closed • Was open for ${windowDuration}` : 'Closed')}
+                        </span>
+                      </span>
+                    );
+                  }
+
+                  if (isFutureOpen) {
+                    return (
+                      <span 
+                        className="text-[10px] font-medium px-2 py-0.5 rounded-md border bg-indigo-50 text-indigo-700 border-indigo-200 flex items-center gap-1"
+                        title={language === 'es' ? 'El cuestionario aún no abre' : 'The quiz is not open yet'}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>
+                        <span>
+                          {language === 'es'
+                            ? (windowDuration ? `Aún no abre • Estará abierto ${windowDuration}` : 'Aún no abre')
+                            : (windowDuration ? `Not open yet • Open for ${windowDuration}` : 'Not open yet')}
+                        </span>
+                      </span>
+                    );
+                  }
+
+                  return (
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-md border bg-slate-100 text-slate-600 border-slate-200 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0"></span>
+                      <span>
+                        {language === 'es'
+                          ? (windowDuration ? `Ventana: ${windowDuration}` : 'Cuestionario')
+                          : (windowDuration ? `Window: ${windowDuration}` : 'Quiz')}
+                      </span>
+                    </span>
+                  );
+                }
+              })()}
+
               {task.advertencia_preguntas && (
                 <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-1.5 py-0.5 flex items-center space-x-1">
                   <AlertCircle className="w-3 h-3 text-amber-500 shrink-0" />
@@ -707,11 +824,11 @@ export default function ActivityTimeline({
   return (
     <div id="timeline-card-wrapper" className="space-y-4">
       
-      {/* 1. Clean Toolbar & Filters */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-4">
+      {/* 1. Summary & Progress Card */}
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-3">
         
         {/* Header summary row */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center space-x-3">
             <div>
               <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
@@ -805,9 +922,14 @@ export default function ActivityTimeline({
             </div>
           </div>
         )}
+      </div>
 
-        {/* Search & Filter Bar */}
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+      {/* 2. FROZEN FILTERS BAR - STICKY ON TOP */}
+      <div 
+        id="timeline-frozen-filters-bar"
+        className="sticky top-[52px] sm:top-[56px] z-30 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl p-2.5 sm:p-3 shadow-xs space-y-2"
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
           {/* Search */}
           <div className="sm:col-span-4 relative">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -818,15 +940,24 @@ export default function ActivityTimeline({
               placeholder={language === 'es' ? 'Buscar actividad o materia...' : 'Search activity or course...'}
               className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
             />
+            {searchQuery && (
+              <button 
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
+              >
+                ✕
+              </button>
+            )}
           </div>
 
-          {/* Subjects dropdown */}
+          {/* Subjects dropdown - FROZEN */}
           <div className="sm:col-span-3">
             <select
               id="task-subject-filter"
               value={selectedCourseId}
               onChange={(e) => setSelectedCourseId(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer"
+              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer font-medium truncate"
+              title={language === 'es' ? 'Filtrar por materia' : 'Filter by subject'}
             >
               <option value="all">{language === 'es' ? `Todas las materias (${uniqueCourses.length})` : `All courses (${uniqueCourses.length})`}</option>
               {uniqueCourses.map(([cid, cname]) => (
@@ -835,13 +966,14 @@ export default function ActivityTimeline({
             </select>
           </div>
 
-          {/* Type dropdown */}
+          {/* Type dropdown - FROZEN */}
           <div className="sm:col-span-3">
             <select
               id="task-type-filter"
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer"
+              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer font-medium"
+              title={language === 'es' ? 'Filtrar por tipo' : 'Filter by type'}
             >
               <option value="all">{t('timeline.allTypes')}</option>
               <option value="TAREA">{t('timeline.typeTask')}</option>
@@ -852,35 +984,35 @@ export default function ActivityTimeline({
           </div>
 
           {/* View toggles */}
-          <div className="sm:col-span-2 flex flex-col gap-1.5">
+          <div className="sm:col-span-2 flex items-center space-x-1.5">
             <button
               type="button"
               onClick={() => setShowPastSemester(!showPastSemester)}
-              className={`w-full px-2 py-1.5 text-xs font-semibold rounded-xl border flex items-center justify-center space-x-1.5 transition-colors cursor-pointer ${
+              className={`flex-1 px-2 py-1.5 text-[11px] font-bold rounded-xl border flex items-center justify-center space-x-1 transition-colors cursor-pointer whitespace-nowrap ${
                 showPastSemester 
                   ? 'bg-slate-50 text-slate-700 border-slate-200' 
                   : 'bg-amber-50 text-amber-700 border-amber-200'
               }`}
-              title={language === 'es' ? 'Muestra u oculta actividades de semestres anteriores (cerradas hace más de 21 días)' : 'Show or hide activities from previous semesters (closed more than 21 days ago)'}
+              title={language === 'es' ? 'Muestra u oculta actividades pasadas' : 'Show or hide past activities'}
             >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>{showPastSemester ? (language === 'es' ? 'Ver pasado' : 'Show past') : (language === 'es' ? 'Ocultar pasado' : 'Hide past')}</span>
+              <Calendar className="w-3 h-3 shrink-0" />
+              <span>{showPastSemester ? (language === 'es' ? 'Pasado' : 'Past') : (language === 'es' ? 'Sin pasado' : 'No past')}</span>
             </button>
             <button
               type="button"
               onClick={() => setShowCompleted(!showCompleted)}
-              className={`w-full px-2 py-1.5 text-xs font-semibold rounded-xl border flex items-center justify-center space-x-1.5 transition-colors cursor-pointer ${
+              className={`flex-1 px-2 py-1.5 text-[11px] font-bold rounded-xl border flex items-center justify-center space-x-1 transition-colors cursor-pointer whitespace-nowrap ${
                 showCompleted 
                   ? 'bg-slate-50 text-slate-700 border-slate-200' 
                   : 'bg-blue-50 text-blue-700 border-blue-200'
               }`}
+              title={language === 'es' ? 'Muestra u oculta actividades hechas' : 'Show or hide done activities'}
             >
-              <EyeOff className="w-3.5 h-3.5" />
-              <span>{showCompleted ? (language === 'es' ? 'Ocultar Hechas' : 'Hide Completed') : (language === 'es' ? 'Ver Hechas' : 'Show Completed')}</span>
+              <EyeOff className="w-3 h-3 shrink-0" />
+              <span>{showCompleted ? (language === 'es' ? 'Hechas' : 'Done') : (language === 'es' ? 'Ocultas' : 'Hidden')}</span>
             </button>
           </div>
         </div>
-
       </div>
 
       {/* 2. Tasks Timeline View */}

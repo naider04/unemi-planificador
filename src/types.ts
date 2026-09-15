@@ -99,6 +99,7 @@ export interface TodoTask {
   advertencia_preguntas?: string | null;
   por_hacer_calificacion?: boolean;
   hecho_calificacion?: boolean;
+  quiz_info?: QuizInfo | null;
   grupo?: string | null;
   section?: string | null;
   moodleUsername?: string | null;
