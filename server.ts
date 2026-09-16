@@ -293,6 +293,25 @@ async function getAssignIdFromCmid(base: string, wstoken: string, courseId: numb
   return null;
 }
 
+// Resolve a submission group id (from mod_assign_get_submission_status) to its name via core_group.
+async function getSubmissionGroupName(base: string, wstoken: string, courseId: number, groupId: number, groupsCache?: Record<string, any[]>): Promise<string | null> {
+  try {
+    if (!groupId) return null;
+    const cacheKey = `${courseId}`;
+    let groups: any[] | undefined = groupsCache ? groupsCache[cacheKey] : undefined;
+    if (!groups) {
+      const res = await callMoodleWS(base, wstoken, 'core_group_get_course_user_groups', { courseid: courseId });
+      groups = Array.isArray(res.groups) ? res.groups : [];
+      if (groupsCache) groupsCache[cacheKey] = groups;
+    }
+    const found = groups.find((g: any) => String(g.id) === String(groupId));
+    return found ? found.name : null;
+  } catch (e) {
+    console.warn(`Failed to resolve submission group name for group ${groupId}:`, e);
+    return null;
+  }
+}
+
 // Map course module (cmid) to quizid
 async function getQuizIdFromCmid(base: string, wstoken: string, courseId: number, cmid: number): Promise<number | null> {
   try {
@@ -1183,6 +1202,10 @@ app.post('/api/moodle/activity-details', async (req, res) => {
               };
               info.estado_calificacion = gradingMap[la.gradingstatus] || la.gradingstatus;
             }
+
+            if (la.submissiongroup) {
+              info.grupo = await getSubmissionGroupName(base, wstoken, Number(courseId), Number(la.submissiongroup));
+            }
           }
 
           if (statusRes.feedback && statusRes.feedback.gradefordisplay) {
@@ -2054,6 +2077,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
 
   const userIdsBySession: Record<number, number> = {};
   const gradesCache: Record<string, any> = {};
+  const courseGroupsCache: Record<string, any[]> = {};
 
   try {
     const baseUrls = sessions.map(s => {
@@ -2913,6 +2937,10 @@ async function runBackgroundSync(key: string, sessions: any[]) {
                     'notgraded': 'Sin calificar'
                   };
                   detailsInfo.estado_calificacion = gradingMap[la.gradingstatus] || la.gradingstatus;
+                }
+
+                if (la.submissiongroup) {
+                  detailsInfo.grupo = await getSubmissionGroupName(base, wstoken, courseIdInt, Number(la.submissiongroup), courseGroupsCache);
                 }
               }
 

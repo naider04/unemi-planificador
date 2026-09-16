@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Clock, CheckCircle, Trash2, Calendar, FileText, Square, CheckSquare, Search, 
   ChevronRight, ChevronDown, Filter, EyeOff, LayoutGrid, ListFilter, AlertCircle, PlusCircle, CheckSquare2,
-  Download, RefreshCw, Eye, BookOpen, Terminal, Info, X, Sparkles
+  Download, RefreshCw, Eye, BookOpen, Terminal, Info, X, Sparkles, Users
 } from 'lucide-react';
 import { TodoTask } from '../types';
 import { useLanguage } from '../context/LanguageContext';
@@ -24,6 +24,7 @@ interface ActivityTimelineProps {
   getFeedbackImageUrl?: (task: TodoTask, fileUrl: string) => string | null;
   firstWeekDate?: string;
   onFirstWeekDateChange?: (date: string) => void;
+  liveCoursesByAccount?: Record<string, Set<string>>;
 }
 
 export default function ActivityTimeline({ 
@@ -42,7 +43,8 @@ export default function ActivityTimeline({
   viewingTaskId,
   getFeedbackImageUrl,
   firstWeekDate,
-  onFirstWeekDateChange
+  onFirstWeekDateChange,
+  liveCoursesByAccount
 }: ActivityTimelineProps) {
   const { t, language } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
@@ -343,11 +345,31 @@ export default function ActivityTimeline({
     )
   ).sort();
 
-  // Find unique courses in task base for filtering
+  // A subject belongs to the current period when it appears in the live Moodle
+  // course list of its account. Fall back to a date approximation (21-day
+  // grace) only when no live course data is available for the account.
+  const PAST_SEMESTER_GRACE_MS = 21 * 24 * 60 * 60 * 1000;
+  const isPastSemesterByDate = (task: TodoTask, nowTime: number): boolean => {
+    if (!task.closureDate) return false;
+    return new Date(task.closureDate).getTime() < nowTime - PAST_SEMESTER_GRACE_MS;
+  };
+  const liveAccountKey = (task: TodoTask) =>
+    `${task.moodleServer || ''}|${(task.moodleUsername || '').toLowerCase()}`;
+  const isCurrentSubject = (task: TodoTask): boolean => {
+    if (!task.courseId) return true;
+    const liveIds = liveCoursesByAccount?.[liveAccountKey(task)];
+    if (!liveIds) return !isPastSemesterByDate(task, now.getTime());
+    return liveIds.has(String(task.courseId));
+  };
+  const isPastSemesterTask = (task: TodoTask): boolean => !isCurrentSubject(task);
+
+  // Find unique courses in task base for filtering (only current-period subjects
+  // unless the user opts to include past activities in the view)
   const uniqueCourses = Array.from(
     new Map(
       tasks
         .filter(t => t.courseId && t.courseName)
+        .filter(t => showPastSemester || isCurrentSubject(t))
         .filter(t => selectedAccounts.length === 0 || selectedAccounts.includes(`${t.moodleUsername || 'Manual'}|${getCourseDetails(t.courseName).carrera}`))
         .map(t => [t.courseId, t.courseName])
     ).entries()
@@ -503,15 +525,6 @@ export default function ActivityTimeline({
     return '';
   };
 
-  // A task is considered "past semester" when its deadline closed well before
-  // today (grace of 21 days). Such tasks come from previous semesters that the
-  // app keeps merged in localStorage/Firestore, so they are hidden by default.
-  const PAST_SEMESTER_GRACE_MS = 21 * 24 * 60 * 60 * 1000;
-  const isPastSemesterTask = (task: TodoTask, nowTime: number): boolean => {
-    if (!task.closureDate) return false;
-    return new Date(task.closureDate).getTime() < nowTime - PAST_SEMESTER_GRACE_MS;
-  };
-
   // Filter & SORT calculations:
   // Sorting rules:
   // 1. Items WITHOUT closing dates are pushed to the very end
@@ -525,7 +538,7 @@ export default function ActivityTimeline({
       const matchesCourse = selectedCourseId === 'all' || task.courseId === selectedCourseId;
       const matchesType = selectedType === 'all' || task.type === selectedType;
       const matchesCompleted = showCompleted || !task.completed;
-      const matchesSemester = showPastSemester || !isPastSemesterTask(task, now.getTime());
+      const matchesSemester = showPastSemester || isCurrentSubject(task);
       return matchesSearch && matchesAccount && matchesCourse && matchesType && matchesCompleted && matchesSemester;
     })
     .sort((a, b) => {
@@ -594,11 +607,6 @@ export default function ActivityTimeline({
               }`}>
                 {task.type}
               </span>
-              {task.grupo ? (
-                <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.2 rounded font-medium">
-                  {t('timeline.groupBadge')}
-                </span>
-              ) : null}
             </div>
 
             <h3 className="text-xs sm:text-sm font-bold mt-1 leading-snug flex items-center gap-1.5 min-w-0">
@@ -641,6 +649,16 @@ export default function ActivityTimeline({
                   </span>
                 );
               })()}
+
+              {task.grupo && (
+                <span
+                  className="text-[10px] font-medium px-2 py-0.5 rounded-md border bg-violet-50 text-violet-700 border-violet-200 flex items-center gap-1"
+                  title={language === 'es' ? `Actividad en grupo: ${task.grupo}` : `Group activity: ${task.grupo}`}
+                >
+                  <Users className="w-3 h-3 shrink-0" />
+                  <span>{language === 'es' ? 'Grupo:' : 'Group:'} {task.grupo}</span>
+                </span>
+              )}
 
               {task.grade && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-emerald-50 text-emerald-800 border-emerald-200">

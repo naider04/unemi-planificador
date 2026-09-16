@@ -65,6 +65,9 @@ export default function App() {
   const [isDbLoaded, setIsDbLoaded] = useState<boolean>(false);
   const [tasks, setTasks] = useState<TodoTask[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
+  // Live "current period" subjects fetched per connected Moodle account:
+  // key = `${server}|${username.toLowerCase()}`, value = Set of course IDs.
+  const [liveCoursesByAccount, setLiveCoursesByAccount] = useState<Record<string, Set<string>>>({});
   const [activeTab, setActiveTab] = useState<'agenda' | 'login' | 'stats'>('agenda');
 
   // Alert and Loading states for Activity detail fetching/opening
@@ -785,6 +788,41 @@ export default function App() {
     }, 10000); // 10s debounce to avoid exhausting Firestore write streams during high-frequency syncs
     return () => clearTimeout(timer);
   }, [tasks, lastSyncedTime, sessions, isDbLoaded, notifications]);
+
+  // Fetch the live Moodle subject list for every connected account so the app
+  // can tell which subjects belong to the current academic period (instead of
+  // inferring it from activity dates).
+  useEffect(() => {
+    if (sessions.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.allSettled(
+        sessions.map(async (sess) => {
+          const apiBase = import.meta.env.VITE_API_URL || '';
+          const res = await fetch(`${apiBase}/api/moodle/courses`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ moodleSession: sess.cookies, server: sess.server })
+          });
+          const data = await res.json();
+          if (!res.ok || !data.courses) {
+            throw new Error(data.error || 'Fetch courses failed');
+          }
+          return {
+            key: `${sess.server}|${sess.username.toLowerCase()}`,
+            ids: new Set<string>(data.courses.map((c: { id: string }) => String(c.id)))
+          };
+        })
+      );
+      if (cancelled) return;
+      const map: Record<string, Set<string>> = {};
+      results.forEach(r => {
+        if (r.status === 'fulfilled') map[r.value.key] = r.value.ids;
+      });
+      setLiveCoursesByAccount(map);
+    })();
+    return () => { cancelled = true; };
+  }, [sessions]);
 
   // Fetch courses cache sequentially once connected
   useEffect(() => {
@@ -2027,7 +2065,6 @@ export default function App() {
                     ) : (
                       <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
                         {sessions.map((sess, idx) => {
-                          const isActive = idx === activeSessionIndex;
                           const serverLabel = sess.server === 'upsdt' 
                             ? 'UPSDT' 
                             : (sess.server === 'a' ? 'UNEMI P/S' : 'UNEMI Online');
@@ -2035,15 +2072,11 @@ export default function App() {
                           return (
                             <div
                               key={idx}
-                              className={`p-2.5 rounded-xl border transition-all flex items-center justify-between text-xs ${
-                                isActive 
-                                  ? 'bg-blue-50/70 border-blue-200 text-blue-900' 
-                                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                              }`}
+                              className="p-2.5 rounded-xl border bg-slate-50 border-slate-200 text-slate-700 flex items-center justify-between text-xs"
                             >
                               <div className="flex items-center space-x-2 min-w-0">
                                 <span className={`w-2 h-2 rounded-full shrink-0 ${
-                                  sess.expired ? 'bg-rose-500' : (isActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400')
+                                  sess.expired ? 'bg-rose-500' : 'bg-emerald-500'
                                 }`} />
                                 <div className="min-w-0">
                                   <div className="flex items-center space-x-1.5 truncate">
@@ -2052,28 +2085,13 @@ export default function App() {
                                       {serverLabel}
                                     </span>
                                   </div>
-                                  {sess.expired ? (
-                                    <span className="text-[10px] text-rose-500 font-bold block">{t('options.expired')}</span>
-                                  ) : isActive ? (
-                                    <span className="text-[10px] text-blue-600 font-semibold block">{t('options.activeSession')}</span>
-                                  ) : null}
+                                  {sess.expired && (
+                                    <span className="text-[10px] text-rose-500 font-bold block">{language === 'es' ? 'Expirada' : 'Expired'}</span>
+                                  )}
                                 </div>
                               </div>
 
                               <div className="flex items-center space-x-1 shrink-0 ml-2">
-                                {!isActive && !sess.expired && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveSessionIndex(idx);
-                                      setActiveTab('agenda');
-                                      setIsMoreOptionsOpen(false);
-                                    }}
-                                    className="px-2 py-0.8 text-[10px] font-bold bg-white text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors cursor-pointer"
-                                  >
-                                    {t('options.switch')}
-                                  </button>
-                                )}
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -2222,6 +2240,7 @@ export default function App() {
               viewingTaskId={viewingTaskId}
               firstWeekDate={firstWeekDate}
               onFirstWeekDateChange={handleFirstWeekDateChange}
+              liveCoursesByAccount={liveCoursesByAccount}
               getFeedbackImageUrl={(task, fileUrl) => {
                 const match = sessions.find(
                   s => s.username.toLowerCase() === task.moodleUsername?.toLowerCase() && s.server === task.moodleServer
@@ -2272,7 +2291,6 @@ export default function App() {
 
                   <div className="space-y-2">
                     {sessions.map((sess, idx) => {
-                      const isActive = idx === activeSessionIndex;
                       const serverLabel = sess.server === 'upsdt' 
                         ? 'UPSDT' 
                         : (sess.server === 'a' ? 'UNEMI Presencial / Semi' : 'UNEMI Online');
@@ -2280,19 +2298,11 @@ export default function App() {
                       return (
                         <div 
                           key={idx} 
-                          className={`p-3.5 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                            isActive 
-                              ? 'bg-blue-50/70 border-blue-200 shadow-2xs' 
-                              : 'bg-slate-50 border-slate-200/80'
-                          }`}
+                          className="p-3.5 rounded-xl border bg-slate-50 border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                         >
                           <div className="flex items-center space-x-3 min-w-0">
                             <span className={`w-3 h-3 rounded-full shrink-0 ${
-                              sess.expired 
-                                ? 'bg-rose-500' 
-                                : isActive 
-                                  ? 'bg-emerald-500 animate-pulse' 
-                                  : 'bg-slate-400'
+                              sess.expired ? 'bg-rose-500' : 'bg-emerald-500'
                             }`} />
                             <div className="min-w-0">
                               <div className="flex items-center space-x-2">
@@ -2302,12 +2312,8 @@ export default function App() {
                                 </span>
                               </div>
                               <p className="text-[11px] text-slate-400 mt-0.5">
-                                {sess.expired ? (
-                                  <span className="text-rose-600 font-bold">{t('options.expired')}</span>
-                                ) : isActive ? (
-                                  <span className="text-blue-600 font-semibold">{t('options.activeSession')}</span>
-                                ) : (
-                                  language === 'es' ? 'Cuenta secundaria' : 'Secondary account'
+                                {sess.expired && (
+                                  <span className="text-rose-600 font-bold">{language === 'es' ? 'Expirada' : 'Expired'}</span>
                                 )}
                               </p>
                             </div>
@@ -2325,32 +2331,9 @@ export default function App() {
                                 }}
                                 className="text-xs font-bold text-blue-600 bg-white hover:bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-xl transition-colors cursor-pointer"
                               >
-                                Reconectar
+                                {language === 'es' ? 'Reconectar' : 'Reconnect'}
                               </button>
-                            ) : (
-                              <>
-                                {!isActive && (
-                                  <button
-                                    onClick={() => {
-                                      setActiveSessionIndex(idx);
-                                      setActiveTab('agenda');
-                                    }}
-                                    className="text-xs font-bold text-blue-600 bg-white hover:bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-xl transition-colors cursor-pointer"
-                                  >
-                                    {t('options.switch')}
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => {
-                                    setActiveSessionIndex(idx);
-                                    setActiveTab('agenda');
-                                  }}
-                                  className="text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-xl transition-colors cursor-pointer"
-                                >
-                                  Ver actividades
-                                </button>
-                              </>
-                            )}
+                            ) : null}
 
                             <button
                               onClick={() => {
@@ -2408,6 +2391,7 @@ export default function App() {
           {activeTab === 'stats' && (
             <StatsPanel 
               tasks={tasks} 
+              liveCoursesByAccount={liveCoursesByAccount}
               onNavigateToMoodleActivity={(courseId, activityUrl) => {
                 const matchedTask = tasks.find(t => t.activityUrl === activityUrl);
                 if (matchedTask && matchedTask.moodleUsername && matchedTask.moodleServer) {

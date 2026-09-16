@@ -5,6 +5,7 @@ import { useLanguage } from '../context/LanguageContext';
 
 interface StatsPanelProps {
   tasks: TodoTask[];
+  liveCoursesByAccount?: Record<string, Set<string>>;
   onNavigateToMoodleActivity?: (courseId: string, activityUrl: string) => void;
   onViewUpcomingActivities?: (courseId: string) => void;
 }
@@ -29,24 +30,29 @@ interface CourseStats {
   }[];
 }
 
-export default function StatsPanel({ tasks, onNavigateToMoodleActivity, onViewUpcomingActivities }: StatsPanelProps) {
+export default function StatsPanel({ tasks, liveCoursesByAccount, onNavigateToMoodleActivity, onViewUpcomingActivities }: StatsPanelProps) {
   const { t, language } = useLanguage();
   const [expandedCourses, setExpandedCourses] = useState<Record<string, boolean>>({});
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState<boolean>(false);
 
-  // A task belongs to a previous period when its deadline closed well before
-  // today (21-day grace), matching how "Mi agenda" separates semesters.
+  // A subject belongs to the current period when it appears in the live Moodle
+  // course list of its account, so subjects from previous periods do not show
+  // up in the statistics. Date approximation (21-day grace) only used as a
+  // fallback when no live course data is available for the account.
   const PAST_SEMESTER_GRACE_MS = 21 * 24 * 60 * 60 * 1000;
-  const isPastSemesterTask = (task: TodoTask, nowTime: number): boolean => {
+  const nowTime = Date.now();
+  const isPastSemesterByDate = (task: TodoTask): boolean => {
     if (!task.closureDate) return false;
     return new Date(task.closureDate).getTime() < nowTime - PAST_SEMESTER_GRACE_MS;
   };
-
-  // Only consider tasks from the current period so subjects of previous
-  // periods do not show up in the statistics.
-  const nowTime = Date.now();
-  const currentPeriodTasks = tasks.filter(t => !isPastSemesterTask(t, nowTime));
+  const isCurrentSubject = (task: TodoTask): boolean => {
+    if (!task.courseId) return true;
+    const liveIds = liveCoursesByAccount?.[`${task.moodleServer || ''}|${(task.moodleUsername || '').toLowerCase()}`];
+    if (!liveIds) return !isPastSemesterByDate(task);
+    return liveIds.has(String(task.courseId));
+  };
+  const currentPeriodTasks = tasks.filter(t => isCurrentSubject(t));
 
   const parseVal = (v: string | null | undefined): number | null => {
     if (v === null || v === undefined) return null;
