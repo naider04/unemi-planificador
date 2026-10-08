@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Clock, CheckCircle, Trash2, Calendar, FileText, Square, CheckSquare, Search, 
   ChevronRight, ChevronDown, Filter, EyeOff, LayoutGrid, ListFilter, AlertCircle, PlusCircle, CheckSquare2,
-  Download, RefreshCw, Eye, BookOpen, Terminal, Info, X, Sparkles, Users
+  Download, RefreshCw, Eye, BookOpen, Terminal, Info, X, Sparkles, Users, Link2, Check
 } from 'lucide-react';
 import { TodoTask } from '../types';
 import { useLanguage } from '../context/LanguageContext';
@@ -14,8 +14,6 @@ interface ActivityTimelineProps {
   onOpenNewTaskModal?: () => void;
   navigationTrigger?: string | null;
   onClearNavigationTrigger?: () => void;
-  onRefreshSingleTask?: (id: string) => void;
-  syncingTaskId?: string | null;
   onDownloadHtml?: (task: TodoTask) => void;
   onViewHtml?: (task: TodoTask) => void;
   filterCourseIdTrigger?: string | null;
@@ -34,8 +32,6 @@ export default function ActivityTimeline({
   onOpenNewTaskModal,
   navigationTrigger,
   onClearNavigationTrigger,
-  onRefreshSingleTask,
-  syncingTaskId,
   onDownloadHtml,
   onViewHtml,
   filterCourseIdTrigger,
@@ -56,6 +52,41 @@ export default function ActivityTimeline({
   const [showPastSemester, setShowPastSemester] = useState<boolean>(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
+  const [copiedTaskId, setCopiedTaskId] = useState<string | null>(null);
+
+  const copyToClipboard = async (text: string): Promise<boolean> => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {
+      // fall through to the legacy path below
+    }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleCopyActivityLink = async (task: TodoTask) => {
+    if (!task.activityUrl) return;
+    const ok = await copyToClipboard(task.activityUrl);
+    if (ok) {
+      setCopiedTaskId(task.id);
+      window.setTimeout(() => setCopiedTaskId(prev => (prev === task.id ? null : prev)), 2000);
+    }
+  };
   
   const [collapsedWeeksState, setCollapsedWeeksState] = useState<Record<string, boolean>>(() => {
     try {
@@ -805,18 +836,30 @@ export default function ActivityTimeline({
           </span>
 
           <div className="flex items-center space-x-1">
-            {task.type !== 'MANUAL' && onRefreshSingleTask && (
+            {task.activityUrl && (
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onRefreshSingleTask(task.id);
+                  handleCopyActivityLink(task);
                 }}
-                disabled={syncingTaskId === task.id}
-                className="text-[10px] font-medium text-slate-400 hover:text-blue-600 p-1 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
-                title={language === 'es' ? 'Actualizar estado desde Moodle' : 'Update status from Moodle'}
+                aria-label={language === 'es' ? 'Copiar enlace de la actividad' : 'Copy activity link'}
+                className={`text-[10px] font-medium p-1 rounded-md transition-colors cursor-pointer ${
+                  copiedTaskId === task.id
+                    ? 'text-emerald-600 bg-emerald-50'
+                    : 'text-slate-400 hover:text-blue-600 hover:bg-slate-100'
+                }`}
+                title={
+                  copiedTaskId === task.id
+                    ? (language === 'es' ? 'Enlace copiado' : 'Link copied')
+                    : (language === 'es' ? 'Copiar enlace de la actividad' : 'Copy activity link')
+                }
               >
-                <RefreshCw className={`w-3 h-3 ${syncingTaskId === task.id ? 'animate-spin text-blue-600' : ''}`} />
+                {copiedTaskId === task.id ? (
+                  <Check className="w-3 h-3" />
+                ) : (
+                  <Link2 className="w-3 h-3" />
+                )}
               </button>
             )}
 

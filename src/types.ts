@@ -121,7 +121,7 @@ export interface MoodleNotification {
   timestamp: number;
   title: string;
   message: string;
-  type: 'new' | 'deadline' | 'status' | 'grade' | 'general';
+  type: 'new' | 'deadline' | 'status' | 'grade' | 'removed' | 'general';
   read: boolean;
   activityUrl?: string;
   courseName?: string;

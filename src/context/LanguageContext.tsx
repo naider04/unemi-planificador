@@ -306,7 +306,6 @@ const translations: Record<Language, Record<string, string>> = {
     'app.viewHtmlError': 'Error al ver la página HTML de Moodle.',
     'app.noActiveSessionReconnect': 'No se encontró una sesión activa relacionada para esa actividad. Por favor ve a la pestaña "Conectar Moodle" y reconéctala.',
     'app.sessionExpired': 'La sesión expiró.',
-    'app.singleTaskUpdateFailed': 'No se pudo actualizar de forma remota la actividad seleccionada.',
     'app.noActiveSessionDownload': 'No se encontró una sesión activa para esta cuenta. Por favor vuelve a conectar la cuenta.',
     'app.downloadHtmlError': 'Error al descargar la página de Moodle.',
     'app.networkErrorDownload': 'Error de red al intentar descargar la página.',
@@ -331,7 +330,9 @@ const translations: Record<Language, Record<string, string>> = {
     'notif.newGradeTitle': '⭐ Nueva Calificación',
     'notif.newGradeBody': 'Recibiste una nota para "{title}": {grade}/{gradeOver}.',
     'notif.statusUpdatedTitle': '🔄 Estado Actualizado',
-    'notif.statusUpdatedBody': 'El estado de "{title}" cambió de "{oldStatus}" a "{newStatus}".'
+    'notif.statusUpdatedBody': 'El estado de "{title}" cambió de "{oldStatus}" a "{newStatus}".',
+    'notif.activityRemovedTitle': '🗑️ Actividad oculta o eliminada en Moodle',
+    'notif.activityRemovedBody': 'Se eliminó "{title}" de tu agenda ({course}) porque ya no aparece en Moodle. El docente la ocultó, eliminó o reemplazó.'
   },
   en: {
     // Top Navbar
@@ -629,7 +630,6 @@ const translations: Record<Language, Record<string, string>> = {
     'app.viewHtmlError': 'Error viewing Moodle HTML page.',
     'app.noActiveSessionReconnect': 'No active session found for this activity. Please go to "Connections" and reconnect it.',
     'app.sessionExpired': 'Session expired.',
-    'app.singleTaskUpdateFailed': 'Could not remotely update the selected activity.',
     'app.noActiveSessionDownload': 'No active session found for this account. Please reconnect the account.',
     'app.downloadHtmlError': 'Error downloading Moodle page.',
     'app.networkErrorDownload': 'Network error while trying to download the page.',
@@ -654,7 +654,9 @@ const translations: Record<Language, Record<string, string>> = {
     'notif.newGradeTitle': '⭐ New Grade',
     'notif.newGradeBody': 'You received a grade for "{title}": {grade}/{gradeOver}.',
     'notif.statusUpdatedTitle': '🔄 Status Updated',
-    'notif.statusUpdatedBody': 'Status for "{title}" changed from "{oldStatus}" to "{newStatus}".'
+    'notif.statusUpdatedBody': 'Status for "{title}" changed from "{oldStatus}" to "{newStatus}".',
+    'notif.activityRemovedTitle': '🗑️ Activity hidden or removed from Moodle',
+    'notif.activityRemovedBody': 'Removed "{title}" from your agenda ({course}) because it no longer appears in Moodle. It was hidden, deleted or replaced by the teacher.'
   }
 };
 

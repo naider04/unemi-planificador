@@ -3,7 +3,7 @@ import {
   Calendar, Lock, Award, CheckCircle2, 
   Sparkles, Clock, AlertCircle, Bookmark, CheckSquare, Eye, RefreshCw, Download, BarChart3,
   Bell, BellOff, Trash2, ArrowLeft, ArrowRight, ExternalLink,
-  SlidersHorizontal, ChevronDown, UserPlus, LogOut, X, Users, Settings2
+  SlidersHorizontal, ChevronDown, UserPlus, LogOut, X, Users, Settings2, Key
 } from 'lucide-react';
 
 import { MoodleSession, TodoTask, Course, MoodleNotification } from './types';
@@ -38,6 +38,45 @@ export function mergeTasksLists(currentTasks: TodoTask[], newTasks: TodoTask[]):
     }
   });
   return merged;
+}
+
+const taskAccountKey = (t: TodoTask): string =>
+  t.moodleUsername && t.moodleServer
+    ? `${t.moodleServer}_${t.moodleUsername.trim().toLowerCase()}`
+    : '';
+
+export function reconcileTasksWithFreshSync(
+  currentTasks: TodoTask[],
+  authoritativeTasks: TodoTask[]
+): { reconciled: TodoTask[]; removed: TodoTask[] } {
+  // Collect the authoritative activity URLs per successfully-synced account.
+  // An account is considered successfully synced only when the fresh sync
+  // produced at least one activity for it; otherwise we keep its tasks
+  // untouched (e.g. the account failed or errored mid-sync).
+  const urlsByAccount = new Map<string, Set<string>>();
+  authoritativeTasks.forEach(t => {
+    const key = taskAccountKey(t);
+    if (!key) return;
+    if (!urlsByAccount.has(key)) urlsByAccount.set(key, new Set());
+    if (t.activityUrl) urlsByAccount.get(key)!.add(t.activityUrl);
+  });
+
+  const removed: TodoTask[] = [];
+  const reconciled = currentTasks.filter(t => {
+    // Manual/local tasks (no Moodle URL) are always preserved.
+    if (!t.activityUrl) return true;
+    const key = taskAccountKey(t);
+    // Tasks for accounts not covered by this sync run are preserved.
+    if (!key || !urlsByAccount.has(key)) return true;
+    const urls = urlsByAccount.get(key)!;
+    // Nothing came back for this account at all -> don't guess, keep.
+    if (!urls || urls.size === 0) return true;
+    if (urls.has(t.activityUrl)) return true;
+    removed.push(t);
+    return false;
+  });
+
+  return { reconciled, removed };
 }
 
 const isStatusSubmittedLocal = (estadoEntrega: string | null | undefined): boolean => {
@@ -81,6 +120,12 @@ export default function App() {
   const [timelineFilterCourseId, setTimelineFilterCourseId] = useState<string | null>(null);
   const [syncedAccountsCount, setSyncedAccountsCount] = useState<number | null>(null);
   const [isVerifyingSessions, setIsVerifyingSessions] = useState<boolean>(false);
+
+  // Inline account relogin (expired accounts) in the "More options" dropdown
+  const [reloginOpenFor, setReloginOpenFor] = useState<string | null>(null);
+  const [reloginPassword, setReloginPassword] = useState('');
+  const [reloginLoadingFor, setReloginLoadingFor] = useState<string | null>(null);
+  const [reloginErrorFor, setReloginErrorFor] = useState<string | null>(null);
 
   // Account Sync State for each account individually
   const [accountSyncs, setAccountSyncs] = useState<Record<string, {
@@ -172,7 +217,6 @@ export default function App() {
     });
   };
 
-  const [syncingTaskId, setSyncingTaskId] = useState<string | null>(null);
   const [lastSyncedTime, setLastSyncedTime] = useState<number | null>(null);
   const [syncQueue, setSyncQueue] = useState<MoodleSession[]>([]);
   
@@ -626,6 +670,34 @@ export default function App() {
     }
   };
 
+  // Notify about activities that vanished from Moodle (hidden/deleted/replaced
+  // by the teacher) and were reconciled out of the agenda.
+  const notifyDisappearedActivities = (removedTasks: TodoTask[]) => {
+    if (removedTasks.length === 0) return;
+    const now = Date.now();
+    const newNotifications: MoodleNotification[] = removedTasks.map(task => ({
+      id: `activity_removed_${now}_${Math.random().toString(36).substr(2, 5)}`,
+      moodleUsername: task.moodleUsername || '',
+      moodleServer: task.moodleServer || 'a',
+      timestamp: now,
+      title: t('notif.activityRemovedTitle'),
+      message: t('notif.activityRemovedBody', {
+        title: task.title,
+        course: task.courseName || 'Moodle'
+      }),
+      type: 'removed',
+      read: false,
+      activityUrl: task.activityUrl,
+      courseName: task.courseName
+    }));
+
+    setNotifications(prev => {
+      const merged = [...newNotifications, ...prev];
+      localStorage.setItem('unemi_notifications', JSON.stringify(merged));
+      return merged;
+    });
+  };
+
   const session = sessions[activeSessionIndex] || null;
 
   // 1. Initial Load from LocalStorage and Firestore Cache
@@ -987,6 +1059,49 @@ export default function App() {
     startGlobalSync(updatedSessions);
   };
 
+  // Inline re-login for expired accounts (password field inside "More options")
+  const handleRelogin = async (sess: MoodleSession) => {
+    const acctKey = `${sess.server}_${sess.username.trim().toLowerCase()}`;
+    if (!reloginPassword) {
+      setReloginErrorFor(t('login.enterCredentials'));
+      return;
+    }
+
+    setReloginLoadingFor(acctKey);
+    setReloginErrorFor(null);
+
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      const res = await fetch(`${apiBase}/api/moodle/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: sess.username, password: reloginPassword, server: sess.server })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const updated = sessions.map(s =>
+          s.username.toLowerCase() === sess.username.toLowerCase() && s.server === sess.server
+            ? { ...s, cookies: data.moodleSession, expired: false }
+            : s
+        );
+        setSessions(updated);
+        localStorage.setItem('unemi_sessions', JSON.stringify(updated));
+        setReloginOpenFor(null);
+        setReloginPassword('');
+        setReloginErrorFor(null);
+        startGlobalSync(updated);
+      } else {
+        setReloginErrorFor(data.error || t('login.authFailed'));
+      }
+    } catch (err) {
+      console.error(`Error during relogin for ${sess.username}:`, err);
+      setReloginErrorFor(t('login.networkError'));
+    } finally {
+      setReloginLoadingFor(null);
+    }
+  };
+
   const handleLogout = () => {
     const updatedSessions = sessions.filter((_, idx) => idx !== activeSessionIndex);
     setSessions(updatedSessions);
@@ -1185,7 +1300,14 @@ export default function App() {
           setTasks(prevTasks => {
             detectAndGenerateNotifications(prevTasks, job.tasks);
 
-            const merged = [...prevTasks];
+            // Drop tasks that vanished from Moodle (hidden/removed/replaced by
+            // a teacher) for accounts that were successfully synced this run.
+            const { reconciled, removed } = reconcileTasksWithFreshSync(prevTasks, job.tasks);
+            if (removed.length > 0) {
+              notifyDisappearedActivities(removed);
+            }
+
+            const merged = [...reconciled];
             job.tasks.forEach((srvTask: any) => {
               const matchIdx = merged.findIndex(t => t.activityUrl === srvTask.activityUrl);
               if (matchIdx !== -1) {
@@ -1485,213 +1607,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, [tasks, lastSyncedTime, isDbLoaded]);
 
-  const handleUpdateSingleTask = async (taskId: string) => {
-    const rawMatch = tasks.find(t => t.id === taskId);
-    if (!rawMatch || !rawMatch.activityUrl || !rawMatch.moodleUsername || !rawMatch.moodleServer) return;
-
-    setSyncingTaskId(taskId);
-    try {
-      const sess = sessions.find(s => s.username.toLowerCase() === rawMatch.moodleUsername?.toLowerCase() && s.server === rawMatch.moodleServer);
-      if (!sess) {
-        alert('No se encontró una sesión activa relacionada para esa actividad. Por favor ve a la pestaña "Conectar Moodle" y reconéctala.');
-        setSyncingTaskId(null);
-        return;
-      }
-
-      const apiBase = import.meta.env.VITE_API_URL || '';
-      const res = await fetch(`${apiBase}/api/moodle/activity-details`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          moodleSession: sess.cookies,
-          server: sess.server,
-          activityUrl: rawMatch.activityUrl
-        })
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.details) {
-          const details = data.details;
-          
-          const computeStatsLocal = (type: string, det: any) => {
-            let status = 'No entregado';
-            let grade: string | null = null;
-            let gradeOver: string | null = null;
-
-            if (det.por_hacer_calificacion) {
-              return { status: 'No entregado', grade: null, gradeOver: null };
-            }
-
-            if (type === 'CUESTIONARIO') {
-              if (det.quiz_info) {
-                const qi = det.quiz_info;
-                if (qi.calificacion_final) {
-                  status = 'Calificado';
-                  grade = qi.calificacion_final;
-                  gradeOver = qi.calificacion_sobre;
-                } else if (qi.intentos && qi.intentos.length > 0) {
-                  const finishedAttempt = qi.intentos.find((att: any) => 
-                    att.estado?.toLowerCase().includes('terminado') || 
-                    att.estado?.toLowerCase().includes('finalizado')
-                  );
-                  if (finishedAttempt) {
-                    status = finishedAttempt.calificacion ? 'Calificado' : 'Entregado';
-                    grade = finishedAttempt.calificacion;
-                    gradeOver = finishedAttempt.calificacion_sobre;
-                  } else {
-                    status = 'Entregado';
-                  }
-                } else if (det.hecho_calificacion) {
-                  status = 'Entregado';
-                }
-              } else if (det.hecho_calificacion) {
-                status = 'Entregado';
-              }
-            } else if (type === 'TAREA') {
-              const isCalificado = det.estado_calificacion?.toLowerCase().includes('calificado') || !!det.calificacion;
-              if (isCalificado) {
-                status = 'Calificado';
-                grade = det.calificacion || null;
-                gradeOver = det.calificacion_sobre || null;
-              } else if (isStatusSubmittedLocal(det.estado_entrega)) {
-                status = 'Entregado';
-              } else {
-                const estEntrega = det.estado_entrega?.toLowerCase() || '';
-                if (estEntrega.includes('borrador')) {
-                  status = 'Borrador';
-                } else if (estEntrega.includes('no entregado') || estEntrega.includes('sin entregar') || estEntrega.includes('no se ha enviado')) {
-                  status = 'No entregado';
-                } else if (det.hecho_calificacion) {
-                  status = 'Entregado';
-                } else {
-                  status = 'No entregado';
-                }
-              }
-            }
-            return { status, grade, gradeOver };
-          };
-
-          const stats = computeStatsLocal(rawMatch.type, details);
-          const updatedTask: TodoTask = {
-            ...rawMatch,
-            description: details.detalle || undefined,
-            closureDate: details.closureDateISO || null,
-            aperture: details.aperture || null,
-            apertureDateISO: details.apertureDateISO || null,
-            completed: !details.por_hacer_calificacion && (
-                         isStatusSubmittedLocal(details.estado_entrega) || 
-                         details.quiz_info?.intentos?.some((att: any) => att.estado?.toLowerCase().includes('terminado')) || 
-                         (details.hecho_calificacion === true) ||
-                         (stats.status === 'Calificado' || stats.status === 'Entregado') ||
-                         false
-                       ),
-            status: stats.status,
-            grade: stats.grade,
-            gradeOver: stats.gradeOver,
-            gradingStatus: (stats.grade || stats.status === 'Calificado' || (details.estado_calificacion && details.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (details.estado_calificacion || null),
-            estado_calificacion: (stats.grade || stats.status === 'Calificado' || (details.estado_calificacion && details.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (details.estado_calificacion || null),
-            estado_entrega: details.estado_entrega || null,
-            comentario_calificador: details.comentario_calificador || null,
-            comentario_imagenes: details.comentario_imagenes || [],
-            advertencia_preguntas: details.advertencia_preguntas || null,
-            por_hacer_calificacion: details.por_hacer_calificacion || false,
-            hecho_calificacion: details.hecho_calificacion || false,
-            grupo: details.grupo || null,
-            lastSyncedAt: new Date().toISOString()
-          };
-
-          // Detect single task notification changes on manual/single sync
-          const singleNotifs: MoodleNotification[] = [];
-          const nowNotif = Date.now();
-          
-          if (updatedTask.closureDate && rawMatch.closureDate && updatedTask.closureDate !== rawMatch.closureDate) {
-            const formatShortDate = (isoStr: string) => {
-              try {
-                const date = new Date(isoStr);
-                return date.toLocaleString(language === 'en' ? 'en-US' : 'es-EC', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-              } catch {
-                return isoStr;
-              }
-            };
-            singleNotifs.push({
-              id: `deadline_change_${updatedTask.id}_${nowNotif}`,
-              moodleUsername: updatedTask.moodleUsername || '',
-              moodleServer: updatedTask.moodleServer || 'a',
-              timestamp: nowNotif,
-              title: t('notif.deadlineChangeTitle'),
-              message: t('notif.deadlineChangeBody', { title: updatedTask.title, oldDate: formatShortDate(rawMatch.closureDate), newDate: formatShortDate(updatedTask.closureDate) }),
-              type: 'deadline',
-              read: false,
-              activityUrl: updatedTask.activityUrl,
-              courseName: updatedTask.courseName
-            });
-          }
-
-          if (updatedTask.grade && updatedTask.grade !== rawMatch.grade) {
-            singleNotifs.push({
-              id: `grade_${updatedTask.id}_${nowNotif}`,
-              moodleUsername: updatedTask.moodleUsername || '',
-              moodleServer: updatedTask.moodleServer || 'a',
-              timestamp: nowNotif,
-              title: t('notif.newGradeTitle'),
-              message: t('notif.newGradeBody', { title: updatedTask.title, grade: updatedTask.grade, gradeOver: updatedTask.gradeOver || '10' }),
-              type: 'grade',
-              read: false,
-              activityUrl: updatedTask.activityUrl,
-              courseName: updatedTask.courseName
-            });
-          }
-
-          if (updatedTask.status && rawMatch.status && updatedTask.status !== rawMatch.status) {
-            singleNotifs.push({
-              id: `status_${updatedTask.id}_${nowNotif}`,
-              moodleUsername: updatedTask.moodleUsername || '',
-              moodleServer: updatedTask.moodleServer || 'a',
-              timestamp: nowNotif,
-              title: t('notif.statusUpdatedTitle'),
-              message: t('notif.statusUpdatedBody', { title: updatedTask.title, oldStatus: rawMatch.status, newStatus: updatedTask.status }),
-              type: 'status',
-              read: false,
-              activityUrl: updatedTask.activityUrl,
-              courseName: updatedTask.courseName
-            });
-          }
-
-          if (singleNotifs.length > 0) {
-            setNotifications(prev => {
-              const merged = [...singleNotifs, ...prev];
-              localStorage.setItem('unemi_notifications', JSON.stringify(merged));
-              return merged;
-            });
-          }
-
-          setTasks(prevTasks => {
-            const copy = [...prevTasks];
-            const matchIdx = copy.findIndex(t => t.id === taskId);
-            if (matchIdx !== -1) {
-              copy[matchIdx] = updatedTask;
-            }
-            localStorage.setItem('unemi_tasks', JSON.stringify(copy));
-            return copy;
-          });
-        }
-      } else {
-        const data = await res.json().catch(() => ({}));
-        const errStr = data.error || '';
-        if (errStr.includes('sesión') || errStr.includes('sesion') || errStr.includes('expiró') || errStr.includes('expirada') || errStr.includes('inválida') || errStr.includes('invalida') || res.status === 401) {
-          handleSessionError(sess, errStr || t('app.sessionExpired'), false);
-        } else {
-          alert(t('app.singleTaskUpdateFailed'));
-        }
-      }
-    } catch (e) {
-      console.error('Failed to update single task:', e);
-    } finally {
-      setSyncingTaskId(null);
-    }
-  };
-
   const handleDownloadHtml = async (task: TodoTask) => {
     if (!task.activityUrl || !task.moodleUsername || !task.moodleServer) return;
     const matchSess = sessions.find(s => s.username.toLowerCase() === task.moodleUsername?.toLowerCase() && s.server === task.moodleServer);
@@ -1955,6 +1870,10 @@ export default function App() {
                           icon = '🔄';
                           bgClass = 'bg-sky-50/20';
                           borderLeft = 'border-l-sky-500';
+                        } else if (notif.type === 'removed') {
+                          icon = '🗑️';
+                          bgClass = 'bg-rose-50/20';
+                          borderLeft = 'border-l-rose-500';
                         }
 
                         return (
@@ -2068,49 +1987,119 @@ export default function App() {
                           const serverLabel = sess.server === 'upsdt' 
                             ? 'UPSDT' 
                             : (sess.server === 'a' ? 'UNEMI P/S' : 'UNEMI Online');
+                          const acctKey = `${sess.server}_${sess.username.trim().toLowerCase()}`;
+                          const isReloginOpen = reloginOpenFor === acctKey;
+                          const isReloginLoading = reloginLoadingFor === acctKey;
+                          const reloginError = reloginOpenFor && reloginErrorFor ? reloginErrorFor : null;
 
                           return (
                             <div
                               key={idx}
-                              className="p-2.5 rounded-xl border bg-slate-50 border-slate-200 text-slate-700 flex items-center justify-between text-xs"
+                              className="rounded-xl border bg-slate-50 border-slate-200 text-slate-700 text-xs"
                             >
-                              <div className="flex items-center space-x-2 min-w-0">
-                                <span className={`w-2 h-2 rounded-full shrink-0 ${
-                                  sess.expired ? 'bg-rose-500' : 'bg-emerald-500'
-                                }`} />
-                                <div className="min-w-0">
-                                  <div className="flex items-center space-x-1.5 truncate">
-                                    <span className="font-bold truncate">{sess.username}</span>
-                                    <span className="text-[9px] px-1.5 py-0.2 bg-white/80 border border-slate-200 rounded font-semibold text-slate-500 shrink-0">
-                                      {serverLabel}
-                                    </span>
+                              <div className="p-2.5 flex items-center justify-between">
+                                <div className="flex items-center space-x-2 min-w-0">
+                                  <span className={`w-2 h-2 rounded-full shrink-0 ${
+                                    sess.expired ? 'bg-rose-500' : 'bg-emerald-500'
+                                  }`} />
+                                  <div className="min-w-0">
+                                    <div className="flex items-center space-x-1.5 truncate">
+                                      <span className="font-bold truncate">{sess.username}</span>
+                                      <span className="text-[9px] px-1.5 py-0.2 bg-white/80 border border-slate-200 rounded font-semibold text-slate-500 shrink-0">
+                                        {serverLabel}
+                                      </span>
+                                    </div>
+                                    {sess.expired && (
+                                      <span className="text-[10px] text-rose-500 font-bold block">{language === 'es' ? 'Expirada' : 'Expired'}</span>
+                                    )}
                                   </div>
+                                </div>
+
+                                <div className="flex items-center space-x-1 shrink-0 ml-2">
                                   {sess.expired && (
-                                    <span className="text-[10px] text-rose-500 font-bold block">{language === 'es' ? 'Expirada' : 'Expired'}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (isReloginOpen) {
+                                          setReloginOpenFor(null);
+                                          setReloginPassword('');
+                                          setReloginErrorFor(null);
+                                        } else {
+                                          setReloginOpenFor(acctKey);
+                                          setReloginPassword('');
+                                          setReloginErrorFor(null);
+                                        }
+                                      }}
+                                      className="p-1 text-blue-600 hover:bg-white rounded-lg transition-colors cursor-pointer"
+                                      title={language === 'es' ? 'Iniciar sesión de nuevo' : 'Log in again'}
+                                    >
+                                      <RefreshCw className="w-3.5 h-3.5" />
+                                    </button>
                                   )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updated = sessions.filter((_, sIdx) => sIdx !== idx);
+                                      setSessions(updated);
+                                      localStorage.setItem('unemi_sessions', JSON.stringify(updated));
+                                      if (updated.length === 0) {
+                                        setActiveSessionIndex(0);
+                                        setActiveTab('login');
+                                      } else if (activeSessionIndex >= updated.length) {
+                                        setActiveSessionIndex(updated.length - 1);
+                                      }
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-white rounded-lg transition-colors cursor-pointer"
+                                    title={language === 'es' ? 'Quitar cuenta' : 'Remove account'}
+                                  >
+                                    <LogOut className="w-3.5 h-3.5" />
+                                  </button>
                                 </div>
                               </div>
 
-                              <div className="flex items-center space-x-1 shrink-0 ml-2">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const updated = sessions.filter((_, sIdx) => sIdx !== idx);
-                                    setSessions(updated);
-                                    localStorage.setItem('unemi_sessions', JSON.stringify(updated));
-                                    if (updated.length === 0) {
-                                      setActiveSessionIndex(0);
-                                      setActiveTab('login');
-                                    } else if (activeSessionIndex >= updated.length) {
-                                      setActiveSessionIndex(updated.length - 1);
-                                    }
-                                  }}
-                                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-white rounded-lg transition-colors cursor-pointer"
-                                  title={language === 'es' ? 'Quitar cuenta' : 'Remove account'}
-                                >
-                                  <LogOut className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
+                              {isReloginOpen && (
+                                <div className="px-2.5 pb-2.5">
+                                  <div className="bg-white border border-slate-200 rounded-xl p-2.5 space-y-2">
+                                    <div className="relative">
+                                      <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-gray-400">
+                                        <Key className="w-3.5 h-3.5" />
+                                      </div>
+                                      <input
+                                        type="password"
+                                        value={reloginPassword}
+                                        onChange={(e) => setReloginPassword(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') handleRelogin(sess);
+                                        }}
+                                        placeholder={t('login.passwordPlaceholder')}
+                                        disabled={isReloginLoading}
+                                        className="block w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded-lg text-xs placeholder-gray-400 focus:outline-hidden focus:ring-2 focus:ring-blue-100 focus:border-blue-500 disabled:opacity-50"
+                                      />
+                                    </div>
+                                    {reloginError && (
+                                      <p className="text-[10px] text-rose-600 font-semibold flex items-center space-x-1">
+                                        <AlertCircle className="w-3 h-3 shrink-0" />
+                                        <span>{reloginError}</span>
+                                      </p>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRelogin(sess)}
+                                      disabled={isReloginLoading}
+                                      className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-lg text-[11px] font-bold flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                                    >
+                                      {isReloginLoading ? (
+                                        <>
+                                          <RefreshCw className="w-3 h-3 animate-spin" />
+                                          <span>{t('login.connectingBtn')}</span>
+                                        </>
+                                      ) : (
+                                        <span>{language === 'es' ? 'Reconectar cuenta' : 'Reconnect account'}</span>
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           );
                         })}
@@ -2231,8 +2220,6 @@ export default function App() {
               onOpenNewTaskModal={() => setIsNewTaskModalOpen(true)}
               navigationTrigger={agendaNavigation}
               onClearNavigationTrigger={() => setAgendaNavigation(null)}
-              onRefreshSingleTask={handleUpdateSingleTask}
-              syncingTaskId={syncingTaskId}
               onDownloadHtml={handleDownloadHtml}
               onViewHtml={handleViewHtml}
               filterCourseIdTrigger={timelineFilterCourseId}

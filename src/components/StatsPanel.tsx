@@ -56,7 +56,20 @@ export default function StatsPanel({ tasks, liveCoursesByAccount, onNavigateToMo
 
   const parseVal = (v: string | null | undefined): number | null => {
     if (v === null || v === undefined) return null;
-    const clean = v.replace(/,/g, '.').trim();
+    // Moodle/clients sometimes store grades with HTML entities (&nbsp;) or tags
+    // (e.g. "15.00&nbsp;" or "&nbsp;15.00"), which break parseFloat.
+    const clean = String(v)
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&#0?160;/gi, ' ')
+      .replace(/\u00a0/g, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#0?39;/g, "'")
+      .replace(/,/g, '.')
+      .trim();
     const num = parseFloat(clean);
     return isNaN(num) ? null : num;
   };

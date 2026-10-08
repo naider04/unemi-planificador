@@ -25,6 +25,20 @@ function stripHtml(str: string): string {
   return str.replace(/<[^>]*>/g, '').trim();
 }
 
+// Decode common HTML entities (Moodle's gradefordisplay often uses &nbsp;).
+function decodeHtmlEntities(str: string): string {
+  return str
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#0?160;/g, ' ')
+    .replace(/\u00a0/g, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0?39;/g, "'")
+    .trim();
+}
+
 // Scrape the "Feedback comments" cell from an assignment page. Row-based so the
 // grade/labels are not mixed into the feedback text.
 function scrapeFeedbackComment($: any): string | null {
@@ -1208,17 +1222,17 @@ app.post('/api/moodle/activity-details', async (req, res) => {
             }
           }
 
-          if (statusRes.feedback && statusRes.feedback.gradefordisplay) {
-            const display = stripHtml(statusRes.feedback.gradefordisplay);
-            if (display.includes('/')) {
-              const parts = display.split('/');
-              info.calificacion = parts[0].trim();
-              info.calificacion_sobre = parts[1].trim();
-            } else {
-              info.calificacion = display;
-              info.calificacion_sobre = gradeMax || "10.0";
-            }
-          } else if (gradeVal) {
+if (statusRes.feedback && statusRes.feedback.gradefordisplay) {
+              const display = decodeHtmlEntities(stripHtml(statusRes.feedback.gradefordisplay));
+              if (display.includes('/')) {
+                const parts = display.split('/');
+                info.calificacion = parts[0].trim();
+                info.calificacion_sobre = parts[1].trim();
+              } else {
+                info.calificacion = display;
+                info.calificacion_sobre = gradeMax || "10.0";
+              }
+            } else if (gradeVal) {
             info.calificacion = gradeVal;
             info.calificacion_sobre = gradeMax || "10.0";
           } else if (statusRes.feedback && statusRes.feedback.grade && statusRes.feedback.grade.grade) {
@@ -2945,7 +2959,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
               }
 
               if (statusRes.feedback && statusRes.feedback.gradefordisplay) {
-                const display = stripHtml(statusRes.feedback.gradefordisplay);
+                const display = decodeHtmlEntities(stripHtml(statusRes.feedback.gradefordisplay));
                 if (display.includes('/')) {
                   const parts = display.split('/');
                   detailsInfo.calificacion = parts[0].trim();
