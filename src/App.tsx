@@ -1761,6 +1761,39 @@ export default function App() {
           {/* Connection badge status, Notifications bell, and More Options */}
           <div className="flex items-center space-x-2 sm:space-x-2.5 shrink-0">
 
+            {/* Always-Visible Sync Button in Frozen Header */}
+            <button
+              type="button"
+              id="header-sync-btn"
+              disabled={sessions.filter(s => !s.expired).length === 0 || sessions.some(s => {
+                const st = getAccountSyncState(s);
+                return st.status === 'syncing' || st.status === 'waiting';
+              })}
+              onClick={() => startGlobalSync()}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 border cursor-pointer select-none shadow-2xs active:scale-95 ${
+                sessions.some(s => {
+                  const st = getAccountSyncState(s);
+                  return st.status === 'syncing' || st.status === 'waiting';
+                })
+                  ? 'bg-blue-50 text-blue-700 border-blue-300 animate-pulse'
+                  : sessions.filter(s => !s.expired).length === 0
+                  ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600'
+              }`}
+              title={sessions.filter(s => !s.expired).length === 0 ? t('sync.connectFirst') : t('sync.syncAllActive')}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${sessions.some(s => {
+                const st = getAccountSyncState(s);
+                return st.status === 'syncing' || st.status === 'waiting';
+              }) ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">
+                {sessions.some(s => {
+                  const st = getAccountSyncState(s);
+                  return st.status === 'syncing' || st.status === 'waiting';
+                }) ? t('sync.syncingBtn') : (language === 'es' ? 'Sincronizar' : 'Sync')}
+              </span>
+            </button>
+
             {/* Notification Bell Icon & dropdown */}
             <div className="relative">
               <button 

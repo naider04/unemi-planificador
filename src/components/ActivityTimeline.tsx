@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Clock, CheckCircle, Trash2, Calendar, FileText, Square, CheckSquare, Search, 
   ChevronRight, ChevronDown, Filter, EyeOff, LayoutGrid, ListFilter, AlertCircle, PlusCircle, CheckSquare2,
@@ -45,13 +45,13 @@ export default function ActivityTimeline({
   const { t, language } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
-  const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState<boolean>(false);
-  const [selectedCourseId, setSelectedCourseId] = useState<string>('all');
-  const [selectedType, setSelectedType] = useState<string>('all');
+  const [selectedCourseIds, setSelectedCourseIds] = useState<string[]>([]);
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [showCompleted, setShowCompleted] = useState<boolean>(true);
-  const [showPastSemester, setShowPastSemester] = useState<boolean>(false);
+  const [openDropdown, setOpenDropdown] = useState<'account' | 'course' | 'type' | null>(null);
+  const [courseSearch, setCourseSearch] = useState('');
+  const filterDropdownRef = useRef<HTMLDivElement>(null);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [showLegend, setShowLegend] = useState(false);
   const [copiedTaskId, setCopiedTaskId] = useState<string | null>(null);
 
   const copyToClipboard = async (text: string): Promise<boolean> => {
@@ -113,13 +113,27 @@ export default function ActivityTimeline({
 
   useEffect(() => {
     if (filterCourseIdTrigger) {
-      setSelectedCourseId(filterCourseIdTrigger);
+      setSelectedCourseIds([String(filterCourseIdTrigger)]);
       setShowCompleted(false);
       if (onClearFilterCourseIdTrigger) {
         onClearFilterCourseIdTrigger();
       }
     }
   }, [filterCourseIdTrigger, onClearFilterCourseIdTrigger]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(e.target as Node)) {
+        setOpenDropdown(null);
+      }
+    };
+    if (openDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [openDropdown]);
 
   const [now, setNow] = useState(new Date());
 
@@ -363,18 +377,12 @@ export default function ActivityTimeline({
     return { materia: courseName, codigo: '', curso: 'N/A', carrera: 'Otros' };
   };
 
-  // Find unique account-career combinations in task base
-  const uniqueAccountCareers = Array.from(
-    new Set(
-      tasks
-        .map(t => {
-          const username = t.moodleUsername || 'Manual';
-          const carrera = getCourseDetails(t.courseName).carrera;
-          return `${username}|${carrera}`;
-        })
-        .filter(Boolean)
-    )
-  ).sort();
+  const getTaskAccountKey = (task: TodoTask): string => {
+    if (task.moodleUsername) {
+      return `${task.moodleServer || 'a'}_${task.moodleUsername.trim().toLowerCase()}`;
+    }
+    return 'manual';
+  };
 
   // A subject belongs to the current period when it appears in the live Moodle
   // course list of its account. Fall back to a date approximation (21-day
@@ -392,32 +400,109 @@ export default function ActivityTimeline({
     if (!liveIds) return !isPastSemesterByDate(task, now.getTime());
     return liveIds.has(String(task.courseId));
   };
-  const isPastSemesterTask = (task: TodoTask): boolean => !isCurrentSubject(task);
 
-  // Find unique courses in task base for filtering (only current-period subjects
-  // unless the user opts to include past activities in the view)
-  const uniqueCourses = Array.from(
-    new Map(
-      tasks
-        .filter(t => t.courseId && t.courseName)
-        .filter(t => showPastSemester || isCurrentSubject(t))
-        .filter(t => selectedAccounts.length === 0 || selectedAccounts.includes(`${t.moodleUsername || 'Manual'}|${getCourseDetails(t.courseName).carrera}`))
-        .map(t => [t.courseId, t.courseName])
-    ).entries()
-  );
-
-  // Auto-reset subject filter if the current subject does not belong to the newly selected accounts and careers
-  useEffect(() => {
-    if (selectedCourseId !== 'all') {
-      const match = tasks.find(t => t.courseId === selectedCourseId);
-      if (match) {
-        const itemAccountKey = `${match.moodleUsername || 'Manual'}|${getCourseDetails(match.courseName).carrera}`;
-        if (selectedAccounts.length > 0 && !selectedAccounts.includes(itemAccountKey)) {
-          setSelectedCourseId('all');
-        }
+  // Find unique accounts in current-period tasks
+  const uniqueAccounts = useMemo(() => {
+    const map = new Map<string, { key: string; label: string; serverLabel: string; count: number }>();
+    tasks.forEach(t => {
+      if (!isCurrentSubject(t)) return;
+      const key = getTaskAccountKey(t);
+      if (!map.has(key)) {
+        const label = t.moodleUsername || (language === 'es' ? 'Manual' : 'Manual');
+        const serverLabel = t.moodleServer === 'upsdt' 
+          ? 'UPSDT' 
+          : (t.moodleServer === 'a' ? 'UNEMI P/S' : (t.moodleServer ? 'UNEMI Online' : ''));
+        map.set(key, { key, label, serverLabel, count: 0 });
       }
+      map.get(key)!.count += 1;
+    });
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [tasks, liveCoursesByAccount, language]);
+
+  // Find unique courses in task base for filtering
+  const uniqueCourses = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; count: number }>();
+    tasks.forEach(t => {
+      if (!t.courseId || !t.courseName) return;
+      if (!isCurrentSubject(t)) return;
+      const key = getTaskAccountKey(t);
+      if (selectedAccounts.length > 0 && !selectedAccounts.includes(key)) return;
+      const id = String(t.courseId);
+      if (!map.has(id)) {
+        map.set(id, { id, name: t.courseName, count: 0 });
+      }
+      map.get(id)!.count += 1;
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [tasks, liveCoursesByAccount, selectedAccounts]);
+
+  // Type options with counts
+  const typeOptions = useMemo(() => {
+    const counts: Record<string, number> = {
+      TAREA: 0,
+      CUESTIONARIO: 0,
+      ACTIVIDAD: 0,
+      MANUAL: 0,
+    };
+    tasks.forEach(t => {
+      if (!isCurrentSubject(t)) return;
+      const key = getTaskAccountKey(t);
+      if (selectedAccounts.length > 0 && !selectedAccounts.includes(key)) return;
+      if (selectedCourseIds.length > 0 && (!t.courseId || !selectedCourseIds.includes(String(t.courseId)))) return;
+      if (counts[t.type] !== undefined) {
+        counts[t.type] += 1;
+      }
+    });
+
+    return [
+      { id: 'TAREA', label: t('timeline.typeTask'), icon: '📝', count: counts['TAREA'] || 0 },
+      { id: 'CUESTIONARIO', label: t('timeline.typeQuiz'), icon: '⏱️', count: counts['CUESTIONARIO'] || 0 },
+      { id: 'ACTIVIDAD', label: t('timeline.typeActivity'), icon: '💬', count: counts['ACTIVIDAD'] || 0 },
+      { id: 'MANUAL', label: t('timeline.typeManual'), icon: '📌', count: counts['MANUAL'] || 0 },
+    ];
+  }, [tasks, liveCoursesByAccount, selectedAccounts, selectedCourseIds, t]);
+
+  const toggleAccount = (key: string) => {
+    setSelectedAccounts(prev => 
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+    );
+  };
+
+  const toggleAllAccounts = () => {
+    if (selectedAccounts.length === uniqueAccounts.length) {
+      setSelectedAccounts([]);
+    } else {
+      setSelectedAccounts(uniqueAccounts.map(a => a.key));
     }
-  }, [selectedAccounts, selectedCourseId, tasks]);
+  };
+
+  const toggleCourse = (id: string) => {
+    setSelectedCourseIds(prev => 
+      prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]
+    );
+  };
+
+  const toggleAllCourses = () => {
+    if (selectedCourseIds.length === uniqueCourses.length) {
+      setSelectedCourseIds([]);
+    } else {
+      setSelectedCourseIds(uniqueCourses.map(c => c.id));
+    }
+  };
+
+  const toggleType = (id: string) => {
+    setSelectedTypes(prev => 
+      prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]
+    );
+  };
+
+  const toggleAllTypes = () => {
+    if (selectedTypes.length === typeOptions.length) {
+      setSelectedTypes([]);
+    } else {
+      setSelectedTypes(typeOptions.map(t => t.id));
+    }
+  };
 
   // Parse remaining duration in a human readable way
   const getRemainingTime = (isoString: string | null, completed: boolean) => {
@@ -561,24 +646,31 @@ export default function ActivityTimeline({
   // 1. Items WITHOUT closing dates are pushed to the very end
   // 2. Items WITH closing dates are ordered chronologically ascending (closest deadline first)
   // 3. Completed items can be optionally hidden
-  const filteredTasks = tasks
-    .filter(task => {
-      const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                            (task.description && task.description.toLowerCase().includes(searchQuery.toLowerCase()));
-      const matchesAccount = selectedAccounts.length === 0 || selectedAccounts.includes(`${task.moodleUsername || 'Manual'}|${getCourseDetails(task.courseName).carrera}`);
-      const matchesCourse = selectedCourseId === 'all' || task.courseId === selectedCourseId;
-      const matchesType = selectedType === 'all' || task.type === selectedType;
-      const matchesCompleted = showCompleted || !task.completed;
-      const matchesSemester = showPastSemester || isCurrentSubject(task);
-      return matchesSearch && matchesAccount && matchesCourse && matchesType && matchesCompleted && matchesSemester;
-    })
-    .sort((a, b) => {
-      if (!a.closureDate) return 1;
-      if (!b.closureDate) return -1;
-      const timeA = new Date(a.closureDate).getTime();
-      const timeB = new Date(b.closureDate).getTime();
-      return timeA - timeB;
-    });
+  const filteredTasks = useMemo(() => {
+    return tasks
+      .filter(task => {
+        const q = searchQuery.trim().toLowerCase();
+        const matchesSearch = !q || 
+          task.title.toLowerCase().includes(q) || 
+          (task.description && task.description.toLowerCase().includes(q)) ||
+          (task.courseName && task.courseName.toLowerCase().includes(q));
+
+        const matchesAccount = selectedAccounts.length === 0 || selectedAccounts.includes(getTaskAccountKey(task));
+        const matchesCourse = selectedCourseIds.length === 0 || (task.courseId && selectedCourseIds.includes(String(task.courseId)));
+        const matchesType = selectedTypes.length === 0 || selectedTypes.includes(task.type);
+        const matchesCompleted = showCompleted || !task.completed;
+        const matchesSemester = isCurrentSubject(task);
+
+        return matchesSearch && matchesAccount && matchesCourse && matchesType && matchesCompleted && matchesSemester;
+      })
+      .sort((a, b) => {
+        if (!a.closureDate) return 1;
+        if (!b.closureDate) return -1;
+        const timeA = new Date(a.closureDate).getTime();
+        const timeB = new Date(b.closureDate).getTime();
+        return timeA - timeB;
+      });
+  }, [tasks, searchQuery, selectedAccounts, selectedCourseIds, selectedTypes, showCompleted, liveCoursesByAccount]);
 
   // Calculate stats
   const pendingCount = tasks.filter(t => !t.completed).length;
@@ -885,124 +977,27 @@ export default function ActivityTimeline({
   return (
     <div id="timeline-card-wrapper" className="space-y-4">
       
-      {/* 1. Summary & Progress Card */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-3">
-        
-        {/* Header summary row */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center space-x-3">
-            <div>
-              <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
-                <span>{language === 'es' ? 'Agenda de Actividades' : 'Activity Agenda'}</span>
-                <span className="text-xs font-bold bg-blue-50 text-blue-600 px-2.5 py-0.5 rounded-full border border-blue-100">
-                  {t('timeline.statsPending', { count: pendingCount })}
-                </span>
-              </h2>
-              <div className="flex items-center space-x-2 text-xs text-slate-400 mt-1">
-                <span>{completedCount} {language === 'es' ? 'de' : 'of'} {tasks.length} {language === 'es' ? 'completadas' : 'completed'} ({percentComplete}%)</span>
-                <div className="w-20 bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                  <div 
-                    className="bg-emerald-500 h-full rounded-full transition-all duration-300"
-                    style={{ width: `${percentComplete}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex items-center space-x-2 shrink-0">
-            {/* Legend button */}
-            <button
-              type="button"
-              onClick={() => setShowLegend(!showLegend)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-xl flex items-center space-x-1.5 border transition-colors cursor-pointer ${
-                showLegend 
-                  ? 'bg-blue-50 text-blue-700 border-blue-200' 
-                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
-              }`}
-              title={t('sync.legendTitle')}
-            >
-              <Info className="w-3.5 h-3.5" />
-              <span>{language === 'es' ? 'Leyenda' : 'Legend'}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Legend Popover panel */}
-        {showLegend && (
-          <div className="p-3.5 bg-blue-50/60 border border-blue-100 rounded-xl text-xs space-y-2 animate-in fade-in duration-150">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-blue-900 text-xs flex items-center space-x-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                <span>{t('sync.legendHeading')}</span>
-              </span>
-              <button 
-                onClick={() => setShowLegend(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 pt-1 text-[11px]">
-              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
-                <span className="text-base">🔥</span>
-                <span className="text-slate-700">{t('sync.legend.imminent')}</span>
-              </div>
-              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
-                <span className="text-base">💪</span>
-                <span className="text-slate-700">{t('sync.legend.pending')}</span>
-              </div>
-              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
-                <span className="text-base">⏱️</span>
-                <span className="text-slate-700">{language === 'es' ? 'Entregado (Sin nota)' : 'Submitted (Ungraded)'}</span>
-              </div>
-              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
-                <span className="text-base">😄</span>
-                <span className="text-slate-700">{t('sync.legend.excellent')}</span>
-              </div>
-              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
-                <span className="text-base">🙂</span>
-                <span className="text-slate-700">{t('sync.legend.acceptable')}</span>
-              </div>
-              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
-                <span className="text-base">😢</span>
-                <span className="text-slate-700">{t('sync.legend.regular')}</span>
-              </div>
-              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
-                <span className="text-base">👎</span>
-                <span className="text-slate-700">{t('sync.legend.failed')}</span>
-              </div>
-              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
-                <span className="text-base">☠️</span>
-                <span className="text-slate-700">{t('sync.legend.overdue')}</span>
-              </div>
-              <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-slate-100">
-                <span className="text-base">⚠️</span>
-                <span className="text-slate-700">{language === 'es' ? 'Cierre atípico' : 'Atypical deadline'}</span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 2. FROZEN FILTERS BAR - STICKY ON TOP */}
+      {/* FROZEN FILTERS BAR - STICKY ON TOP */}
       <div 
         id="timeline-frozen-filters-bar"
+        ref={filterDropdownRef}
         className="sticky top-[52px] sm:top-[56px] z-30 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl p-2.5 sm:p-3 shadow-xs space-y-2"
       >
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-          {/* Search */}
-          <div className="sm:col-span-4 relative">
+        <div className="flex flex-wrap items-center gap-2">
+          
+          {/* Search Input */}
+          <div className="relative flex-1 min-w-[180px] sm:min-w-[220px]">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={language === 'es' ? 'Buscar actividad o materia...' : 'Search activity or course...'}
-              className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+              className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
             />
             {searchQuery && (
               <button 
+                type="button"
                 onClick={() => setSearchQuery('')}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
               >
@@ -1011,68 +1006,266 @@ export default function ActivityTimeline({
             )}
           </div>
 
-          {/* Subjects dropdown - FROZEN */}
-          <div className="sm:col-span-3">
-            <select
-              id="task-subject-filter"
-              value={selectedCourseId}
-              onChange={(e) => setSelectedCourseId(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer font-medium truncate"
+          {/* Account Filter (Checkbox Popover) */}
+          <div className="relative">
+            <button
+              id="filter-account-btn"
+              type="button"
+              onClick={() => setOpenDropdown(openDropdown === 'account' ? null : 'account')}
+              className={`px-3 py-1.5 text-xs rounded-xl border flex items-center space-x-1.5 transition-all cursor-pointer font-medium select-none ${
+                selectedAccounts.length > 0
+                  ? 'bg-blue-50 text-blue-700 border-blue-300 font-bold shadow-2xs'
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+              }`}
+              title={language === 'es' ? 'Filtrar por cuenta' : 'Filter by account'}
+            >
+              <Users className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                {selectedAccounts.length === 0
+                  ? (language === 'es' ? 'Cuentas: Todas' : 'Accounts: All')
+                  : `${language === 'es' ? 'Cuentas' : 'Accounts'} (${selectedAccounts.length})`}
+              </span>
+              <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${openDropdown === 'account' ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Account Dropdown Popover */}
+            {openDropdown === 'account' && (
+              <div className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-72 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-3 space-y-2.5 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100 text-xs">
+                  <span className="font-bold text-slate-800">{language === 'es' ? 'Filtrar por Cuentas' : 'Filter by Accounts'}</span>
+                  <button
+                    type="button"
+                    onClick={toggleAllAccounts}
+                    className="text-[11px] font-bold text-blue-600 hover:underline cursor-pointer"
+                  >
+                    {selectedAccounts.length === uniqueAccounts.length 
+                      ? t('timeline.deselectAll') 
+                      : t('timeline.selectAll')}
+                  </button>
+                </div>
+
+                <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                  {uniqueAccounts.length === 0 ? (
+                    <p className="text-xs text-slate-400 py-2 text-center">{t('timeline.noOptions')}</p>
+                  ) : (
+                    uniqueAccounts.map(acct => {
+                      const isChecked = selectedAccounts.includes(acct.key);
+                      return (
+                        <label
+                          key={acct.key}
+                          className="flex items-center justify-between p-2 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer select-none text-xs"
+                        >
+                          <div className="flex items-center space-x-2.5 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleAccount(acct.key)}
+                              className="w-3.5 h-3.5 text-blue-600 rounded-md border-slate-300 focus:ring-blue-500 cursor-pointer"
+                            />
+                            <div className="truncate">
+                              <span className="font-semibold text-slate-800 truncate block">{acct.label}</span>
+                              {acct.serverLabel && (
+                                <span className="text-[10px] text-slate-400 font-mono">{acct.serverLabel}</span>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-[11px] font-mono text-slate-400 font-bold ml-2 shrink-0">
+                            {acct.count}
+                          </span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Subject / Course Filter (Checkbox Popover) */}
+          <div className="relative">
+            <button
+              id="filter-course-btn"
+              type="button"
+              onClick={() => setOpenDropdown(openDropdown === 'course' ? null : 'course')}
+              className={`px-3 py-1.5 text-xs rounded-xl border flex items-center space-x-1.5 transition-all cursor-pointer font-medium select-none ${
+                selectedCourseIds.length > 0
+                  ? 'bg-blue-50 text-blue-700 border-blue-300 font-bold shadow-2xs'
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+              }`}
               title={language === 'es' ? 'Filtrar por materia' : 'Filter by subject'}
             >
-              <option value="all">{language === 'es' ? `Todas las materias (${uniqueCourses.length})` : `All courses (${uniqueCourses.length})`}</option>
-              {uniqueCourses.map(([cid, cname]) => (
-                <option key={cid} value={cid}>{cname}</option>
-              ))}
-            </select>
+              <BookOpen className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate max-w-[140px] sm:max-w-[200px]">
+                {selectedCourseIds.length === 0
+                  ? (language === 'es' ? `Materias: Todas (${uniqueCourses.length})` : `Courses: All (${uniqueCourses.length})`)
+                  : `${language === 'es' ? 'Materias' : 'Courses'} (${selectedCourseIds.length})`}
+              </span>
+              <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${openDropdown === 'course' ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Course Dropdown Popover */}
+            {openDropdown === 'course' && (
+              <div className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-80 sm:w-96 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-3 space-y-2.5 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100 text-xs">
+                  <span className="font-bold text-slate-800">{language === 'es' ? 'Filtrar por Materias' : 'Filter by Courses'}</span>
+                  <button
+                    type="button"
+                    onClick={toggleAllCourses}
+                    className="text-[11px] font-bold text-blue-600 hover:underline cursor-pointer"
+                  >
+                    {selectedCourseIds.length === uniqueCourses.length 
+                      ? t('timeline.deselectAll') 
+                      : t('timeline.selectAll')}
+                  </button>
+                </div>
+
+                {/* Course search input if more than 4 courses */}
+                {uniqueCourses.length > 4 && (
+                  <div className="relative">
+                    <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={courseSearch}
+                      onChange={(e) => setCourseSearch(e.target.value)}
+                      placeholder={language === 'es' ? 'Buscar materia...' : 'Search course...'}
+                      className="w-full pl-7 pr-3 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                  {uniqueCourses
+                    .filter(c => !courseSearch || c.name.toLowerCase().includes(courseSearch.toLowerCase()))
+                    .map(course => {
+                      const isChecked = selectedCourseIds.includes(course.id);
+                      return (
+                        <label
+                          key={course.id}
+                          className="flex items-center justify-between p-2 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer select-none text-xs"
+                        >
+                          <div className="flex items-center space-x-2.5 min-w-0 mr-2">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleCourse(course.id)}
+                              className="w-3.5 h-3.5 text-blue-600 rounded-md border-slate-300 focus:ring-blue-500 cursor-pointer shrink-0"
+                            />
+                            <span className="font-semibold text-slate-800 truncate" title={course.name}>
+                              {course.name}
+                            </span>
+                          </div>
+                          <span className="text-[11px] font-mono text-slate-400 font-bold shrink-0">
+                            {course.count}
+                          </span>
+                        </label>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Type dropdown - FROZEN */}
-          <div className="sm:col-span-3">
-            <select
-              id="task-type-filter"
-              value={selectedType}
-              onChange={(e) => setSelectedType(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 cursor-pointer font-medium"
-              title={language === 'es' ? 'Filtrar por tipo' : 'Filter by type'}
+          {/* Type Filter (Checkbox Popover) */}
+          <div className="relative">
+            <button
+              id="filter-type-btn"
+              type="button"
+              onClick={() => setOpenDropdown(openDropdown === 'type' ? null : 'type')}
+              className={`px-3 py-1.5 text-xs rounded-xl border flex items-center space-x-1.5 transition-all cursor-pointer font-medium select-none ${
+                selectedTypes.length > 0
+                  ? 'bg-blue-50 text-blue-700 border-blue-300 font-bold shadow-2xs'
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+              }`}
+              title={language === 'es' ? 'Filtrar por tipo de actividad' : 'Filter by activity type'}
             >
-              <option value="all">{t('timeline.allTypes')}</option>
-              <option value="TAREA">{t('timeline.typeTask')}</option>
-              <option value="CUESTIONARIO">{t('timeline.typeQuiz')}</option>
-              <option value="ACTIVIDAD">{t('timeline.typeActivity')}</option>
-              <option value="MANUAL">{t('timeline.typeManual')}</option>
-            </select>
+              <Filter className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                {selectedTypes.length === 0
+                  ? (language === 'es' ? 'Tipos: Todos' : 'Types: All')
+                  : `${language === 'es' ? 'Tipos' : 'Types'} (${selectedTypes.length})`}
+              </span>
+              <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${openDropdown === 'type' ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Type Dropdown Popover */}
+            {openDropdown === 'type' && (
+              <div className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-64 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-3 space-y-2.5 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100 text-xs">
+                  <span className="font-bold text-slate-800">{language === 'es' ? 'Filtrar por Tipo' : 'Filter by Type'}</span>
+                  <button
+                    type="button"
+                    onClick={toggleAllTypes}
+                    className="text-[11px] font-bold text-blue-600 hover:underline cursor-pointer"
+                  >
+                    {selectedTypes.length === typeOptions.length 
+                      ? t('timeline.deselectAll') 
+                      : t('timeline.selectAll')}
+                  </button>
+                </div>
+
+                <div className="space-y-1">
+                  {typeOptions.map(tOpt => {
+                    const isChecked = selectedTypes.includes(tOpt.id);
+                    return (
+                      <label
+                        key={tOpt.id}
+                        className="flex items-center justify-between p-2 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer select-none text-xs"
+                      >
+                        <div className="flex items-center space-x-2.5">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleType(tOpt.id)}
+                            className="w-3.5 h-3.5 text-blue-600 rounded-md border-slate-300 focus:ring-blue-500 cursor-pointer"
+                          />
+                          <span className="text-sm shrink-0">{tOpt.icon}</span>
+                          <span className="font-semibold text-slate-800">{tOpt.label}</span>
+                        </div>
+                        <span className="text-[11px] font-mono text-slate-400 font-bold ml-2">
+                          {tOpt.count}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* View toggles */}
-          <div className="sm:col-span-2 flex items-center space-x-1.5">
+          {/* Show / Hide Completed Activities Toggle */}
+          <button
+            type="button"
+            onClick={() => setShowCompleted(!showCompleted)}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-xl border flex items-center space-x-1.5 transition-colors cursor-pointer whitespace-nowrap select-none ${
+              showCompleted 
+                ? 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100' 
+                : 'bg-blue-50 text-blue-700 border-blue-200 shadow-2xs'
+            }`}
+            title={showCompleted ? (language === 'es' ? 'Ocultar actividades hechas' : 'Hide done activities') : (language === 'es' ? 'Mostrar actividades hechas' : 'Show done activities')}
+          >
+            <EyeOff className="w-3.5 h-3.5 shrink-0" />
+            <span>{showCompleted ? (language === 'es' ? 'Hechas' : 'Done') : (language === 'es' ? 'Ocultas' : 'Hidden')}</span>
+          </button>
+
+          {/* Reset all filters button if any filter is active */}
+          {(selectedAccounts.length > 0 || selectedCourseIds.length > 0 || selectedTypes.length > 0 || searchQuery) && (
             <button
               type="button"
-              onClick={() => setShowPastSemester(!showPastSemester)}
-              className={`flex-1 px-2 py-1.5 text-[11px] font-bold rounded-xl border flex items-center justify-center space-x-1 transition-colors cursor-pointer whitespace-nowrap ${
-                showPastSemester 
-                  ? 'bg-slate-50 text-slate-700 border-slate-200' 
-                  : 'bg-amber-50 text-amber-700 border-amber-200'
-              }`}
-              title={language === 'es' ? 'Muestra u oculta actividades pasadas' : 'Show or hide past activities'}
+              onClick={() => {
+                setSelectedAccounts([]);
+                setSelectedCourseIds([]);
+                setSelectedTypes([]);
+                setSearchQuery('');
+                setCourseSearch('');
+              }}
+              className="px-2.5 py-1.5 text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100/70 border border-rose-200 rounded-xl transition-colors cursor-pointer flex items-center space-x-1 select-none"
+              title={language === 'es' ? 'Restablecer todos los filtros' : 'Reset all filters'}
             >
-              <Calendar className="w-3 h-3 shrink-0" />
-              <span>{showPastSemester ? (language === 'es' ? 'Pasado' : 'Past') : (language === 'es' ? 'Sin pasado' : 'No past')}</span>
+              <X className="w-3 h-3" />
+              <span>{t('timeline.clearFilters')}</span>
             </button>
-            <button
-              type="button"
-              onClick={() => setShowCompleted(!showCompleted)}
-              className={`flex-1 px-2 py-1.5 text-[11px] font-bold rounded-xl border flex items-center justify-center space-x-1 transition-colors cursor-pointer whitespace-nowrap ${
-                showCompleted 
-                  ? 'bg-slate-50 text-slate-700 border-slate-200' 
-                  : 'bg-blue-50 text-blue-700 border-blue-200'
-              }`}
-              title={language === 'es' ? 'Muestra u oculta actividades hechas' : 'Show or hide done activities'}
-            >
-              <EyeOff className="w-3 h-3 shrink-0" />
-              <span>{showCompleted ? (language === 'es' ? 'Hechas' : 'Done') : (language === 'es' ? 'Ocultas' : 'Hidden')}</span>
-            </button>
-          </div>
+          )}
+
         </div>
       </div>
 
