@@ -1165,6 +1165,63 @@ export default function App() {
     localStorage.removeItem('unemi_tasks');
   };
 
+  const handleRemoveAccount = (idx: number) => {
+    const removed = sessions[idx];
+    if (!removed) return;
+
+    const removedKey = `${removed.server}_${removed.username.trim().toLowerCase()}`;
+    const removedLiveKey = `${removed.server}|${removed.username.toLowerCase()}`;
+
+    const updatedSessions = sessions.filter((_, sIdx) => sIdx !== idx);
+    setSessions(updatedSessions);
+    localStorage.setItem('unemi_sessions', JSON.stringify(updatedSessions));
+
+    // Purge the activities/tasks that belong to the removed account.
+    const updatedTasks = tasks.filter(t => {
+      if (!t.moodleUsername || !t.moodleServer) return true;
+      return `${t.moodleServer}_${t.moodleUsername.trim().toLowerCase()}` !== removedKey;
+    });
+    setTasks(updatedTasks);
+    localStorage.setItem('unemi_tasks', JSON.stringify(updatedTasks));
+
+    // Purge notifications generated for the removed account.
+    const updatedNotifications = notifications.filter(n => {
+      if (!n.moodleUsername || !n.moodleServer) return true;
+      return `${n.moodleServer}_${n.moodleUsername.trim().toLowerCase()}` !== removedKey;
+    });
+    setNotifications(updatedNotifications);
+    localStorage.setItem('unemi_notifications', JSON.stringify(updatedNotifications));
+
+    // Purge the per-account sync state and any queued/in-flight sync.
+    setAccountSyncs(prev => {
+      if (!(removedKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[removedKey];
+      localStorage.setItem('unemi_account_sync_states', JSON.stringify(next));
+      return next;
+    });
+    setSyncQueue(prev => prev.filter(s => `${s.server}_${s.username.trim().toLowerCase()}` !== removedKey));
+
+    // Purge the live course list cached for the removed account.
+    setLiveCoursesByAccount(prev => {
+      if (!(removedLiveKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[removedLiveKey];
+      return next;
+    });
+
+    if (activeSessionIndex >= updatedSessions.length) {
+      setActiveSessionIndex(Math.max(0, updatedSessions.length - 1));
+    } else if (activeSessionIndex > idx) {
+      setActiveSessionIndex(activeSessionIndex - 1);
+    }
+
+    if (updatedSessions.length === 0) {
+      setActiveSessionIndex(0);
+      setActiveTab('login');
+    }
+  };
+
   const [timeTick, setTimeTick] = useState(0);
   useEffect(() => {
     const interval = setInterval(() => {
@@ -2071,17 +2128,7 @@ export default function App() {
                                   )}
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      const updated = sessions.filter((_, sIdx) => sIdx !== idx);
-                                      setSessions(updated);
-                                      localStorage.setItem('unemi_sessions', JSON.stringify(updated));
-                                      if (updated.length === 0) {
-                                        setActiveSessionIndex(0);
-                                        setActiveTab('login');
-                                      } else if (activeSessionIndex >= updated.length) {
-                                        setActiveSessionIndex(updated.length - 1);
-                                      }
-                                    }}
+                                    onClick={() => handleRemoveAccount(idx)}
                                     className="p-1 text-slate-400 hover:text-rose-600 hover:bg-white rounded-lg transition-colors cursor-pointer"
                                     title={language === 'es' ? 'Quitar cuenta' : 'Remove account'}
                                   >
@@ -2356,17 +2403,7 @@ export default function App() {
                             ) : null}
 
                             <button
-                              onClick={() => {
-                                const updated = sessions.filter((_, sIdx) => sIdx !== idx);
-                                setSessions(updated);
-                                localStorage.setItem('unemi_sessions', JSON.stringify(updated));
-                                if (updated.length === 0) {
-                                  setActiveSessionIndex(0);
-                                  setActiveTab('login');
-                                } else if (activeSessionIndex >= updated.length) {
-                                  setActiveSessionIndex(updated.length - 1);
-                                }
-                              }}
+                              onClick={() => handleRemoveAccount(idx)}
                               className="text-xs font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl transition-colors cursor-pointer"
                             >
                               <LogOut className="w-3.5 h-3.5" />

@@ -338,45 +338,6 @@ export default function ActivityTimeline({
     }
   }, [navigationTrigger, tasks]);
 
-  // Helper to extract carrera and curso from courseName
-  const getCourseDetails = (courseName: string | null | undefined) => {
-    if (!courseName) return { materia: '', codigo: '', curso: 'N/A', carrera: 'Otros' };
-    const parts = courseName.split(' - ').map(p => p.trim());
-    if (parts.length >= 4) {
-      return {
-        materia: parts[0],
-        codigo: parts[1],
-        curso: parts[2],
-        carrera: parts[3]
-      };
-    } else if (parts.length === 3) {
-      if (parts[1].startsWith('[') && parts[1].endsWith(']')) {
-        return {
-          materia: parts[0],
-          codigo: parts[1],
-          curso: 'N/A',
-          carrera: parts[2]
-        };
-      }
-    }
-    const codeIndex = parts.findIndex(p => p.startsWith('[') && p.endsWith(']'));
-    if (codeIndex !== -1) {
-      const materia = parts.slice(0, codeIndex).join(' - ');
-      const codigo = parts[codeIndex];
-      let curso = 'N/A';
-      let carrera = 'Otros';
-      const remaining = parts.slice(codeIndex + 1);
-      if (remaining.length === 2) {
-        curso = remaining[0];
-        carrera = remaining[1];
-      } else if (remaining.length === 1) {
-        carrera = remaining[0];
-      }
-      return { materia, codigo, curso, carrera };
-    }
-    return { materia: courseName, codigo: '', curso: 'N/A', carrera: 'Otros' };
-  };
-
   const getTaskAccountKey = (task: TodoTask): string => {
     if (task.moodleUsername) {
       return `${task.moodleServer || 'a'}_${task.moodleUsername.trim().toLowerCase()}`;

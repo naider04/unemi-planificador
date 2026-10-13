@@ -76,23 +76,22 @@ export default function StatsPanel({ tasks, liveCoursesByAccount, onNavigateToMo
 
   // Helper to extract carrera and curso from courseName
   const getCourseDetails = (courseName: string | null | undefined) => {
+    const finalize = (materia: string, codigo: string, curso: string, carrera: string | undefined) => ({
+      materia,
+      codigo,
+      curso,
+      // Moodle course names sometimes end with a trailing " - " leaving the
+      // career segment empty; never expose an empty career (it would render as
+      // an account like "user()" in the filter).
+      carrera: carrera && carrera.trim() ? carrera.trim() : 'Otros'
+    });
     if (!courseName) return { materia: '', codigo: '', curso: 'N/A', carrera: 'Otros' };
     const parts = courseName.split(' - ').map(p => p.trim());
     if (parts.length >= 4) {
-      return {
-        materia: parts[0],
-        codigo: parts[1],
-        curso: parts[2],
-        carrera: parts[3]
-      };
+      return finalize(parts[0], parts[1], parts[2], parts[3]);
     } else if (parts.length === 3) {
       if (parts[1].startsWith('[') && parts[1].endsWith(']')) {
-        return {
-          materia: parts[0],
-          codigo: parts[1],
-          curso: 'N/A',
-          carrera: parts[2]
-        };
+        return finalize(parts[0], parts[1], 'N/A', parts[2]);
       }
     }
     const codeIndex = parts.findIndex(p => p.startsWith('[') && p.endsWith(']'));
@@ -108,7 +107,7 @@ export default function StatsPanel({ tasks, liveCoursesByAccount, onNavigateToMo
       } else if (remaining.length === 1) {
         carrera = remaining[0];
       }
-      return { materia, codigo, curso, carrera };
+      return finalize(materia, codigo, curso, carrera);
     }
     return { materia: courseName, codigo: '', curso: 'N/A', carrera: 'Otros' };
   };
@@ -290,11 +289,12 @@ export default function StatsPanel({ tasks, liveCoursesByAccount, onNavigateToMo
                     uniqueAccountCareers.map(key => {
                       const isChecked = selectedAccounts.includes(key);
                       const [username, carrera] = key.split('|');
+                      const hasCareer = !!carrera && carrera !== 'Otros';
                       let displayName = '';
                       if (username === 'Manual') {
-                        displayName = carrera === 'Otros' ? t('stats.manualTasksLocal') : t('stats.manualTasksCareer', { carrera });
+                        displayName = hasCareer ? t('stats.manualTasksCareer', { carrera }) : t('stats.manualTasksLocal');
                       } else {
-                        displayName = carrera === 'Otros' ? `${username} (${language === 'es' ? 'Manuales / Otros' : 'Manual / Other'})` : `${username} (${carrera})`;
+                        displayName = hasCareer ? `${username} (${carrera})` : username;
                       }
                       return (
                         <label 
