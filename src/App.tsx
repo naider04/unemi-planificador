@@ -610,48 +610,57 @@ export default function App() {
             courseName: incomingTask.courseName
           });
         } else {
-          if (incomingTask.closureDate && existingTask.closureDate && incomingTask.closureDate !== existingTask.closureDate) {
-            const formatShortDate = (isoStr: string) => {
+          const prevClosure = existingTask.closureDate || null;
+          const nextClosure = incomingTask.closureDate || null;
+          if (prevClosure !== nextClosure) {
+            const formatShortDate = (isoStr?: string | null) => {
+              if (!isoStr) return t('time.noDeadline');
               try {
                 const date = new Date(isoStr);
+                if (isNaN(date.getTime())) return t('time.noDeadline');
                 return date.toLocaleString(language === 'en' ? 'en-US' : 'es-EC', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
               } catch {
                 return isoStr;
               }
             };
 
-            // Classify the change: a past deadline moving into the future means the
-            // activity was reopened; a later date is an extension; an earlier date
-            // is the opposite (shortened/advanced).
-            const oldTime = new Date(existingTask.closureDate).getTime();
-            const newTime = new Date(incomingTask.closureDate).getTime();
-            let deadlineKind: 'reopened' | 'extended' | 'shortened' = 'shortened';
-            if (!isNaN(oldTime) && !isNaN(newTime)) {
-              if (oldTime <= now && newTime > now) {
-                deadlineKind = 'reopened';
-              } else if (newTime > oldTime) {
-                deadlineKind = 'extended';
+            // Classify the change:
+            // - no date -> date: the teacher set a deadline
+            // - date -> no date: the teacher removed the deadline
+            // - past -> future: reopened; a later date: extended; an earlier date: shortened
+            let deadlineKind: 'reopened' | 'extended' | 'shortened' | 'set' | 'removed';
+            if (!prevClosure && nextClosure) {
+              deadlineKind = 'set';
+            } else if (prevClosure && !nextClosure) {
+              deadlineKind = 'removed';
+            } else {
+              const oldTime = new Date(prevClosure as string).getTime();
+              const newTime = new Date(nextClosure as string).getTime();
+              deadlineKind = 'shortened';
+              if (!isNaN(oldTime) && !isNaN(newTime)) {
+                if (oldTime <= now && newTime > now) {
+                  deadlineKind = 'reopened';
+                } else if (newTime > oldTime) {
+                  deadlineKind = 'extended';
+                }
               }
             }
 
-            const deadlineTitleKey = deadlineKind === 'reopened'
-              ? 'notif.deadlineReopenedTitle'
-              : deadlineKind === 'extended'
-                ? 'notif.deadlineExtendedTitle'
-                : 'notif.deadlineShortenedTitle';
-            const deadlineBodyKey = deadlineKind === 'reopened'
-              ? 'notif.deadlineReopenedBody'
-              : deadlineKind === 'extended'
-                ? 'notif.deadlineExtendedBody'
-                : 'notif.deadlineShortenedBody';
+            const deadlineKeyByKind = {
+              reopened: { title: 'notif.deadlineReopenedTitle', body: 'notif.deadlineReopenedBody' },
+              extended: { title: 'notif.deadlineExtendedTitle', body: 'notif.deadlineExtendedBody' },
+              shortened: { title: 'notif.deadlineShortenedTitle', body: 'notif.deadlineShortenedBody' },
+              set: { title: 'notif.deadlineSetTitle', body: 'notif.deadlineSetBody' },
+              removed: { title: 'notif.deadlineRemovedTitle', body: 'notif.deadlineRemovedBody' }
+            }[deadlineKind];
 
             newNotifications.push({
               id: `deadline_change_${incomingTask.id || now}_${Math.random().toString(36).substr(2, 5)}`,
               moodleUsername: incomingTask.moodleUsername || '',
               moodleServer: incomingTask.moodleServer || 'a',
               timestamp: now,
-              title: t(deadlineTitleKey),
-              message: t(deadlineBodyKey, { title: existingTask.title, oldDate: formatShortDate(existingTask.closureDate), newDate: formatShortDate(incomingTask.closureDate) }),
+              title: t(deadlineKeyByKind.title),
+              message: t(deadlineKeyByKind.body, { title: existingTask.title, oldDate: formatShortDate(prevClosure), newDate: formatShortDate(nextClosure) }),
               type: 'deadline',
               read: false,
               activityUrl: incomingTask.activityUrl,
