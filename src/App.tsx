@@ -502,6 +502,11 @@ export default function App() {
   const notifPanelRef = useRef<HTMLDivElement>(null);
   const notifBtnRef = useRef<HTMLButtonElement>(null);
 
+  // Snapshot of the task list captured right before each sync starts. The
+  // progressive merge during a 'syncing' poll overwrites closureDate/grade/status
+  // in state, which previously masked all change notifications at 'completed'.
+  const syncBaselineRef = useRef<Record<string, TodoTask[]>>({});
+
   const markAllNotificationsRead = useCallback(() => {
     setNotifications(prev => {
       const updated = prev.map(n => ({ ...n, read: true }));
@@ -614,13 +619,39 @@ export default function App() {
                 return isoStr;
               }
             };
+
+            // Classify the change: a past deadline moving into the future means the
+            // activity was reopened; a later date is an extension; an earlier date
+            // is the opposite (shortened/advanced).
+            const oldTime = new Date(existingTask.closureDate).getTime();
+            const newTime = new Date(incomingTask.closureDate).getTime();
+            let deadlineKind: 'reopened' | 'extended' | 'shortened' = 'shortened';
+            if (!isNaN(oldTime) && !isNaN(newTime)) {
+              if (oldTime <= now && newTime > now) {
+                deadlineKind = 'reopened';
+              } else if (newTime > oldTime) {
+                deadlineKind = 'extended';
+              }
+            }
+
+            const deadlineTitleKey = deadlineKind === 'reopened'
+              ? 'notif.deadlineReopenedTitle'
+              : deadlineKind === 'extended'
+                ? 'notif.deadlineExtendedTitle'
+                : 'notif.deadlineShortenedTitle';
+            const deadlineBodyKey = deadlineKind === 'reopened'
+              ? 'notif.deadlineReopenedBody'
+              : deadlineKind === 'extended'
+                ? 'notif.deadlineExtendedBody'
+                : 'notif.deadlineShortenedBody';
+
             newNotifications.push({
               id: `deadline_change_${incomingTask.id || now}_${Math.random().toString(36).substr(2, 5)}`,
               moodleUsername: incomingTask.moodleUsername || '',
               moodleServer: incomingTask.moodleServer || 'a',
               timestamp: now,
-              title: t('notif.deadlineChangeTitle'),
-              message: t('notif.deadlineChangeBody', { title: existingTask.title, oldDate: formatShortDate(existingTask.closureDate), newDate: formatShortDate(incomingTask.closureDate) }),
+              title: t(deadlineTitleKey),
+              message: t(deadlineBodyKey, { title: existingTask.title, oldDate: formatShortDate(existingTask.closureDate), newDate: formatShortDate(incomingTask.closureDate) }),
               type: 'deadline',
               read: false,
               activityUrl: incomingTask.activityUrl,
@@ -1277,6 +1308,7 @@ export default function App() {
       const matchSess = sessions.find(s => `${s.server}_${s.username.trim().toLowerCase()}` === key);
 
       if (!data.job) {
+        delete syncBaselineRef.current[key];
         if (matchSess) {
           updateAccountSyncState(matchSess, { status: 'idle' });
         }
@@ -1352,10 +1384,16 @@ export default function App() {
           updateAccountSyncState(matchSess, nextState);
         }
 
+        // Compare incoming tasks against the pre-sync snapshot (falling back to
+        // current state if none was captured) so deadline/grade/status changes
+        // are not masked by the progressive merge done while 'syncing'.
+        const syncBaseline = syncBaselineRef.current[key];
+        delete syncBaselineRef.current[key];
+
         // Process a final merge of all tasks
         if (job.tasks && job.tasks.length > 0) {
           setTasks(prevTasks => {
-            detectAndGenerateNotifications(prevTasks, job.tasks);
+            detectAndGenerateNotifications(syncBaseline ?? prevTasks, job.tasks);
 
             // Drop tasks that vanished from Moodle (hidden/removed/replaced by
             // a teacher) for accounts that were successfully synced this run.
@@ -1387,6 +1425,7 @@ export default function App() {
         }
         return false;
       } else if (job.status === 'failed') {
+        delete syncBaselineRef.current[key];
         const errMsg = job.error || '';
         if (errMsg.includes('No hay sesiones abiertas actualmente') || (job.expiredSessions && job.expiredSessions.length > 0)) {
           const expiredList = job.expiredSessions || [];
@@ -1448,6 +1487,7 @@ export default function App() {
         }
         return false;
       } else {
+        delete syncBaselineRef.current[key];
         if (matchSess) {
           updateAccountSyncState(matchSess, { status: 'idle' });
         }
@@ -1551,6 +1591,10 @@ export default function App() {
     }
 
     // Start sync for this single session!
+    // Capture the pre-sync task list so change notifications compare against the
+    // original values even if a 'syncing' poll has already merged new ones.
+    syncBaselineRef.current[sKey] = tasks;
+
     updateAccountSyncState(singleSession, {
       status: 'syncing',
       currentCourse: 'Enviando petición...',
@@ -1595,7 +1639,7 @@ export default function App() {
 
   const cancelGlobalSync = async (sess: MoodleSession) => {
     const sKey = `${sess.server}_${sess.username.trim().toLowerCase()}`;
-    
+    delete syncBaselineRef.current[sKey];
     // Remove from queue if it is there
     setSyncQueue(prev => prev.filter(q => q.username.toLowerCase() !== sess.username.toLowerCase() || q.server !== sess.server));
 
