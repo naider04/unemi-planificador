@@ -74,61 +74,37 @@ export default function StatsPanel({ tasks, liveCoursesByAccount, onNavigateToMo
     return isNaN(num) ? null : num;
   };
 
-  // Helper to extract carrera and curso from courseName
-  const getCourseDetails = (courseName: string | null | undefined) => {
-    const finalize = (materia: string, codigo: string, curso: string, carrera: string | undefined) => ({
-      materia,
-      codigo,
-      curso,
-      // Moodle course names sometimes end with a trailing " - " leaving the
-      // career segment empty; never expose an empty career (it would render as
-      // an account like "user()" in the filter).
-      carrera: carrera && carrera.trim() ? carrera.trim() : 'Otros'
-    });
-    if (!courseName) return { materia: '', codigo: '', curso: 'N/A', carrera: 'Otros' };
-    const parts = courseName.split(' - ').map(p => p.trim());
-    if (parts.length >= 4) {
-      return finalize(parts[0], parts[1], parts[2], parts[3]);
-    } else if (parts.length === 3) {
-      if (parts[1].startsWith('[') && parts[1].endsWith(']')) {
-        return finalize(parts[0], parts[1], 'N/A', parts[2]);
-      }
+  // Identify an account by its Moodle server + username so the same user on
+  // different campuses (e.g. aulagradoa vs aulagradob) stays as separate
+  // accounts, matching how "Mi Agenda" lists them.
+  const getTaskAccountKey = (task: TodoTask): string => {
+    if (task.moodleUsername) {
+      return `${task.moodleServer || 'a'}_${task.moodleUsername.trim().toLowerCase()}`;
     }
-    const codeIndex = parts.findIndex(p => p.startsWith('[') && p.endsWith(']'));
-    if (codeIndex !== -1) {
-      const materia = parts.slice(0, codeIndex).join(' - ');
-      const codigo = parts[codeIndex];
-      let curso = 'N/A';
-      let carrera = 'Otros';
-      const remaining = parts.slice(codeIndex + 1);
-      if (remaining.length === 2) {
-        curso = remaining[0];
-        carrera = remaining[1];
-      } else if (remaining.length === 1) {
-        carrera = remaining[0];
-      }
-      return finalize(materia, codigo, curso, carrera);
-    }
-    return { materia: courseName, codigo: '', curso: 'N/A', carrera: 'Otros' };
+    return 'manual';
   };
 
-  // Find unique account-career combinations in task base
-  const uniqueAccountCareers = Array.from(
-    new Set(
-      currentPeriodTasks
-        .map(t => {
-          const username = t.moodleUsername || 'Manual';
-          const carrera = getCourseDetails(t.courseName).carrera;
-          return `${username}|${carrera}`;
-        })
-        .filter(Boolean)
-    )
-  ).sort() as string[];
+  // Find unique accounts in the current-period task base
+  const uniqueAccounts = Array.from(
+    currentPeriodTasks.reduce((map, t) => {
+      const key = getTaskAccountKey(t);
+      if (!map.has(key)) {
+        const label = t.moodleUsername || (language === 'es' ? 'Manual' : 'Manual');
+        const serverLabel = t.moodleServer === 'upsdt'
+          ? 'UPSDT'
+          : (t.moodleServer === 'a' ? 'UNEMI P/S' : (t.moodleServer ? 'UNEMI Online' : ''));
+        map.set(key, { key, label, serverLabel, count: 0 });
+      }
+      map.get(key)!.count += 1;
+      return map;
+    }, new Map<string, { key: string; label: string; serverLabel: string; count: number }>())
+      .values()
+  ).sort((a, b) => a.label.localeCompare(b.label));
 
-  // Filter tasks by selected account-career combinations
+  // Filter tasks by selected accounts
   const filteredTasks = currentPeriodTasks.filter(task => {
     if (selectedAccounts.length === 0) return true;
-    return selectedAccounts.includes(`${task.moodleUsername || 'Manual'}|${getCourseDetails(task.courseName).carrera}`);
+    return selectedAccounts.includes(getTaskAccountKey(task));
   });
 
   // Group and compute stats for each course
@@ -254,7 +230,7 @@ export default function StatsPanel({ tasks, liveCoursesByAccount, onNavigateToMo
                 <Filter className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                 <span className="truncate">
                   {selectedAccounts.length === 0 
-                    ? t('stats.allAccounts', { count: uniqueAccountCareers.length }) 
+                    ? t('stats.allAccounts', { count: uniqueAccounts.length }) 
                     : t('stats.activeFilters', { count: selectedAccounts.length, plural: selectedAccounts.length > 1 ? (language === 'es' ? 's' : 's') : '' })
                   }
                 </span>
@@ -281,40 +257,40 @@ export default function StatsPanel({ tasks, liveCoursesByAccount, onNavigateToMo
                       </button>
                     )}
                   </div>
-                  {uniqueAccountCareers.length === 0 ? (
+                  {uniqueAccounts.length === 0 ? (
                     <div className="text-center py-2 text-xs text-gray-400 font-medium">
                       {t('stats.noOptions')}
                     </div>
                   ) : (
-                    uniqueAccountCareers.map(key => {
-                      const isChecked = selectedAccounts.includes(key);
-                      const [username, carrera] = key.split('|');
-                      const hasCareer = !!carrera && carrera !== 'Otros';
-                      let displayName = '';
-                      if (username === 'Manual') {
-                        displayName = hasCareer ? t('stats.manualTasksCareer', { carrera }) : t('stats.manualTasksLocal');
-                      } else {
-                        displayName = hasCareer ? `${username} (${carrera})` : username;
-                      }
+                    uniqueAccounts.map(acct => {
+                      const isChecked = selectedAccounts.includes(acct.key);
                       return (
                         <label 
-                          key={key} 
-                          className="flex items-center space-x-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer transition-all text-xs font-semibold select-none text-gray-700"
+                          key={acct.key} 
+                          className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer transition-all text-xs font-semibold select-none text-gray-700"
                         >
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => {
-                              if (isChecked) {
-                                setSelectedAccounts(selectedAccounts.filter(a => a !== key));
-                              } else {
-                                setSelectedAccounts([...selectedAccounts, key]);
-                              }
-                            }}
-                            className="w-3.5 h-3.5 rounded-md border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                          />
-                          <span className="truncate">
-                            {displayName}
+                          <div className="flex items-center space-x-2 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {
+                                if (isChecked) {
+                                  setSelectedAccounts(selectedAccounts.filter(a => a !== acct.key));
+                                } else {
+                                  setSelectedAccounts([...selectedAccounts, acct.key]);
+                                }
+                              }}
+                              className="w-3.5 h-3.5 rounded-md border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                            />
+                            <div className="truncate">
+                              <span className="truncate block">{acct.label}</span>
+                              {acct.serverLabel && (
+                                <span className="text-[10px] text-gray-400 font-mono">{acct.serverLabel}</span>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-[11px] font-mono text-gray-400 font-bold ml-2 shrink-0">
+                            {acct.count}
                           </span>
                         </label>
                       );
