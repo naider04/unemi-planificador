@@ -64,68 +64,60 @@ export default function SyncStatusBar({
   });
 
   return (
-    <div id="sync-status-bar" className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-2xs space-y-3">
-      {/* Primary unified summary row */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3.5">
+    <div id="sync-status-bar" className="bg-white border border-slate-200/80 rounded-2xl p-3 sm:p-4 shadow-2xs space-y-2.5">
+      {/* Primary streamlined summary bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         
-        {/* Left: Title, pending tasks, connected accounts and last synced */}
-        <div className="space-y-1">
-          <div className="flex items-center space-x-2.5">
-            <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-              {language === 'es' ? 'Agenda de Actividades' : 'Activity Agenda'}
-            </h2>
-            <span className="text-xs font-bold bg-blue-50 text-blue-600 px-2.5 py-0.5 rounded-full border border-blue-100">
-              {t('timeline.statsPending', { count: pendingTasks })}
-            </span>
-          </div>
+        {/* Left: Consolidated accounts, sync time, and progress */}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
+          {/* Connected accounts toggle */}
+          {activeSessions.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold rounded-xl border border-slate-200/80 cursor-pointer transition-colors"
+              title={t('sync.viewAccountDetails')}
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+              <span>
+                {activeSessions.length} {activeSessions.length === 1 ? t('sync.account') : t('sync.accounts')}
+              </span>
+              {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-slate-400" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-400" />}
+            </button>
+          )}
 
-          <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-xs text-slate-500">
-            {activeSessions.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setIsExpanded(!isExpanded)}
-                className="font-semibold text-slate-700 hover:text-blue-600 flex items-center space-x-1 cursor-pointer transition-colors"
-                title={t('sync.viewAccountDetails')}
-              >
-                <span>{activeSessions.length} {activeSessions.length === 1 ? t('sync.account') : t('sync.accounts')}</span>
-                {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-slate-400" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-400" />}
-              </button>
-            )}
-
-            {activeSessions.length > 0 && <span className="text-slate-300">•</span>}
-
+          {/* Last synced time */}
+          <span className="text-slate-400 text-[11px] sm:text-xs">
             {lastSyncedTime ? (
-              <span className="text-slate-400">
-                {t('sync.lastSynced', { time: getRelativeLastSyncedTime() })}
-              </span>
+              t('sync.lastSynced', { time: getRelativeLastSyncedTime() })
             ) : (
-              <span className="text-slate-400">
-                {t('sync.notSyncedRecently')}
-              </span>
+              t('sync.notSyncedRecently')
             )}
-          </div>
-        </div>
+          </span>
 
-        {/* Right: Progress bar, single Legend button, and ALWAYS VISIBLE Sync button */}
-        <div className="flex items-center flex-wrap sm:flex-nowrap gap-2.5 self-start md:self-center">
-          
-          {/* Progress bar pill */}
-          <div className="flex items-center space-x-2.5 bg-slate-50 border border-slate-200/80 px-3 py-1.5 rounded-xl">
-            <Award className={`w-4 h-4 shrink-0 ${percentComplete === 100 ? 'text-emerald-500' : 'text-blue-500'}`} />
-            <div className="text-xs">
-              <span className="font-bold text-slate-800 font-mono">{percentComplete}%</span>
-              <span className="text-[11px] text-slate-400 font-medium ml-1.5 hidden sm:inline">
-                ({completedTasks}/{totalTasks} {language === 'es' ? 'hechas' : 'done'})
-              </span>
-            </div>
-            <div className="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+          <span className="text-slate-300 hidden sm:inline">•</span>
+
+          {/* Unified Progress Status (Pending + Done) */}
+          <div className="inline-flex items-center space-x-2 bg-slate-50 border border-slate-200/70 px-2.5 py-1 rounded-xl text-xs">
+            <span className="font-bold text-amber-700 text-[11px]">
+              {pendingTasks} {language === 'es' ? 'pendientes' : 'pending'}
+            </span>
+            <span className="text-slate-300">/</span>
+            <span className="font-semibold text-slate-600 text-[11px]">
+              {completedTasks} de {totalTasks} ({percentComplete}%)
+            </span>
+            <div className="w-12 h-1.5 bg-slate-200 rounded-full overflow-hidden hidden md:block">
               <div 
                 className={`h-full transition-all duration-300 ${percentComplete === 100 ? 'bg-emerald-500' : 'bg-blue-600'}`}
                 style={{ width: `${percentComplete}%` }}
               />
             </div>
           </div>
+        </div>
 
+        {/* Right: Legend popover button and ALWAYS VISIBLE Sync button */}
+        <div className="flex items-center space-x-2 shrink-0 self-end sm:self-center">
+          
           {/* Unified Legend Popover button */}
           <div className="relative">
             <button
@@ -216,7 +208,7 @@ export default function SyncStatusBar({
             id="sync-all-btn"
             disabled={activeSessions.length === 0 || isAnySyncing}
             onClick={() => onStartSync(activeSessions)}
-            className={`inline-flex items-center space-x-2 px-4 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer select-none active:scale-95 whitespace-nowrap ${
+            className={`inline-flex items-center space-x-2 px-3.5 sm:px-4 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer select-none active:scale-95 whitespace-nowrap ${
               isAnySyncing
                 ? 'bg-blue-50 text-blue-700 border border-blue-200 animate-pulse'
                 : activeSessions.length === 0

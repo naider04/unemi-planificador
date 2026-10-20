@@ -2502,6 +2502,7 @@ export default function App() {
             <StatsPanel 
               tasks={tasks} 
               liveCoursesByAccount={liveCoursesByAccount}
+              firstWeekDate={firstWeekDate}
               onNavigateToMoodleActivity={(courseId, activityUrl) => {
                 const matchedTask = tasks.find(t => t.activityUrl === activityUrl);
                 if (matchedTask && matchedTask.moodleUsername && matchedTask.moodleServer) {

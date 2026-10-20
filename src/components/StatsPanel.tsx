@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { TodoTask } from '../types';
 import { Award, ChevronDown, ChevronUp, AlertCircle, BookOpen, Clock, CalendarDays, CheckCircle2, Filter } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
+import WeeklyGradesChart from './WeeklyGradesChart';
 
 interface StatsPanelProps {
   tasks: TodoTask[];
   liveCoursesByAccount?: Record<string, Set<string>>;
+  firstWeekDate?: string;
   onNavigateToMoodleActivity?: (courseId: string, activityUrl: string) => void;
   onViewUpcomingActivities?: (courseId: string) => void;
 }
@@ -30,7 +32,7 @@ interface CourseStats {
   }[];
 }
 
-export default function StatsPanel({ tasks, liveCoursesByAccount, onNavigateToMoodleActivity, onViewUpcomingActivities }: StatsPanelProps) {
+export default function StatsPanel({ tasks, liveCoursesByAccount, firstWeekDate, onNavigateToMoodleActivity, onViewUpcomingActivities }: StatsPanelProps) {
   const { t, language } = useLanguage();
   const [expandedCourses, setExpandedCourses] = useState<Record<string, boolean>>({});
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
@@ -368,6 +370,14 @@ export default function StatsPanel({ tasks, liveCoursesByAccount, onNavigateToMo
           </div>
         )}
       </div>
+
+      {/* Weekly Grade Average Evolution Line Chart */}
+      <WeeklyGradesChart
+        tasks={tasks}
+        firstWeekDate={firstWeekDate}
+        selectedAccounts={selectedAccounts}
+        liveCoursesByAccount={liveCoursesByAccount}
+      />
 
       {/* Courses List Ordered Lowest Grade to Highest Grade (Descending percentage at top) */}
       <div className="space-y-4">
