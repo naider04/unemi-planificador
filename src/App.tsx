@@ -832,11 +832,15 @@ export default function App() {
           let mergedTasks = [...localTasks];
           let mergedNotifications = [...localNotifications];
           let maxSyncTime = localSyncedTime;
+          let syncedFirstWeekDate: string | null = null;
 
           for (const s of loadedSessions) {
             try {
               const firestoreCache = await fetchUserCacheFromFirestore(s.server, s.username);
               if (firestoreCache) {
+                if (firestoreCache.firstWeekDate) {
+                  syncedFirstWeekDate = firestoreCache.firstWeekDate;
+                }
                 if (firestoreCache.tasks && firestoreCache.tasks.length > 0) {
                   mergedTasks = mergeTasksLists(mergedTasks, firestoreCache.tasks);
                 }
@@ -868,6 +872,10 @@ export default function App() {
           localStorage.setItem('unemi_tasks', JSON.stringify(mergedTasks));
           setNotifications(mergedNotifications);
           localStorage.setItem('unemi_notifications', JSON.stringify(mergedNotifications));
+          if (syncedFirstWeekDate) {
+            setFirstWeekDate(syncedFirstWeekDate);
+            localStorage.setItem('moodle_first_week_date', syncedFirstWeekDate);
+          }
           if (maxSyncTime) {
             setLastSyncedTime(maxSyncTime);
             localStorage.setItem('unemi_last_global_sync_time', String(maxSyncTime));
@@ -894,12 +902,12 @@ export default function App() {
     if (!isDbLoaded) return;
     const timer = setTimeout(() => {
       sessions.forEach(s => {
-        saveUserCacheToFirestore(s.server, s.username, tasks, lastSyncedTime, notifications)
+        saveUserCacheToFirestore(s.server, s.username, tasks, lastSyncedTime, notifications, firstWeekDate)
           .catch(err => console.error(`Error auto-saving cache to Firestore for ${s.username}:`, err));
       });
     }, 10000); // 10s debounce to avoid exhausting Firestore write streams during high-frequency syncs
     return () => clearTimeout(timer);
-  }, [tasks, lastSyncedTime, sessions, isDbLoaded, notifications]);
+  }, [tasks, lastSyncedTime, sessions, isDbLoaded, notifications, firstWeekDate]);
 
   // Fetch the live Moodle subject list for every connected account so the app
   // can tell which subjects belong to the current academic period (instead of

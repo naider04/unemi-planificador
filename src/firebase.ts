@@ -54,6 +54,7 @@ export interface UserCachedData {
   notifications?: MoodleNotification[];
   lastSyncedTime: number | null;
   updatedAt: string;
+  firstWeekDate?: string;
 }
 
 /**
@@ -82,7 +83,8 @@ export async function saveUserCacheToFirestore(
   username: string,
   tasks: TodoTask[],
   lastSyncedTime: number | null,
-  notifications?: MoodleNotification[]
+  notifications?: MoodleNotification[],
+  firstWeekDate?: string | null
 ): Promise<void> {
   const docKey = getUserDocKey(server, username);
   const path = `user_data/${docKey}`;
@@ -106,6 +108,12 @@ export async function saveUserCacheToFirestore(
     lastSyncedTime,
     updatedAt: new Date().toISOString()
   };
+
+  // Persist the user's Week 1 start so charts can number weeks identically on
+  // every device (localStorage alone does not travel between devices).
+  if (firstWeekDate) {
+    payload.firstWeekDate = firstWeekDate;
+  }
 
   try {
     const docRef = doc(db, 'user_data', docKey);
