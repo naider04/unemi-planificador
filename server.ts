@@ -2765,7 +2765,14 @@ async function runBackgroundSync(key: string, sessions: any[]) {
       let grade: string | null = null;
       let gradeOver: string | null = null;
 
-      if (details.por_hacer_calificacion) {
+      const gradingState = String(details.estado_calificacion || '').toLowerCase();
+      const hasGrade = details.calificacion !== null && details.calificacion !== undefined && String(details.calificacion).trim() !== '';
+      const gradingIsConfirmed = gradingState.includes('calificado') || hasGrade;
+
+      // Moodle completion criteria can still report "receive a grade" as
+      // pending after the assignment itself has already been graded. The
+      // assignment's grading status and feedback are the authoritative data.
+      if (details.por_hacer_calificacion && !gradingIsConfirmed) {
         return { status: 'No entregado', grade: null, gradeOver: null };
       }
 
@@ -3053,7 +3060,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
             aperture: detailsInfo.aperture || null,
             apertureDateISO: detailsInfo.apertureDateISO || null,
             section: currentItem.section || null,
-            completed: !detailsInfo.por_hacer_calificacion && (
+            completed: (!detailsInfo.por_hacer_calificacion || computedStats.status === 'Calificado') && (
                          isStatusSubmittedServer(detailsInfo.estado_entrega) || 
                          detailsInfo.quiz_info?.intentos?.some((att: any) => att.estado?.toLowerCase().includes('terminado')) || 
                          (detailsInfo.hecho_calificacion === true) ||
@@ -3356,7 +3363,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
           aperture: detailsInfo.aperture || null,
           apertureDateISO: detailsInfo.apertureDateISO || null,
           section: currentItem.section || null,
-          completed: !detailsInfo.por_hacer_calificacion && (
+          completed: (!detailsInfo.por_hacer_calificacion || computedStats.status === 'Calificado') && (
                        isStatusSubmittedServer(detailsInfo.estado_entrega) || 
                        detailsInfo.quiz_info?.intentos?.some((att: any) => att.estado?.toLowerCase().includes('terminado')) || 
                        (detailsInfo.hecho_calificacion === true) ||

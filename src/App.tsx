@@ -668,14 +668,24 @@ export default function App() {
             });
           }
 
-          if (incomingTask.grade && incomingTask.grade !== existingTask.grade) {
+          const isGraded = (task: TodoTask) =>
+            task.status?.toLowerCase().includes('calificado') ||
+            task.gradingStatus?.toLowerCase().includes('calificado') ||
+            task.estado_calificacion?.toLowerCase().includes('calificado') ||
+            task.grade !== null && task.grade !== undefined && task.grade !== '';
+          const newlyGraded = isGraded(incomingTask) && !isGraded(existingTask);
+          const gradeChanged = incomingTask.grade !== null && incomingTask.grade !== undefined && incomingTask.grade !== '' && incomingTask.grade !== existingTask.grade;
+
+          if (newlyGraded || gradeChanged) {
             newNotifications.push({
               id: `grade_${incomingTask.id || now}_${Math.random().toString(36).substr(2, 5)}`,
               moodleUsername: incomingTask.moodleUsername || '',
               moodleServer: incomingTask.moodleServer || 'a',
               timestamp: now,
               title: t('notif.newGradeTitle'),
-              message: t('notif.newGradeBody', { title: existingTask.title, grade: incomingTask.grade, gradeOver: incomingTask.gradeOver || '10' }),
+              message: incomingTask.grade !== null && incomingTask.grade !== undefined && incomingTask.grade !== ''
+                ? t('notif.newGradeBody', { title: existingTask.title, grade: incomingTask.grade, gradeOver: incomingTask.gradeOver || '10' })
+                : t('notif.statusUpdatedBody', { title: existingTask.title, oldStatus: existingTask.status || t('sync.legend.ungraded'), newStatus: incomingTask.status || t('csv.graded') }),
               type: 'grade',
               read: false,
               activityUrl: incomingTask.activityUrl,
@@ -683,7 +693,7 @@ export default function App() {
             });
           }
 
-          if (incomingTask.status && existingTask.status && incomingTask.status !== existingTask.status) {
+          if (!newlyGraded && incomingTask.status && existingTask.status && incomingTask.status !== existingTask.status) {
             newNotifications.push({
               id: `status_${incomingTask.id || now}_${Math.random().toString(36).substr(2, 5)}`,
               moodleUsername: incomingTask.moodleUsername || '',
