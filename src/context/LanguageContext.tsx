@@ -347,7 +347,11 @@ const translations: Record<Language, Record<string, string>> = {
     'notif.statusUpdatedTitle': '🔄 Estado Actualizado',
     'notif.statusUpdatedBody': 'El estado de "{title}" cambió de "{oldStatus}" a "{newStatus}".',
     'notif.activityRemovedTitle': '🗑️ Actividad oculta o eliminada en Moodle',
-    'notif.activityRemovedBody': 'Se eliminó "{title}" de tu agenda ({course}) porque ya no aparece en Moodle. El docente la ocultó, eliminó o reemplazó.'
+    'notif.activityRemovedBody': 'Se eliminó "{title}" de tu agenda ({course}) porque ya no aparece en Moodle. El docente la ocultó, eliminó o reemplazó.',
+    'notif.quizReviewOpenedTitle': '📝 Revisión de cuestionario disponible',
+    'notif.quizReviewOpenedBody': 'Ya puedes revisar el intento {attempt} de "{title}".',
+    'notif.quizReviewClosedTitle': '🔒 Revisión de cuestionario cerrada',
+    'notif.quizReviewClosedBody': 'Ya no puedes revisar el intento {attempt} de "{title}".'
   },
   en: {
     // Top Navbar
@@ -686,7 +690,11 @@ const translations: Record<Language, Record<string, string>> = {
     'notif.statusUpdatedTitle': '🔄 Status Updated',
     'notif.statusUpdatedBody': 'Status for "{title}" changed from "{oldStatus}" to "{newStatus}".',
     'notif.activityRemovedTitle': '🗑️ Activity hidden or removed from Moodle',
-    'notif.activityRemovedBody': 'Removed "{title}" from your agenda ({course}) because it no longer appears in Moodle. It was hidden, deleted or replaced by the teacher.'
+    'notif.activityRemovedBody': 'Removed "{title}" from your agenda ({course}) because it no longer appears in Moodle. It was hidden, deleted or replaced by the teacher.',
+    'notif.quizReviewOpenedTitle': '📝 Quiz review available',
+    'notif.quizReviewOpenedBody': 'You can now review attempt {attempt} for "{title}".',
+    'notif.quizReviewClosedTitle': '🔒 Quiz review closed',
+    'notif.quizReviewClosedBody': 'You can no longer review attempt {attempt} for "{title}".'
   }
 };
 

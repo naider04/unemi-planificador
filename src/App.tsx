@@ -12,7 +12,7 @@ import ActivityTimeline from './components/ActivityTimeline';
 import NewTaskModal from './components/NewTaskModal';
 import StatsPanel from './components/StatsPanel';
 import SyncStatusBar from './components/SyncStatusBar';
-import { fetchUserCacheFromFirestore, saveUserCacheToFirestore } from './firebase';
+import { appendSyncHistory, fetchUserCacheFromFirestore, saveUserCacheToFirestore } from './firebase';
 import { useLanguage } from './context/LanguageContext';
 import LanguageToggle from './components/LanguageToggle';
 
@@ -506,6 +506,7 @@ export default function App() {
   // progressive merge during a 'syncing' poll overwrites closureDate/grade/status
   // in state, which previously masked all change notifications at 'completed'.
   const syncBaselineRef = useRef<Record<string, TodoTask[]>>({});
+  const syncStartedAtRef = useRef<Record<string, number>>({});
 
   const markAllNotificationsRead = useCallback(() => {
     setNotifications(prev => {
@@ -707,6 +708,39 @@ export default function App() {
               courseName: existingTask.courseName
             });
           }
+
+          const previousAttempts = existingTask.quiz_info?.intentos || [];
+          const currentAttempts = incomingTask.quiz_info?.intentos || [];
+          currentAttempts.forEach(attempt => {
+            if (typeof attempt.revision_permitida !== 'boolean') return;
+            const attemptKey = attempt.attemptId != null ? String(attempt.attemptId) : attempt.numero;
+            if (attemptKey == null) return;
+            let previous = previousAttempts.find(oldAttempt => {
+              const oldKey = oldAttempt.attemptId != null ? String(oldAttempt.attemptId) : oldAttempt.numero;
+              return oldKey === attemptKey;
+            });
+            if (!previous && attempt.numero) {
+              previous = previousAttempts.find(oldAttempt => oldAttempt.numero === attempt.numero);
+            }
+            if (!previous || typeof previous.revision_permitida !== 'boolean' || previous.revision_permitida === attempt.revision_permitida) return;
+
+            const reviewOpened = attempt.revision_permitida;
+            newNotifications.push({
+              id: `quiz_review_${attemptKey}_${now}_${Math.random().toString(36).slice(2, 7)}`,
+              moodleUsername: incomingTask.moodleUsername || '',
+              moodleServer: incomingTask.moodleServer || 'a',
+              timestamp: now,
+              title: t(reviewOpened ? 'notif.quizReviewOpenedTitle' : 'notif.quizReviewClosedTitle'),
+              message: t(reviewOpened ? 'notif.quizReviewOpenedBody' : 'notif.quizReviewClosedBody', {
+                title: incomingTask.title,
+                attempt: attempt.numero || attemptKey || '?'
+              }),
+              type: 'review',
+              read: false,
+              activityUrl: incomingTask.activityUrl,
+              courseName: incomingTask.courseName
+            });
+          });
         }
       });
     }
@@ -718,12 +752,13 @@ export default function App() {
         return merged;
       });
     }
+    return newNotifications;
   };
 
   // Notify about activities that vanished from Moodle (hidden/deleted/replaced
   // by the teacher) and were reconciled out of the agenda.
   const notifyDisappearedActivities = (removedTasks: TodoTask[]) => {
-    if (removedTasks.length === 0) return;
+    if (removedTasks.length === 0) return [] as MoodleNotification[];
     const now = Date.now();
     const newNotifications: MoodleNotification[] = removedTasks.map(task => ({
       id: `activity_removed_${now}_${Math.random().toString(36).substr(2, 5)}`,
@@ -746,6 +781,7 @@ export default function App() {
       localStorage.setItem('unemi_notifications', JSON.stringify(merged));
       return merged;
     });
+    return newNotifications;
   };
 
   const session = sessions[activeSessionIndex] || null;
@@ -1416,18 +1452,62 @@ export default function App() {
         // are not masked by the progressive merge done while 'syncing'.
         const syncBaseline = syncBaselineRef.current[key];
         delete syncBaselineRef.current[key];
+        const startedAt = syncStartedAtRef.current[key] || finishedTime;
+        delete syncStartedAtRef.current[key];
+
+        const accountBaseline = syncBaseline || tasks;
+        const syncedUsername = matchSess?.username.trim().toLowerCase();
+        const syncedServer = matchSess?.server;
+        const belongsToSyncedAccount = (task: TodoTask) =>
+          !!syncedUsername && task.moodleUsername?.trim().toLowerCase() === syncedUsername && task.moodleServer === syncedServer;
+        const freshAccountTasks: TodoTask[] = (job.tasks || []).filter(belongsToSyncedAccount);
+        const priorAccountTasks = accountBaseline.filter(belongsToSyncedAccount);
+        const priorByUrl = new Map(priorAccountTasks.filter(task => task.activityUrl).map(task => [task.activityUrl!, task]));
+        const freshByUrl = new Map(freshAccountTasks.filter(task => task.activityUrl).map(task => [task.activityUrl!, task]));
+        const canonical = (value: any): string => {
+          if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+          if (value && typeof value === 'object') return `{${Object.keys(value).filter(k => k !== 'lastSyncedAt').sort().map(k => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
+          return JSON.stringify(value);
+        };
+        const activityChanges: Array<{ change: 'added' | 'removed' | 'updated'; activityUrl: string; before?: TodoTask; after?: TodoTask }> = [];
+        freshByUrl.forEach((after, activityUrl) => {
+          const before = priorByUrl.get(activityUrl);
+          if (!before) activityChanges.push({ change: 'added', activityUrl, after });
+          else if (canonical(before) !== canonical(after)) activityChanges.push({ change: 'updated', activityUrl, before, after });
+        });
+        if (freshByUrl.size > 0) priorByUrl.forEach((before, activityUrl) => {
+          if (!freshByUrl.has(activityUrl)) activityChanges.push({ change: 'removed', activityUrl, before });
+        });
+
+        const generatedNotifications: MoodleNotification[] = job.tasks?.length
+          ? detectAndGenerateNotifications(priorAccountTasks, freshAccountTasks)
+          : [];
+        const removedByFreshSync = freshByUrl.size > 0
+          ? reconcileTasksWithFreshSync(accountBaseline, job.tasks || []).removed
+            .filter(belongsToSyncedAccount)
+          : [];
+        const removalNotifications = notifyDisappearedActivities(removedByFreshSync);
+
+        if (matchSess) {
+          appendSyncHistory({
+            syncId: `${finishedTime}_${Math.random().toString(36).slice(2, 8)}`,
+            moodleUsername: matchSess.username,
+            moodleServer: matchSess.server,
+            startedAt,
+            finishedAt: finishedTime,
+            status: 'completed',
+            activityChanges,
+            notifications: [...generatedNotifications, ...removalNotifications],
+            logs: job.logs || []
+          }).catch(err => console.error(`Could not save sync history for ${matchSess.username}:`, err));
+        }
 
         // Process a final merge of all tasks
         if (job.tasks && job.tasks.length > 0) {
           setTasks(prevTasks => {
-            detectAndGenerateNotifications(syncBaseline ?? prevTasks, job.tasks);
-
             // Drop tasks that vanished from Moodle (hidden/removed/replaced by
             // a teacher) for accounts that were successfully synced this run.
-            const { reconciled, removed } = reconcileTasksWithFreshSync(prevTasks, job.tasks);
-            if (removed.length > 0) {
-              notifyDisappearedActivities(removed);
-            }
+            const { reconciled } = reconcileTasksWithFreshSync(prevTasks, job.tasks);
 
             const merged = [...reconciled];
             job.tasks.forEach((srvTask: any) => {
@@ -1621,6 +1701,7 @@ export default function App() {
     // Capture the pre-sync task list so change notifications compare against the
     // original values even if a 'syncing' poll has already merged new ones.
     syncBaselineRef.current[sKey] = tasks;
+    syncStartedAtRef.current[sKey] = Date.now();
 
     updateAccountSyncState(singleSession, {
       status: 'syncing',
@@ -2031,6 +2112,10 @@ export default function App() {
                           icon = '🔄';
                           bgClass = 'bg-sky-50/20';
                           borderLeft = 'border-l-sky-500';
+                        } else if (notif.type === 'review') {
+                          icon = '📝';
+                          bgClass = 'bg-violet-50/20';
+                          borderLeft = 'border-l-violet-500';
                         } else if (notif.type === 'removed') {
                           icon = '🗑️';
                           bgClass = 'bg-rose-50/20';

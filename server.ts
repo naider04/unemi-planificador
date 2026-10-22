@@ -283,10 +283,23 @@ async function callMoodleWS(base: string, wstoken: string, wsfunction: string, a
   }
 
   const json = await response.json();
-  if (json && json.exception) {
-    throw new Error(`Moodle WS Exception: ${json.message || json.exception}`);
+  if (json && (json.exception || json.errorcode)) {
+    throw new Error(`Moodle WS Exception: ${json.message || json.exception || json.errorcode}`);
   }
   return json;
+}
+
+// Mirrors QuizCollector's pre-check: a successful review response means the
+// review is available; Moodle permission errors mean it's closed. Network and
+// timeout errors stay unknown so they do not produce false state changes.
+async function checkQuizAttemptReviewAvailability(base: string, wstoken: string, attemptId: number | string): Promise<boolean | null> {
+  try {
+    await callMoodleWS(base, wstoken, 'mod_quiz_get_attempt_review', { attemptid: attemptId, page: 0 });
+    return true;
+  } catch (error: any) {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.startsWith('Moodle WS Exception:') ? false : null;
+  }
 }
 
 // Map course module (cmid) to assignid
@@ -3025,21 +3038,27 @@ async function runBackgroundSync(key: string, sessions: any[]) {
               };
 
               if (quizInfoWS && Array.isArray(quizInfoWS.attempts)) {
-                quiz_info.intentos = quizInfoWS.attempts.map((att: any) => {
+                quiz_info.intentos = await Promise.all(quizInfoWS.attempts.map(async (att: any) => {
                   const stateMap: Record<string, string> = {
                     'finished': 'Terminado',
                     'inprogress': 'En curso'
                   };
+                  const reviewAvailable = att.state === 'finished' && att.id
+                    ? await checkQuizAttemptReviewAvailability(base, wstoken, att.id)
+                    : null;
                   return {
+                    attemptId: att.id,
                     numero: String(att.attempt),
                     estado: stateMap[att.state] || att.state,
                     comenzado: att.timestart ? new Date(att.timestart * 1000).toLocaleString('es-ES') : null,
                     completado: att.timefinish ? new Date(att.timefinish * 1000).toLocaleString('es-ES') : null,
                     duracion: (att.timefinish && att.timestart) ? `${Math.round((att.timefinish - att.timestart) / 60)} min` : null,
                     calificacion: att.sumgrades !== undefined ? String(att.sumgrades) : null,
-                    calificacion_sobre: gradeMax || "10.0"
+                    calificacion_sobre: gradeMax || "10.0",
+                    revision_url: att.id ? `${base}/mod/quiz/review.php?attempt=${att.id}&cmid=${cmid}` : null,
+                    revision_permitida: reviewAvailable
                   };
-                });
+                }));
               }
 
               detailsInfo.quiz_info = quiz_info;
@@ -3074,6 +3093,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
             gradingStatus: (computedStats.grade || computedStats.status === 'Calificado' || (detailsInfo.estado_calificacion && detailsInfo.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (detailsInfo.estado_calificacion || null),
             estado_calificacion: (computedStats.grade || computedStats.status === 'Calificado' || (detailsInfo.estado_calificacion && detailsInfo.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (detailsInfo.estado_calificacion || null),
             estado_entrega: detailsInfo.estado_entrega || null,
+            quiz_info: detailsInfo.quiz_info || null,
             comentario_calificador: detailsInfo.comentario_calificador || null,
             advertencia_preguntas: detailsInfo.advertencia_preguntas || null,
             por_hacer_calificacion: detailsInfo.por_hacer_calificacion || false,
@@ -3272,7 +3292,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
 
           $('.rui-attempts-list, table.quizattemptsummary').each((_, summary) => {
             $(summary).find('tr, .rounded.border').each((_, container) => {
-              const attempt: any = { numero: null, estado: null, comenzado: null, completado: null, duracion: null, calificacion: null, calificacion_sobre: null, porcentaje: null, revision_url: null };
+              const attempt: any = { numero: null, estado: null, comenzado: null, completado: null, duracion: null, calificacion: null, calificacion_sobre: null, porcentaje: null, revision_url: null, revision_permitida: false };
               const h4Val = $(container).find('h4, td.c0, th').first().text().trim();
               const matchNum = h4Val.match(/Intento\s*(\d+)/i) || h4Val.match(/Attempt\s*(\d+)/i) || h4Val.match(/^(\d+)$/);
               if (matchNum) attempt.numero = matchNum[1];
@@ -3297,7 +3317,10 @@ async function runBackgroundSync(key: string, sessions: any[]) {
                 if (gradeText) attempt.calificacion = gradeText;
               }
               const revLink = $(container).find('a[href*="review.php"]');
-              if (revLink.length > 0) attempt.revision_url = revLink.attr('href');
+              if (revLink.length > 0) {
+                attempt.revision_url = revLink.attr('href');
+                attempt.revision_permitida = true;
+              }
               if (attempt.numero || attempt.estado) quiz_info.intentos.push(attempt);
             });
           });
@@ -3377,6 +3400,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
           gradingStatus: (computedStats.grade || computedStats.status === 'Calificado' || (detailsInfo.estado_calificacion && detailsInfo.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (detailsInfo.estado_calificacion || null),
           estado_calificacion: (computedStats.grade || computedStats.status === 'Calificado' || (detailsInfo.estado_calificacion && detailsInfo.estado_calificacion.toLowerCase().includes('calificad'))) ? 'Calificado' : (detailsInfo.estado_calificacion || null),
           estado_entrega: detailsInfo.estado_entrega || null,
+          quiz_info: detailsInfo.quiz_info || null,
           comentario_calificador: detailsInfo.comentario_calificador || null,
           advertencia_preguntas: detailsInfo.advertencia_preguntas || null,
           por_hacer_calificacion: detailsInfo.por_hacer_calificacion || false,

@@ -23,6 +23,7 @@ export interface Activity {
 }
 
 export interface QuizAttempt {
+  attemptId?: string | number;
   numero: string | null;
   estado: string | null;
   comenzado: string | null;
@@ -32,6 +33,7 @@ export interface QuizAttempt {
   calificacion_sobre: string | null;
   porcentaje: string | null;
   revision_url: string | null;
+  revision_permitida?: boolean | null;
 }
 
 export interface QuizInfo {
@@ -121,7 +123,7 @@ export interface MoodleNotification {
   timestamp: number;
   title: string;
   message: string;
-  type: 'new' | 'deadline' | 'status' | 'grade' | 'removed' | 'general';
+  type: 'new' | 'deadline' | 'status' | 'grade' | 'removed' | 'review' | 'general';
   read: boolean;
   activityUrl?: string;
   courseName?: string;

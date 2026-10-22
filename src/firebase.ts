@@ -43,7 +43,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 /**
  * Creates a unique key for the combined Moodle server and username to use as document ID
  */
-export function getUserDocKey(server: 'a' | 'b' | 'upsdt', username: string): string {
+export function getUserDocKey(server: string, username: string): string {
   return `${server}_${username.trim().toLowerCase()}`;
 }
 
@@ -55,6 +55,35 @@ export interface UserCachedData {
   lastSyncedTime: number | null;
   updatedAt: string;
   firstWeekDate?: string;
+}
+
+export interface SyncHistoryRecord {
+  syncId: string;
+  moodleUsername: string;
+  moodleServer: string;
+  startedAt: number;
+  finishedAt: number;
+  status: 'completed' | 'failed';
+  activityChanges: Array<{
+    change: 'added' | 'removed' | 'updated';
+    activityUrl: string;
+    before?: TodoTask;
+    after?: TodoTask;
+  }>;
+  notifications: MoodleNotification[];
+  logs: unknown[];
+  error?: string;
+}
+
+/** Append an immutable sync audit entry for a Moodle account. */
+export async function appendSyncHistory(record: SyncHistoryRecord): Promise<void> {
+  const docKey = getUserDocKey(record.moodleServer, record.moodleUsername);
+  const path = `user_data/${docKey}/sync_history`;
+  try {
+    await setDoc(doc(db, 'user_data', docKey, 'sync_history', record.syncId), record);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
 }
 
 /**

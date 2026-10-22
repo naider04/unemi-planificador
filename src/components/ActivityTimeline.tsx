@@ -858,6 +858,23 @@ export default function ActivityTimeline({
                 }
               })()}
 
+              {task.type === 'CUESTIONARIO' && (() => {
+                const knownReviews = (task.quiz_info?.intentos || []).filter(attempt => typeof attempt.revision_permitida === 'boolean');
+                if (knownReviews.length === 0) return null;
+                const availableCount = knownReviews.filter(attempt => attempt.revision_permitida).length;
+                const isAvailable = availableCount > 0;
+                return (
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 ${isAvailable ? 'bg-violet-50 text-violet-800 border-violet-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}
+                    title={language === 'es' ? 'Disponibilidad de revisión de intentos finalizados' : 'Review availability for finished attempts'}
+                  >
+                    {isAvailable
+                      ? (language === 'es' ? `Revisión disponible (${availableCount})` : `Review available (${availableCount})`)
+                      : (language === 'es' ? 'Revisión cerrada' : 'Review closed')}
+                  </span>
+                );
+              })()}
+
               {task.advertencia_preguntas && (
                 <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-1.5 py-0.5 flex items-center space-x-1">
                   <AlertCircle className="w-3 h-3 text-amber-500 shrink-0" />
