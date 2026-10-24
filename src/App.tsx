@@ -694,14 +694,25 @@ export default function App() {
             });
           }
 
-          if (!newlyGraded && incomingTask.status && existingTask.status && incomingTask.status !== existingTask.status) {
+          const isSubmittedStatus = (status?: string) => {
+            const normalized = (status || '').toLocaleLowerCase();
+            return /entregad|enviad|submitted|completed|finalizad/.test(normalized) &&
+              !/no entregad|sin entregar|not submitted|unsubmitted/.test(normalized);
+          };
+          const wasUnsubmitted = /no entregad|sin entregar|not submitted|unsubmitted/.test((existingTask.status || '').toLocaleLowerCase());
+          const isNowSubmitted = isSubmittedStatus(incomingTask.status) || (incomingTask.completed && !existingTask.completed);
+          const becameSubmitted = (wasUnsubmitted || (!existingTask.completed && !existingTask.status)) && isNowSubmitted;
+
+          if (!newlyGraded && (becameSubmitted || (incomingTask.status && existingTask.status && incomingTask.status !== existingTask.status))) {
             newNotifications.push({
               id: `status_${incomingTask.id || now}_${Math.random().toString(36).substr(2, 5)}`,
               moodleUsername: incomingTask.moodleUsername || '',
               moodleServer: incomingTask.moodleServer || 'a',
               timestamp: now,
               title: t('notif.statusUpdatedTitle'),
-              message: t('notif.statusUpdatedBody', { title: existingTask.title, oldStatus: existingTask.status, newStatus: incomingTask.status }),
+              message: becameSubmitted
+                ? t('notif.activitySubmittedBody', { title: existingTask.title })
+                : t('notif.statusUpdatedBody', { title: existingTask.title, oldStatus: existingTask.status || t('sync.legend.ungraded'), newStatus: incomingTask.status || t('csv.submitted') }),
               type: 'status',
               read: false,
               activityUrl: incomingTask.activityUrl,
