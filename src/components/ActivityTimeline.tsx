@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { TodoTask } from '../types';
 import { useLanguage } from '../context/LanguageContext';
+import { getServerLabel } from '../shared/platforms';
 
 interface ActivityTimelineProps {
   tasks: TodoTask[];
@@ -370,9 +371,7 @@ export default function ActivityTimeline({
       const key = getTaskAccountKey(t);
       if (!map.has(key)) {
         const label = t.moodleUsername || (language === 'es' ? 'Manual' : 'Manual');
-        const serverLabel = t.moodleServer === 'upsdt' 
-          ? 'UPSDT' 
-          : (t.moodleServer === 'a' ? 'UNEMI P/S' : (t.moodleServer ? 'UNEMI Online' : ''));
+        const serverLabel = getServerLabel(t.moodleServer, t.moodleBaseUrl);
         map.set(key, { key, label, serverLabel, count: 0 });
       }
       map.get(key)!.count += 1;

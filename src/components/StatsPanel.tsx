@@ -3,6 +3,7 @@ import { TodoTask } from '../types';
 import { Award, ChevronDown, ChevronUp, AlertCircle, BookOpen, Clock, CalendarDays, CheckCircle2, Filter } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import WeeklyGradesChart from './WeeklyGradesChart';
+import { getServerLabel } from '../shared/platforms';
 
 interface StatsPanelProps {
   tasks: TodoTask[];
@@ -92,9 +93,7 @@ export default function StatsPanel({ tasks, liveCoursesByAccount, firstWeekDate,
       const key = getTaskAccountKey(t);
       if (!map.has(key)) {
         const label = t.moodleUsername || (language === 'es' ? 'Manual' : 'Manual');
-        const serverLabel = t.moodleServer === 'upsdt'
-          ? 'UPSDT'
-          : (t.moodleServer === 'a' ? 'UNEMI P/S' : (t.moodleServer ? 'UNEMI Online' : ''));
+        const serverLabel = getServerLabel(t.moodleServer, t.moodleBaseUrl);
         map.set(key, { key, label, serverLabel, count: 0 });
       }
       map.get(key)!.count += 1;

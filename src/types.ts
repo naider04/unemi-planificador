@@ -105,13 +105,15 @@ export interface TodoTask {
   grupo?: string | null;
   section?: string | null;
   moodleUsername?: string | null;
-  moodleServer?: 'a' | 'b' | 'upsdt' | null;
+  moodleServer?: string | null;
+  moodleBaseUrl?: string | null;
   lastSyncedAt?: string;
 }
 
 export interface MoodleSession {
   username: string;
-  server: 'a' | 'b' | 'upsdt';
+  server: string;
+  baseUrl?: string | null;
   cookies: string;
   expired?: boolean;
 }
@@ -119,7 +121,8 @@ export interface MoodleSession {
 export interface MoodleNotification {
   id: string;
   moodleUsername: string;
-  moodleServer: 'a' | 'b' | 'upsdt';
+  moodleServer: string;
+  moodleBaseUrl?: string | null;
   timestamp: number;
   title: string;
   message: string;

@@ -1,6 +1,6 @@
 {
   "name": "Planificador Agenda Moodle",
-  "description": "Sincronizador multicuentas de tareas y actividades de Aulas Virtuales de Moodle (UNEMI, UPSDT, etc.) ordenadas cronológicamente.",
+  "description": "Sincronizador multicuentas de tareas y actividades de Aulas Virtuales de Moodle (UNEMI y otras plataformas Moodle) ordenadas cronológicamente.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

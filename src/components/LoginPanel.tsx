@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Key, User, Server, AlertCircle, CheckCircle, RefreshCw } from 'lucide-react';
+import { Shield, Key, User, Server, AlertCircle, CheckCircle, RefreshCw, Globe } from 'lucide-react';
 import { MoodleSession } from '../types';
 import { useLanguage } from '../context/LanguageContext';
+import { createOtherServerKey, getServerLabel, isOtherServer, normalizeBaseUrl } from '../shared/platforms';
 
 interface LoginPanelProps {
   onLoginSuccess: (session: MoodleSession) => void;
   activeSession: MoodleSession | null;
   onLogout: () => void;
   prefillUsername?: string;
-  prefillServer?: 'a' | 'b' | 'upsdt';
+  prefillServer?: string;
+  prefillBaseUrl?: string | null;
   loginErrorMessage?: string | null;
 }
 
@@ -18,37 +20,39 @@ export default function LoginPanel({
   onLogout,
   prefillUsername = '',
   prefillServer = 'a',
+  prefillBaseUrl = null,
   loginErrorMessage = null
 }: LoginPanelProps) {
   const { t } = useLanguage();
   const [username, setUsername] = useState(prefillUsername);
   const [password, setPassword] = useState('');
-  const [server, setServer] = useState<'a' | 'b' | 'upsdt'>(prefillServer);
+  const [server, setServer] = useState<string>(isOtherServer(prefillServer) ? 'other' : prefillServer);
+  const [otherUrl, setOtherUrl] = useState(prefillBaseUrl || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(loginErrorMessage);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const platformOptions = [
     {
-      id: 'a' as const,
+      id: 'a',
       name: t('login.unemiPS'),
       shortName: 'UNEMI P/S',
       logo: '/aula-unemi.png',
       sub: 'aulagradoa.unemi.edu.ec'
     },
     {
-      id: 'b' as const,
+      id: 'b',
       name: t('login.unemiOnline'),
       shortName: 'UNEMI Online',
       logo: '/aula-unemi.png',
       sub: 'aulagradob.unemi.edu.ec'
     },
     {
-      id: 'upsdt' as const,
-      name: t('login.upsdt'),
-      shortName: 'UPSDT',
-      logo: '/aula-upsdt.png',
-      sub: 'aulas.upsdt.edu.ec'
+      id: 'other',
+      name: t('login.otherPlatform'),
+      shortName: t('login.otherPlatformShort'),
+      logo: '',
+      sub: t('login.otherPlatformSub')
     }
   ];
 
@@ -62,11 +66,14 @@ export default function LoginPanel({
 
   useEffect(() => {
     if (prefillServer) {
-      setServer(prefillServer);
+      setServer(isOtherServer(prefillServer) ? 'other' : prefillServer);
     } else {
       setServer('a');
     }
-  }, [prefillServer]);
+    if (prefillBaseUrl) {
+      setOtherUrl(prefillBaseUrl);
+    }
+  }, [prefillServer, prefillBaseUrl]);
 
   useEffect(() => {
     if (loginErrorMessage) {
@@ -88,18 +95,36 @@ export default function LoginPanel({
     setSuccessMsg(null);
 
     try {
+      let payloadServer = server;
+      let baseUrl: string | null = null;
+
+      if (server === 'other') {
+        try {
+          baseUrl = normalizeBaseUrl(otherUrl);
+        } catch {
+          setError(t('login.invalidUrl'));
+          return;
+        }
+        if (!baseUrl) {
+          setError(t('login.urlRequired'));
+          return;
+        }
+        payloadServer = createOtherServerKey(baseUrl);
+      }
+
       const apiBase = import.meta.env.VITE_API_URL || '';
       const res = await fetch(`${apiBase}/api/moodle/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, server })
+        body: JSON.stringify({ username, password, server: payloadServer, baseUrl })
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
         const sessionObj: MoodleSession = {
           username,
-          server,
+          server: data.server || payloadServer,
+          baseUrl: data.base || baseUrl,
           cookies: data.moodleSession
         };
         onLoginSuccess(sessionObj);
@@ -118,6 +143,9 @@ export default function LoginPanel({
 
   if (activeSession) {
     const matchedOpt = platformOptions.find(o => o.id === activeSession.server);
+    const activePlatformName = matchedOpt
+      ? matchedOpt.name
+      : getServerLabel(activeSession.server, activeSession.baseUrl);
     return (
       <div id="login-panel-connected" className="bg-white border border-gray-100 rounded-2xl p-6 shadow-xs">
         <div className="flex items-start justify-between">
@@ -133,7 +161,7 @@ export default function LoginPanel({
               <div className="flex items-center space-x-1.5 mt-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wider">
-                  {matchedOpt ? matchedOpt.name : activeSession.server.toUpperCase()}
+                  {activePlatformName}
                 </span>
               </div>
             </div>
@@ -194,12 +222,16 @@ export default function LoginPanel({
                 }`}
               >
                 <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-gray-50 flex items-center justify-center border border-gray-150 p-1 shrink-0">
-                  <img
-                    src={opt.logo}
-                    alt={opt.name}
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-contain"
-                  />
+                  {opt.logo ? (
+                    <img
+                      src={opt.logo}
+                      alt={opt.name}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <Globe className="w-5 h-5 text-gray-400" />
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <span className="font-bold block text-gray-950 truncate text-[10px] sm:text-xs">
@@ -214,6 +246,29 @@ export default function LoginPanel({
             ))}
           </div>
         </div>
+
+        {/* Custom Moodle platform URL */}
+        {server === 'other' && (
+          <div>
+            <label className="block text-[10px] sm:text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wider">{t('login.platformUrl')}</label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                <Globe className="w-4 h-4" />
+              </div>
+              <input
+                id="other-platform-url"
+                type="text"
+                required
+                value={otherUrl}
+                onChange={(e) => setOtherUrl(e.target.value)}
+                placeholder="https://moodle.example.com"
+                disabled={loading}
+                className="block w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-xs placeholder-gray-400 focus:outline-hidden focus:ring-2 focus:ring-blue-100 focus:border-blue-500 disabled:opacity-50"
+              />
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1">{t('login.platformUrlHelp')}</p>
+          </div>
+        )}
 
         {/* Username */}
         <div>

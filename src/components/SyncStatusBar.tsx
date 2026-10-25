@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { MoodleSession } from '../types';
 import { useLanguage } from '../context/LanguageContext';
+import { getServerLabel } from '../shared/platforms';
 
 export interface AccountSyncLog {
   timestamp: string;
@@ -242,7 +243,7 @@ export default function SyncStatusBar({
                     <RefreshCw className="w-3.5 h-3.5 text-blue-600 animate-spin" />
                     <span className="font-bold text-blue-900">{sess.username}</span>
                     <span className="text-[10px] text-blue-600 font-semibold uppercase font-mono">
-                      ({sess.server === 'upsdt' ? 'UPSDT' : sess.server === 'a' ? 'UNEMI P/S' : 'UNEMI Online'})
+                      ({getServerLabel(sess.server, sess.baseUrl)})
                     </span>
                   </div>
                   <div className="flex items-center space-x-2">

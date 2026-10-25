@@ -3,10 +3,19 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import * as cheerio from 'cheerio';
 import * as fs from 'fs';
+import { resolveBaseUrl, getServerLabel } from './src/shared/platforms';
 
 const app = express();
 const PORT = 3000;
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+function tryResolveServerBase(server: string, baseUrl?: unknown): string | null {
+  try {
+    return resolveBaseUrl(server, typeof baseUrl === 'string' ? baseUrl : undefined);
+  } catch {
+    return null;
+  }
+}
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -355,14 +364,15 @@ async function getQuizIdFromCmid(base: string, wstoken: string, courseId: number
 
 // 1. API: Moodle Login proxy
 app.post('/api/moodle/login', async (req, res) => {
-  const { username, password, server } = req.body;
+  const { username, password, server, baseUrl } = req.body;
   if (!username || !password || !server) {
     return res.status(400).json({ error: 'Faltan credenciales o servidor' });
   }
 
-  const base = server === 'upsdt'
-    ? 'https://aulas.upsdt.edu.ec'
-    : (server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
+  const base = tryResolveServerBase(server, baseUrl);
+  if (!base) {
+    return res.status(400).json({ error: 'Servidor Moodle no válido o URL de plataforma faltante' });
+  }
 
   try {
     const loginUrl = `${base}/login/index.php`;
@@ -520,14 +530,15 @@ async function fetchMoodleHtml(url: string, cookieString: string, maxRedirects =
 
 // 2. API: Find Courses
 app.post('/api/moodle/courses', async (req, res) => {
-  const { moodleSession, server } = req.body;
+  const { moodleSession, server, baseUrl } = req.body;
   if (!moodleSession || !server) {
     return res.status(400).json({ error: 'Falta sesión o servidor' });
   }
 
-  const base = server === 'upsdt'
-    ? 'https://aulas.upsdt.edu.ec'
-    : (server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
+  const base = tryResolveServerBase(server, baseUrl);
+  if (!base) {
+    return res.status(400).json({ error: 'Servidor Moodle no válido o URL de plataforma faltante' });
+  }
 
   const { cookies: cookieString, wstoken } = parseSession(moodleSession);
 
@@ -589,14 +600,15 @@ app.post('/api/moodle/courses', async (req, res) => {
 
 // 3. API: Find Course Activities & Sections
 app.post('/api/moodle/course-activities', async (req, res) => {
-  const { moodleSession, server, courseUrl } = req.body;
+  const { moodleSession, server, courseUrl, baseUrl } = req.body;
   if (!moodleSession || !server || !courseUrl) {
     return res.status(400).json({ error: 'Falta sesión, servidor o URL del curso' });
   }
 
-  const base = server === 'upsdt'
-    ? 'https://aulas.upsdt.edu.ec'
-    : (server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
+  const base = tryResolveServerBase(server, baseUrl);
+  if (!base) {
+    return res.status(400).json({ error: 'Servidor Moodle no válido o URL de plataforma faltante' });
+  }
 
   const { cookies: cookieString, wstoken } = parseSession(moodleSession);
   const courseIdMatch = courseUrl.match(/id=(\d+)/);
@@ -1107,14 +1119,15 @@ app.post('/api/moodle/course-activities', async (req, res) => {
 
 // 4. API: Activity submission status, grades and details (scrapes assignments & quizzes)
 app.post('/api/moodle/activity-details', async (req, res) => {
-  const { moodleSession, server, activityUrl } = req.body;
+  const { moodleSession, server, activityUrl, baseUrl } = req.body;
   if (!moodleSession || !server || !activityUrl) {
     return res.status(400).json({ error: 'Falta sesión, servidor o URL de actividad' });
   }
 
-  const base = server === 'upsdt'
-    ? 'https://aulas.upsdt.edu.ec'
-    : (server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
+  const base = tryResolveServerBase(server, baseUrl);
+  if (!base) {
+    return res.status(400).json({ error: 'Servidor Moodle no válido o URL de plataforma faltante' });
+  }
 
   const { cookies: cookieString, wstoken } = parseSession(moodleSession);
   const cmidMatch = activityUrl.match(/id=(\d+)/);
@@ -1325,21 +1338,27 @@ if (statusRes.feedback && statusRes.feedback.gradefordisplay) {
           }
 
           if (quizInfoWS && Array.isArray(quizInfoWS.attempts)) {
-            quiz_info.intentos = quizInfoWS.attempts.map((att: any) => {
+            quiz_info.intentos = await Promise.all(quizInfoWS.attempts.map(async (att: any) => {
               const stateMap: Record<string, string> = {
                 'finished': 'Terminado',
                 'inprogress': 'En curso'
               };
+              const reviewAvailable = att.state === 'finished' && att.id
+                ? await checkQuizAttemptReviewAvailability(base, wstoken, att.id)
+                : null;
               return {
+                attemptId: att.id,
                 numero: String(att.attempt),
                 estado: stateMap[att.state] || att.state,
                 comenzado: att.timestart ? new Date(att.timestart * 1000).toLocaleString('es-ES') : null,
                 completado: att.timefinish ? new Date(att.timefinish * 1000).toLocaleString('es-ES') : null,
                 duracion: (att.timefinish && att.timestart) ? `${Math.round((att.timefinish - att.timestart) / 60)} min` : null,
                 calificacion: att.sumgrades !== undefined ? String(att.sumgrades) : null,
-                calificacion_sobre: gradeMax || "10.0"
+                calificacion_sobre: gradeMax || "10.0",
+                revision_url: att.id ? `${base}/mod/quiz/review.php?attempt=${att.id}&cmid=${cmid}` : null,
+                revision_permitida: reviewAvailable
               };
-            });
+            }));
           }
 
           info.quiz_info = quiz_info;
@@ -1763,14 +1782,15 @@ app.post('/api/moodle/download-raw', async (req, res) => {
 
 // 6. API: Proxy Moodle pages and inject Developer Event Log tracker
 app.all('/api/moodle/proxy', async (req, res) => {
-  const { url, server, username, session } = req.query;
+  const { url, server, baseUrl, username, session } = req.query;
   if (!url || !server || !session) {
     return res.status(400).send('Faltan parámetros requeridos (url, server, session)');
   }
 
-  const base = server === 'upsdt'
-    ? 'https://aulas.upsdt.edu.ec'
-    : (server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec');
+  const base = tryResolveServerBase(String(server), baseUrl);
+  if (!base) {
+    return res.status(400).send('Servidor Moodle no válido o URL de plataforma faltante');
+  }
 
   let targetUrl = String(url).startsWith('http') ? String(url) : new URL(String(url), base).toString();
 
@@ -1815,7 +1835,7 @@ app.all('/api/moodle/proxy', async (req, res) => {
       if (location) {
         const nextUrl = location.startsWith('http') ? location : new URL(location, targetUrl).toString();
         // Redirect the client's iframe to our proxy endpoint with the new URL
-        const proxiedRedirect = `/api/moodle/proxy?url=${encodeURIComponent(nextUrl)}&server=${server}&username=${username}&session=${encodeURIComponent(String(session))}`;
+        const proxiedRedirect = `/api/moodle/proxy?url=${encodeURIComponent(nextUrl)}&server=${server}&baseUrl=${encodeURIComponent(base)}&username=${username}&session=${encodeURIComponent(String(session))}`;
         return res.redirect(proxiedRedirect);
       }
     }
@@ -1867,8 +1887,8 @@ app.all('/api/moodle/proxy', async (req, res) => {
       if (href.startsWith('#') || href.startsWith('javascript:')) return;
 
       const absolute = resolveUrl(href);
-      if (absolute.includes('unemi.edu.ec') || absolute.includes('upsdt.edu.ec')) {
-        const proxiedHref = `/api/moodle/proxy?url=${encodeURIComponent(absolute)}&server=${server}&username=${username}&session=${encodeURIComponent(String(session))}`;
+      if (absolute.startsWith(base)) {
+        const proxiedHref = `/api/moodle/proxy?url=${encodeURIComponent(absolute)}&server=${server}&baseUrl=${encodeURIComponent(base)}&username=${username}&session=${encodeURIComponent(String(session))}`;
         $(el).attr('href', proxiedHref);
       } else {
         $(el).attr('href', absolute);
@@ -1881,8 +1901,8 @@ app.all('/api/moodle/proxy', async (req, res) => {
       const action = $(el).attr('action');
       if (!action) return;
       const absolute = resolveUrl(action);
-      if (absolute.includes('unemi.edu.ec') || absolute.includes('upsdt.edu.ec')) {
-        const proxiedAction = `/api/moodle/proxy?url=${encodeURIComponent(absolute)}&server=${server}&username=${username}&session=${encodeURIComponent(String(session))}`;
+      if (absolute.startsWith(base)) {
+        const proxiedAction = `/api/moodle/proxy?url=${encodeURIComponent(absolute)}&server=${server}&baseUrl=${encodeURIComponent(base)}&username=${username}&session=${encodeURIComponent(String(session))}`;
         $(el).attr('action', proxiedAction);
       } else {
         $(el).attr('action', absolute);
@@ -2044,7 +2064,7 @@ interface SyncJob {
   error?: string;
   lastActive: number;
   logs?: SyncLogEntry[];
-  expiredSessions?: { username: string; server: 'a' | 'b' | 'upsdt' }[];
+  expiredSessions?: { username: string; server: string; baseUrl?: string | null }[];
   validSessionCount?: number;
 }
 
@@ -2107,10 +2127,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
   const courseGroupsCache: Record<string, any[]> = {};
 
   try {
-    const baseUrls = sessions.map(s => {
-      if (s.server === 'upsdt') return 'https://aulas.upsdt.edu.ec';
-      return s.server === 'a' ? 'https://aulagradoa.unemi.edu.ec' : 'https://aulagradob.unemi.edu.ec';
-    });
+    const baseUrls = sessions.map(s => resolveBaseUrl(s.server, s.baseUrl));
     
     // Step 1: Map all courses for each active session
     job.currentCourse = 'Verificando sesiones...';
@@ -2182,12 +2199,10 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         const lowerMsg = (e.message || '').toLowerCase();
         const isSessionExpired = lowerMsg.includes('expiró') || lowerMsg.includes('expirada') || lowerMsg.includes('expirado') || lowerMsg.includes('inválida') || lowerMsg.includes('invalida') || lowerMsg.includes('sesión') || lowerMsg.includes('sesion');
         
-        const platformName = sess.server === 'upsdt'
-          ? 'UPSDT'
-          : (sess.server === 'a' ? 'UNEMI presencial/semipresencial' : 'UNEMI online');
+        const platformName = getServerLabel(sess.server, sess.baseUrl);
         const label = `${sess.username} (${platformName})`;
         if (!job.expiredSessions) job.expiredSessions = [];
-        job.expiredSessions.push({ username: sess.username, server: sess.server });
+        job.expiredSessions.push({ username: sess.username, server: sess.server, baseUrl: sess.baseUrl || null });
         
         addLog(job, 'warn', `[HTTP_GET_FAIL] URL="${base}/my/" | ERROR="${e.message}" | STACK="${e.stack ? e.stack.split('\n')[0] : 'N/A'}" | CONFIG_SERVER="${sess.server.toUpperCase()}" | USER="${sess.username}"`, dashTime);
         if (isSessionExpired) {
@@ -2369,6 +2384,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
                       sessionIndex: coursesObj.sessIdx,
                       username: sess.username,
                       server: sess.server,
+                      baseUrl: sess.baseUrl,
                       courseId: course.id,
                       courseName: course.text,
                       activityUrl: url,
@@ -2717,6 +2733,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
               sessionIndex: coursesObj.sessIdx,
               username: sess.username,
               server: sess.server,
+              baseUrl: sess.baseUrl,
               courseId: course.id,
               courseName: course.text,
               activityUrl: act.url,
@@ -3101,6 +3118,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
             grupo: detailsInfo.grupo || null,
             moodleUsername: currentItem.username,
             moodleServer: currentItem.server,
+            moodleBaseUrl: currentItem.baseUrl || baseUrls[currentItem.sessionIndex] || null,
             lastSyncedAt: new Date().toISOString()
           };
 
@@ -3408,6 +3426,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
           grupo: detailsInfo.grupo || null,
           moodleUsername: currentItem.username,
           moodleServer: currentItem.server,
+          moodleBaseUrl: currentItem.baseUrl || baseUrls[currentItem.sessionIndex] || null,
           lastSyncedAt: new Date().toISOString()
         };
 

@@ -45,7 +45,7 @@ service cloud.firestore {
         && data.moodleUsername is string
         && data.moodleUsername.size() <= 100
         && data.moodleServer is string
-        && (data.moodleServer == 'a' || data.moodleServer == 'b' || data.moodleServer == 'upsdt')
+        && data.moodleServer.matches('^(a|b|upsdt|other_[a-z0-9_]+)$')
         && data.tasks is list
         && data.tasks.size() <= 1200
         && (data.get('notifications', null) == null || data.notifications is list);

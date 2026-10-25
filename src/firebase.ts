@@ -49,7 +49,7 @@ export function getUserDocKey(server: string, username: string): string {
 
 export interface UserCachedData {
   moodleUsername: string;
-  moodleServer: 'a' | 'b' | 'upsdt';
+  moodleServer: string;
   tasks: TodoTask[];
   notifications?: MoodleNotification[];
   lastSyncedTime: number | null;
@@ -89,7 +89,7 @@ export async function appendSyncHistory(record: SyncHistoryRecord): Promise<void
 /**
  * Fetch a user's combined activities/tasks data Cache from Firestore
  */
-export async function fetchUserCacheFromFirestore(server: 'a' | 'b' | 'upsdt', username: string): Promise<UserCachedData | null> {
+export async function fetchUserCacheFromFirestore(server: string, username: string): Promise<UserCachedData | null> {
   const docKey = getUserDocKey(server, username);
   const path = `user_data/${docKey}`;
   try {
@@ -108,7 +108,7 @@ export async function fetchUserCacheFromFirestore(server: 'a' | 'b' | 'upsdt', u
  * Save user's activities/tasks data Cache to Firestore
  */
 export async function saveUserCacheToFirestore(
-  server: 'a' | 'b' | 'upsdt',
+  server: string,
   username: string,
   tasks: TodoTask[],
   lastSyncedTime: number | null,

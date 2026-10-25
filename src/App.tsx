@@ -15,6 +15,7 @@ import SyncStatusBar from './components/SyncStatusBar';
 import { appendSyncHistory, fetchUserCacheFromFirestore, saveUserCacheToFirestore } from './firebase';
 import { useLanguage } from './context/LanguageContext';
 import LanguageToggle from './components/LanguageToggle';
+import { getServerLabel } from './shared/platforms';
 
 export function mergeTasksLists(currentTasks: TodoTask[], newTasks: TodoTask[]): TodoTask[] {
   const merged = [...currentTasks];
@@ -116,7 +117,7 @@ export default function App() {
 
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
   const [agendaNavigation, setAgendaNavigation] = useState<string | null>(null);
-  const [prefillLogin, setPrefillLogin] = useState<{ username: string; server: 'a' | 'b' | 'upsdt'; errorMsg: string } | null>(null);
+  const [prefillLogin, setPrefillLogin] = useState<{ username: string; server: string; baseUrl?: string | null; errorMsg: string } | null>(null);
   const [timelineFilterCourseId, setTimelineFilterCourseId] = useState<string | null>(null);
   const [syncedAccountsCount, setSyncedAccountsCount] = useState<number | null>(null);
   const [isVerifyingSessions, setIsVerifyingSessions] = useState<boolean>(false);
@@ -307,6 +308,7 @@ export default function App() {
         id,
         moodleUsername: sessions[activeSessionIndex]?.username || 'Sistema',
         moodleServer: sessions[activeSessionIndex]?.server || 'a',
+        moodleBaseUrl: sessions[activeSessionIndex]?.baseUrl || null,
         timestamp: now,
         title,
         message: body,
@@ -979,7 +981,7 @@ export default function App() {
           const res = await fetch(`${apiBase}/api/moodle/courses`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ moodleSession: sess.cookies, server: sess.server })
+            body: JSON.stringify({ moodleSession: sess.cookies, server: sess.server, baseUrl: sess.baseUrl })
           });
           const data = await res.json();
           if (!res.ok || !data.courses) {
@@ -1017,7 +1019,8 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           moodleSession: session.cookies,
-          server: session.server
+          server: session.server,
+          baseUrl: session.baseUrl
         })
       });
       const data = await res.json();
@@ -1053,7 +1056,8 @@ export default function App() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 moodleSession: sess.cookies,
-                server: sess.server
+                server: sess.server,
+                baseUrl: sess.baseUrl
               })
             });
             if (res.ok) {
@@ -1180,14 +1184,14 @@ export default function App() {
       const res = await fetch(`${apiBase}/api/moodle/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: sess.username, password: reloginPassword, server: sess.server })
+        body: JSON.stringify({ username: sess.username, password: reloginPassword, server: sess.server, baseUrl: sess.baseUrl })
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
         const updated = sessions.map(s =>
           s.username.toLowerCase() === sess.username.toLowerCase() && s.server === sess.server
-            ? { ...s, cookies: data.moodleSession, expired: false }
+            ? { ...s, cookies: data.moodleSession, baseUrl: data.base || s.baseUrl, server: data.server || s.server, expired: false }
             : s
         );
         setSessions(updated);
@@ -1243,6 +1247,7 @@ export default function App() {
     setPrefillLogin({
       username: failedSession.username,
       server: failedSession.server,
+      baseUrl: failedSession.baseUrl || null,
       errorMsg: friendlyMsg
     });
 
@@ -1358,6 +1363,7 @@ export default function App() {
     if (session) {
       updatedTask.moodleUsername = session.username;
       updatedTask.moodleServer = session.server;
+      updatedTask.moodleBaseUrl = session.baseUrl || null;
     }
     const updated = [updatedTask, ...tasks];
     setTasks(updated);
@@ -1543,6 +1549,23 @@ export default function App() {
         }
         return false;
       } else if (job.status === 'failed') {
+        const finishedTime = Date.now();
+        const startedAt = syncStartedAtRef.current[key] || finishedTime;
+        delete syncStartedAtRef.current[key];
+        if (matchSess) {
+          appendSyncHistory({
+            syncId: `${finishedTime}_${Math.random().toString(36).slice(2, 8)}`,
+            moodleUsername: matchSess.username,
+            moodleServer: matchSess.server,
+            startedAt,
+            finishedAt: finishedTime,
+            status: 'failed',
+            activityChanges: [],
+            notifications: [],
+            logs: job.logs || [],
+            error: job.error || 'Synchronization failed'
+          }).catch(err => console.error(`Could not save sync history for ${matchSess.username}:`, err));
+        }
         delete syncBaselineRef.current[key];
         const errMsg = job.error || '';
         if (errMsg.includes('No hay sesiones abiertas actualmente') || (job.expiredSessions && job.expiredSessions.length > 0)) {
@@ -1569,6 +1592,7 @@ export default function App() {
           setPrefillLogin({
             username: firstExpired?.username || sessions[0]?.username || '',
             server: firstExpired?.server || sessions[0]?.server || 'a',
+            baseUrl: firstExpired?.baseUrl || sessions[0]?.baseUrl || null,
             errorMsg: 'Las cuentas o sesiones conectadas han expirado o se cerraron. Por favor ingresa tus datos de acceso en "Conectar Moodle" para continuar.'
           });
           
@@ -1843,6 +1867,7 @@ export default function App() {
         body: JSON.stringify({
           moodleSession: matchSess.cookies,
           server: matchSess.server,
+          baseUrl: matchSess.baseUrl,
           url: task.activityUrl
         })
       });
@@ -1892,6 +1917,7 @@ export default function App() {
         body: JSON.stringify({
           moodleSession: matchSess.cookies,
           server: matchSess.server,
+          baseUrl: matchSess.baseUrl,
           url: task.activityUrl
         })
       });
@@ -2160,7 +2186,7 @@ export default function App() {
                               </p>
                               <div className="flex items-center space-x-1.5 text-[9px] font-bold text-gray-400 mt-1">
                                 <span className="uppercase text-[8px] bg-gray-100 text-gray-600 px-1 py-0.2 rounded-sm font-semibold">
-                                  {notif.moodleServer === 'upsdt' ? 'UPSDT' : (notif.moodleServer === 'a' ? 'UNEMI P/S' : 'UNEMI Online')}
+                                  {getServerLabel(notif.moodleServer, notif.moodleBaseUrl)}
                                 </span>
                               </div>
                             </div>
@@ -2241,9 +2267,7 @@ export default function App() {
                     ) : (
                       <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
                         {sessions.map((sess, idx) => {
-                          const serverLabel = sess.server === 'upsdt' 
-                            ? 'UPSDT' 
-                            : (sess.server === 'a' ? 'UNEMI P/S' : 'UNEMI Online');
+                          const serverLabel = getServerLabel(sess.server, sess.baseUrl);
                           const acctKey = `${sess.server}_${sess.username.trim().toLowerCase()}`;
                           const isReloginOpen = reloginOpenFor === acctKey;
                           const isReloginLoading = reloginLoadingFor === acctKey;
@@ -2480,7 +2504,8 @@ export default function App() {
                   s => s.username.toLowerCase() === task.moodleUsername?.toLowerCase() && s.server === task.moodleServer
                 );
                 if (!match) return null;
-                return `/api/moodle/proxy?url=${encodeURIComponent(fileUrl)}&server=${match.server}&username=${match.username}&session=${encodeURIComponent(match.cookies)}`;
+                const base = match.baseUrl || task.moodleBaseUrl || '';
+                return `/api/moodle/proxy?url=${encodeURIComponent(fileUrl)}&server=${match.server}&baseUrl=${encodeURIComponent(base)}&username=${match.username}&session=${encodeURIComponent(match.cookies)}`;
               }}
             />
           )}
@@ -2525,9 +2550,7 @@ export default function App() {
 
                   <div className="space-y-2">
                     {sessions.map((sess, idx) => {
-                      const serverLabel = sess.server === 'upsdt' 
-                        ? 'UPSDT' 
-                        : (sess.server === 'a' ? 'UNEMI Presencial / Semi' : 'UNEMI Online');
+                      const serverLabel = getServerLabel(sess.server, sess.baseUrl);
 
                       return (
                         <div 
@@ -2560,6 +2583,7 @@ export default function App() {
                                   setPrefillLogin({
                                     username: sess.username,
                                     server: sess.server,
+                                    baseUrl: sess.baseUrl || null,
                                     errorMsg: 'Por favor ingresa tus credenciales para reactivar esta cuenta.'
                                   });
                                 }}
@@ -2594,7 +2618,7 @@ export default function App() {
                       {sessions.length > 0 ? (language === 'es' ? 'Agregar otra cuenta' : 'Add another account') : (language === 'es' ? 'Conectar tu cuenta' : 'Connect your account')}
                     </h3>
                     <p className="text-xs text-slate-400">
-                      {language === 'es' ? 'Soporte para UNEMI (Presencial, Semipresencial, Online) y UPSDT' : 'Support for UNEMI and UPSDT'}
+                      {language === 'es' ? 'Soporte para UNEMI y otras plataformas Moodle' : 'Support for UNEMI and other Moodle platforms'}
                     </p>
                   </div>
                 </div>
@@ -2605,6 +2629,7 @@ export default function App() {
                   onLogout={handleLogout}
                   prefillUsername={prefillLogin?.username}
                   prefillServer={prefillLogin?.server}
+                  prefillBaseUrl={prefillLogin?.baseUrl}
                   loginErrorMessage={prefillLogin?.errorMsg}
                 />
               </div>
@@ -2660,7 +2685,7 @@ export default function App() {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">{t('options.addAccount')}</h3>
-                  <p className="text-xs text-slate-400">UNEMI (Presencial, Semi, Online) o UPSDT</p>
+                  <p className="text-xs text-slate-400">UNEMI u otra plataforma Moodle</p>
                 </div>
               </div>
               <button

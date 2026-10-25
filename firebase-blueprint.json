@@ -29,7 +29,8 @@
         "hecho_calificacion": { "type": "boolean", "description": "True if graded" },
         "grupo": { "type": "string", "description": "Scraped student group details if any" },
         "moodleUsername": { "type": "string", "description": "Username of the associated Moodle sync" },
-        "moodleServer": { "type": "string", "enum": ["a", "b", "upsdt"], "description": "Moodle server partition" },
+        "moodleServer": { "type": "string", "description": "Moodle server partition: a, b, upsdt or other_<host> for custom platforms" },
+        "moodleBaseUrl": { "type": "string", "description": "Base URL of a custom Moodle platform" },
         "lastSyncedAt": { "type": "string", "format": "date-time", "description": "Timestamp when this individual task was synced" }
       },
       "required": ["id", "title", "type", "completed", "createdAt"]
@@ -40,7 +41,7 @@
       "type": "object",
       "properties": {
         "moodleUsername": { "type": "string", "description": "The Moodle account username" },
-        "moodleServer": { "type": "string", "enum": ["a", "b", "upsdt"], "description": "Moodle server partition" },
+        "moodleServer": { "type": "string", "description": "Moodle server partition: a, b, upsdt or other_<host> for custom platforms" },
         "tasks": {
           "type": "array",
           "description": "List of activities and manual tasks for this account"
@@ -50,7 +51,8 @@
           "description": "List of notifications/announcements triggered by changes in activities"
         },
         "lastSyncedTime": { "type": "integer", "description": "Epoch timestamp of last full sync" },
-        "updatedAt": { "type": "string", "format": "date-time", "description": "Instant of last mutation" }
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Instant of last mutation" },
+        "firstWeekDate": { "type": "string", "description": "ISO date of the first academic week" }
       },
       "required": ["moodleUsername", "moodleServer", "tasks"]
     },
