@@ -543,9 +543,26 @@ export default function ActivityTimeline({
   };
 
   const getTaskEmoji = (task: TodoTask): string => {
+    let atypicalDeadlineEmoji = '';
+    if (!task.completed && task.closureDate) {
+      const deadline = new Date(task.closureDate);
+      const now = new Date();
+      if (deadline.getTime() > now.getTime()) {
+        const hours = deadline.getHours();
+        const minutes = deadline.getMinutes();
+        const inExcludedRange = (hours === 23 && minutes >= 57) || (hours === 0 && minutes === 0);
+        if (!inExcludedRange) atypicalDeadlineEmoji = '⚠️';
+      }
+    }
+
+    const withAtypicalDeadline = (emoji: string) =>
+      atypicalDeadlineEmoji && emoji !== atypicalDeadlineEmoji
+        ? `${emoji}${atypicalDeadlineEmoji}`
+        : emoji || atypicalDeadlineEmoji;
+
     // 1. Actividad completada/entregada pero sin nota visible o pendiente = ⏱️
     if ((task.completed || task.status === 'Entregado') && !task.grade) {
-      return '⏱️';
+      return withAtypicalDeadline('⏱️');
     }
 
     // 2. Actividad no realizada y pasado fecha de cierre = ☠️
@@ -553,7 +570,7 @@ export default function ActivityTimeline({
       const deadline = new Date(task.closureDate).getTime();
       const now = new Date().getTime();
       if (deadline < now) {
-        return '☠️';
+        return withAtypicalDeadline('☠️');
       }
     }
 
@@ -565,7 +582,7 @@ export default function ActivityTimeline({
       const diff = deadline - now;
       if (diff > 0) {
         if (diff < 30 * 60 * 60 * 1000) {
-          return '🔥';
+          return withAtypicalDeadline('🔥');
         }
         
         const date = new Date(task.closureDate);
@@ -573,7 +590,7 @@ export default function ActivityTimeline({
         const minutes = date.getMinutes();
         const inExcludedRange = (hours === 23 && minutes >= 57) || (hours === 0 && minutes === 0);
         if (!inExcludedRange) {
-          return '⚠️';
+          return withAtypicalDeadline('');
         }
 
         // Actividades que cierran en menos de 10 días = 💪
@@ -590,16 +607,16 @@ export default function ActivityTimeline({
         const max = task.gradeOver ? parseFloat(task.gradeOver) : 10;
         if (max > 0) {
           const pctVal = (g / max) * 100;
-          if (pctVal >= 90 && pctVal <= 100) return '😄';
-          if (pctVal >= 80 && pctVal < 90) return '🙂';
-          if (pctVal >= 70 && pctVal < 80) return '😢';
-          if (pctVal >= 60 && pctVal < 70) return '😢';
-          if (pctVal > 0 && pctVal < 60) return '👎';
+          if (pctVal >= 90 && pctVal <= 100) return withAtypicalDeadline('😄');
+          if (pctVal >= 80 && pctVal < 90) return withAtypicalDeadline('🙂');
+          if (pctVal >= 70 && pctVal < 80) return withAtypicalDeadline('😢');
+          if (pctVal >= 60 && pctVal < 70) return withAtypicalDeadline('😢');
+          if (pctVal > 0 && pctVal < 60) return withAtypicalDeadline('👎');
         }
       }
     }
 
-    return '';
+    return withAtypicalDeadline('');
   };
 
   // Filter & SORT calculations:
