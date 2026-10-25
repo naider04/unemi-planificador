@@ -541,8 +541,8 @@ export default function ActivityTimeline({
     }
   };
 
-  const getTaskEmoji = (task: TodoTask): string => {
-    let atypicalDeadlineEmoji = '';
+  const getTaskEmoji = (task: TodoTask): { emoji: string; atypicalDeadline: boolean } => {
+    let atypicalDeadline = false;
     if (!task.completed && task.closureDate) {
       const deadline = new Date(task.closureDate);
       const now = new Date();
@@ -550,14 +550,11 @@ export default function ActivityTimeline({
         const hours = deadline.getHours();
         const minutes = deadline.getMinutes();
         const inExcludedRange = (hours === 23 && minutes >= 57) || (hours === 0 && minutes === 0);
-        if (!inExcludedRange) atypicalDeadlineEmoji = '⚠️';
+        if (!inExcludedRange) atypicalDeadline = true;
       }
     }
 
-    const withAtypicalDeadline = (emoji: string) =>
-      atypicalDeadlineEmoji && emoji !== atypicalDeadlineEmoji
-        ? `${emoji}${atypicalDeadlineEmoji}`
-        : emoji || atypicalDeadlineEmoji;
+    const withAtypicalDeadline = (emoji: string) => ({ emoji, atypicalDeadline });
 
     // 1. Actividad completada/entregada pero sin nota visible o pendiente = ⏱️
     if ((task.completed || task.status === 'Entregado') && !task.grade) {
@@ -574,7 +571,7 @@ export default function ActivityTimeline({
     }
 
     // 3. Actividades que cierran en menos de 30 horas = 🔥
-    // And ⚠️ helper for activities closing outside 23:57 to 00:00 range (almost 3 minutes)
+    // The atypical deadline icon is shown alongside the main activity emoji.
     if (!task.completed && task.closureDate) {
       const deadline = new Date(task.closureDate).getTime();
       const now = new Date().getTime();
@@ -594,7 +591,7 @@ export default function ActivityTimeline({
 
         // Actividades que cierran en menos de 10 días = 💪
         if (diff < 10 * 24 * 60 * 60 * 1000) {
-          return '💪';
+          return withAtypicalDeadline('💪');
         }
       }
     }
@@ -657,6 +654,7 @@ export default function ActivityTimeline({
   const renderTaskCard = (task: TodoTask) => {
     const remaining = getRemainingTime(task.closureDate, task.completed);
     const isClickable = !!task.activityUrl;
+    const taskEmojis = getTaskEmoji(task);
 
     return (
       <div 
@@ -710,9 +708,18 @@ export default function ActivityTimeline({
             </div>
 
             <h3 className="text-xs sm:text-sm font-bold mt-1 leading-snug flex items-center gap-1.5 min-w-0">
-              {getTaskEmoji(task) && (
+              {(taskEmojis.emoji || taskEmojis.atypicalDeadline) && (
                 <span className="shrink-0 no-underline inline-block font-normal text-slate-800">
-                  {getTaskEmoji(task)}
+                  {taskEmojis.emoji}
+                  {taskEmojis.atypicalDeadline && (
+                    <img
+                      src="/clock-warning.svg"
+                      alt=""
+                      title={language === 'es' ? 'Cierre atípico' : 'Atypical deadline'}
+                      aria-label={language === 'es' ? 'Cierre atípico' : 'Atypical deadline'}
+                      className="inline-block w-4 h-4 align-[-3px]"
+                    />
+                  )}
                 </span>
               )}
               <span className={`truncate ${

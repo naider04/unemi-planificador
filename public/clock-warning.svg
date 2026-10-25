@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 140" width="140" height="140" role="img" aria-labelledby="title desc">
+  <title id="title">Clock warning</title>
+  <desc id="desc">A black outlined clock with clock hands and a circular warning badge containing an exclamation mark.</desc>
+  <g fill="none" stroke="#222" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="69" cy="68" r="49"/>
+    <path d="M69 21v7 M69 108v7 M22 68h7 M109 68h7"/>
+    <path d="M69 38v31L57 80"/>
+  </g>
+  <circle cx="108" cy="103" r="25" fill="#222"/>
+  <path d="M108 91v15" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="108" cy="114" r="2.2" fill="#fff"/>
+</svg>
