@@ -1479,8 +1479,8 @@ export default function App() {
           !!syncedUsername && task.moodleUsername?.trim().toLowerCase() === syncedUsername && task.moodleServer === syncedServer;
         const freshAccountTasks: TodoTask[] = (job.tasks || []).filter(belongsToSyncedAccount);
         const priorAccountTasks = accountBaseline.filter(belongsToSyncedAccount);
-        const priorByUrl = new Map(priorAccountTasks.filter(task => task.activityUrl).map(task => [task.activityUrl!, task]));
-        const freshByUrl = new Map(freshAccountTasks.filter(task => task.activityUrl).map(task => [task.activityUrl!, task]));
+        const priorByUrl = new Map<string, TodoTask>(priorAccountTasks.filter(task => task.activityUrl).map(task => [task.activityUrl!, task] as const));
+        const freshByUrl = new Map<string, TodoTask>(freshAccountTasks.filter(task => task.activityUrl).map(task => [task.activityUrl!, task] as const));
         const canonical = (value: any): string => {
           if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
           if (value && typeof value === 'object') return `{${Object.keys(value).filter(k => k !== 'lastSyncedAt').sort().map(k => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
@@ -1499,11 +1499,129 @@ export default function App() {
         const generatedNotifications: MoodleNotification[] = job.tasks?.length
           ? detectAndGenerateNotifications(priorAccountTasks, freshAccountTasks)
           : [];
+
+        // Save the exact inputs used by grade/status notification rules for
+        // every discovered activity, including unchanged values and misses.
+        const trackedStateFields = [
+          'status', 'completed', 'estado_entrega', 'gradingStatus',
+          'estado_calificacion', 'hecho_calificacion', 'por_hacer_calificacion',
+          'grade', 'gradeOver'
+        ] as const;
+        const snapshotState = (task?: TodoTask) => task
+          ? Object.fromEntries(trackedStateFields.map(field => [field, task[field] ?? null]))
+          : null;
+        const isAuditGraded = (task?: TodoTask) => !!task && (
+          task.status?.toLowerCase().includes('calificado') ||
+          task.gradingStatus?.toLowerCase().includes('calificado') ||
+          task.estado_calificacion?.toLowerCase().includes('calificado') ||
+          (task.grade !== null && task.grade !== undefined && task.grade !== '')
+        );
+        const isAuditSubmitted = (status?: string) => {
+          const normalized = (status || '').toLocaleLowerCase();
+          return /entregad|enviad|submitted|completed|finalizad/.test(normalized) &&
+            !/no entregad|sin entregar|not submitted|unsubmitted/.test(normalized);
+        };
+        const notificationAudit = freshAccountTasks.map(after => {
+          const before = priorByUrl.get(after.activityUrl || '');
+          const gradeTransition = !!before && isAuditGraded(after) && !isAuditGraded(before);
+          const gradeChanged = !!before && after.grade !== null && after.grade !== undefined && after.grade !== '' && after.grade !== before.grade;
+          const wasUnsubmitted = !!before && /no entregad|sin entregar|not submitted|unsubmitted/.test((before.status || '').toLocaleLowerCase());
+          const isNowSubmitted = !!before && (isAuditSubmitted(after.status) || (after.completed && !before.completed));
+          const becameSubmitted = !!before && (wasUnsubmitted || (!before.completed && !before.status)) && isNowSubmitted;
+          const changedFields = before
+            ? trackedStateFields.filter(field => canonical(before[field]) !== canonical(after[field]))
+            : [...trackedStateFields];
+          const notices = generatedNotifications
+            .filter(item => item.activityUrl === after.activityUrl)
+            .map(item => ({ id: item.id, type: item.type, title: item.title }));
+          const gradeNoticeGenerated = notices.some(item => item.type === 'grade');
+          const statusNoticeGenerated = notices.some(item => item.type === 'status');
+          return {
+            activityUrl: after.activityUrl,
+            courseId: after.courseId || null,
+            courseName: after.courseName || null,
+            activityTitle: after.title,
+            baselineFound: !!before,
+            before: snapshotState(before),
+            after: snapshotState(after),
+            changedFields,
+            gradeRule: {
+              previouslyGraded: before ? isAuditGraded(before) : null,
+              currentlyGraded: isAuditGraded(after),
+              newlyGraded: gradeTransition,
+              gradeChanged,
+              gradeLooksLikeNullSentinel: typeof after.grade === 'string' && ['null', '-', ''].includes(after.grade.trim().toLowerCase()),
+              notificationGenerated: gradeNoticeGenerated,
+              result: gradeNoticeGenerated ? 'generated' : !before ? 'no_baseline' : (gradeTransition || gradeChanged) ? 'trigger_condition_without_grade_notice' : 'no_grade_trigger'
+            },
+            statusRule: {
+              statusChanged: !!before && !!before.status && !!after.status && before.status !== after.status,
+              becameSubmitted,
+              suppressedByNewGrade: gradeTransition,
+              notificationGenerated: statusNoticeGenerated,
+              result: statusNoticeGenerated ? 'generated' : !before ? 'no_baseline' : (becameSubmitted || (before.status && after.status && before.status !== after.status)) && !gradeTransition ? 'trigger_condition_without_status_notice' : 'no_status_trigger'
+            },
+            notices
+          };
+        });
+        if (notificationAudit.length > 0) {
+          job.logs = [...(job.logs || []), {
+            timestamp: new Date().toISOString(),
+            type: 'info' as const,
+            message: `Notification decision audit: ${JSON.stringify(notificationAudit)}`
+          }];
+        }
         const removedByFreshSync = freshByUrl.size > 0
           ? reconcileTasksWithFreshSync(accountBaseline, job.tasks || []).removed
             .filter(belongsToSyncedAccount)
           : [];
         const removalNotifications = notifyDisappearedActivities(removedByFreshSync);
+
+        if (matchSess) {
+          const scans = job.courseScans || [];
+          const failures = job.activityFailures || [];
+          const removalAudit = removedByFreshSync.map(task => {
+            const scan = scans.find(item => item.server === task.moodleServer &&
+              item.username.trim().toLowerCase() === (task.moodleUsername || '').trim().toLowerCase() &&
+              String(item.courseId) === String(task.courseId || ''));
+            const detailFailure = failures.find(item => item.server === task.moodleServer &&
+              item.username.trim().toLowerCase() === (task.moodleUsername || '').trim().toLowerCase() &&
+              item.activityUrl === task.activityUrl);
+            return {
+              activityUrl: task.activityUrl,
+              courseId: task.courseId || null,
+              courseName: task.courseName || null,
+              activityTitle: task.title,
+              courseScan: scan ? {
+                status: scan.status,
+                source: scan.source,
+                discoveredActivities: scan.discoveredActivities,
+                discoveredSections: scan.discoveredSections,
+                sectionFailures: scan.sectionFailures,
+                hiddenActivities: scan.hiddenActivities
+              } : null,
+              activityDetailFailure: detailFailure?.error || null,
+              assessment: detailFailure
+                ? 'activity_detail_fetch_failed'
+                : !scan
+                  ? 'course_not_scanned_or_not_in_course_list'
+                  : scan.status !== 'complete'
+                    ? 'incomplete_course_scan_possible_false_removal'
+                    : scan.hiddenActivities.some(item => item.activityUrl === task.activityUrl)
+                      ? 'confirmed_hidden_in_moodle_course_response'
+                    : 'absent_after_complete_scan_visibility_or_removal_unconfirmed'
+            };
+          });
+          job.logs = [...(job.logs || []), {
+            timestamp: new Date().toISOString(),
+            type: removalAudit.some(item => item.assessment !== 'absent_after_complete_scan_visibility_or_removal_unconfirmed') ? 'warn' as const : 'info' as const,
+            message: `Activity removal decision audit: ${JSON.stringify(removalAudit)}`
+          }, {
+            timestamp: new Date().toISOString(),
+            type: 'info' as const,
+            message: `Course scan coverage: ${JSON.stringify(scans.map(({ username, server, courseId, courseName, source, status, discoveredActivities, discoveredSections, sectionFailures, hiddenActivities }) => ({ username, server, courseId, courseName, source, status, discoveredActivities, discoveredSections, sectionFailures, hiddenActivities })))}`
+          }];
+        }
 
         if (matchSess) {
           appendSyncHistory({

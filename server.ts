@@ -2066,6 +2066,31 @@ interface SyncJob {
   logs?: SyncLogEntry[];
   expiredSessions?: { username: string; server: string; baseUrl?: string | null }[];
   validSessionCount?: number;
+  courseScans?: CourseScanAudit[];
+  activityFailures?: ActivityFailureAudit[];
+}
+
+interface CourseScanAudit {
+  username: string;
+  server: string;
+  courseId: string;
+  courseName: string;
+  source: 'webservice' | 'html' | null;
+  status: 'complete' | 'partial' | 'failed';
+  discoveredActivities: number;
+  discoveredSections: number;
+  sectionFailures: string[];
+  hiddenActivities: Array<{ activityUrl: string; activityName: string }>;
+}
+
+interface ActivityFailureAudit {
+  username: string;
+  server: string;
+  courseId: string;
+  courseName: string;
+  activityUrl: string;
+  activityName: string;
+  error: string;
 }
 
 const syncJobs = new Map<string, SyncJob>();
@@ -2121,6 +2146,9 @@ async function processQueueConcurrently(
 async function runBackgroundSync(key: string, sessions: any[]) {
   const job = syncJobs.get(key);
   if (!job) return;
+
+  job.courseScans = [];
+  job.activityFailures = [];
 
   const userIdsBySession: Record<number, number> = {};
   const gradesCache: Record<string, any> = {};
@@ -2243,6 +2271,19 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         await saveJobToDisk(key, job);
 
         const courseStart = Date.now();
+        const courseScan: CourseScanAudit = {
+          username: sess.username,
+          server: sess.server,
+          courseId: String(course.id),
+          courseName: course.text,
+          source: null,
+          status: 'partial',
+          discoveredActivities: 0,
+          discoveredSections: 0,
+          sectionFailures: [],
+          hiddenActivities: []
+        };
+        job.courseScans.push(courseScan);
 
         const { cookies: cookieString, wstoken } = parseSession(sess.cookies);
         if (wstoken) {
@@ -2278,7 +2319,10 @@ async function runBackgroundSync(key: string, sessions: any[]) {
                 const sectionName = section.name || `Tema ${section.id}`;
                 if (Array.isArray(section.modules)) {
                   for (const mod of section.modules) {
-                    if (mod.visible === 0) continue;
+                    if (mod.visible === 0) {
+                      if (mod.url) courseScan.hiddenActivities.push({ activityUrl: mod.url, activityName: mod.name || '' });
+                      continue;
+                    }
                     const url = mod.url;
                     if (!url) continue;
 
@@ -2408,6 +2452,9 @@ async function runBackgroundSync(key: string, sessions: any[]) {
                   }
                 }
               }
+              courseScan.source = 'webservice';
+              courseScan.status = 'complete';
+              courseScan.discoveredActivities = wsActivitiesCount;
               const duration = Date.now() - courseStart;
               addLog(job, 'performance', `[WS_COURSE_RESOLVED] COURSE_ID=${course.id} | TITLE="${course.text}" | ACTIONABLE_DELIVERABLES=${wsActivitiesCount} | DURATION=${duration}ms`, duration);
               continue; // Skip scraping for this course!
@@ -2418,6 +2465,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
         }
 
         try {
+          courseScan.source = 'html';
           const fetchStart = Date.now();
           const courseHtml = await fetchMoodleHtml(course.url, cookieString);
           const fetchTime = Date.now() - fetchStart;
@@ -2710,6 +2758,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
 
           // Support parallel sections crawl on server for high velocity
           const limitUrls = sectionUrlsToFetch.slice(0, 35);
+          courseScan.discoveredSections = sectionUrlsToFetch.length;
           const sectionsStart = Date.now();
           if (limitUrls.length > 0) {
             await Promise.all(limitUrls.map(async (url) => {
@@ -2717,8 +2766,9 @@ async function runBackgroundSync(key: string, sessions: any[]) {
                 const secHtml = await fetchMoodleHtml(url, sess.cookies);
                 const secName = sectionNameByUrl[url] || 'Actividades';
                 parseAndRegisterActivities(secHtml, secName);
-              } catch (err) {
-                // Ignore failing sections gracefully
+              } catch (err: any) {
+                courseScan.sectionFailures.push(`${url}: ${err?.message || String(err)}`);
+                addLog(job, 'warn', `[SECTION_SCRAPE_FAIL] COURSE_ID=${course.id} | SECTION_URL="${url}" | ERROR="${err?.message || String(err)}"`);
               }
             }));
             const sectionsDuration = Date.now() - sectionsStart;
@@ -2727,6 +2777,10 @@ async function runBackgroundSync(key: string, sessions: any[]) {
 
           const activities = Array.from(activitiesMap.values());
           const actionable = activities.filter((act: any) => act.type === 'TAREA' || act.type === 'CUESTIONARIO');
+          courseScan.discoveredActivities = actionable.length;
+          courseScan.status = courseScan.sectionFailures.length > 0 || sectionUrlsToFetch.length > limitUrls.length
+            ? 'partial'
+            : 'complete';
           
           actionable.forEach((act: any) => {
             workingQueue.push({
@@ -2746,6 +2800,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
           const totalDuration = Date.now() - courseStart;
           addLog(job, 'performance', `[COURSE_RESOLVED] COURSE_ID=${course.id} | TITLE="${course.text}" | HTML_SIZE=${courseHtml ? courseHtml.length : 0} bytes | FETCH_DNS_TCP_DUR=${fetchTime}ms | SECTIONS_EXPLORED=${sectionUrlsToFetch.length} | TOTAL_ACTIVITIES_DISCOVERED=${activities.length} | ACTIONABLE_DELIVERABLES=${actionable.length} | TOTAL_SCRAPE_DUR=${totalDuration}ms`, totalDuration);
         } catch (e: any) {
+          courseScan.status = 'failed';
           const totalDuration = Date.now() - courseStart;
           addLog(job, 'warn', `[COURSE_SCRAPE_FAIL] COURSE_ID=${course.id} | NAME="${course.text}" | ERROR_MSG="${e.message}" | TOTAL_DUR=${totalDuration}ms | STACK="${e.stack ? e.stack.split('\n')[0] : 'N/A'}"`, totalDuration);
           const lowerMsg = (e.message || '').toLowerCase();
@@ -3442,6 +3497,15 @@ async function runBackgroundSync(key: string, sessions: any[]) {
       } catch (err: any) {
         const taskDuration = Date.now() - taskStart;
         addLog(job, 'warn', `[DETAIL_PARSE_FAIL] URL="${currentItem.activityUrl}" | TARGET_NAME="${currentItem.activityName}" | MSG="${err.message}" | STACK="${err.stack ? err.stack.split('\n')[0] : 'N/A'}"`, taskDuration);
+        job.activityFailures!.push({
+          username: currentItem.username,
+          server: currentItem.server,
+          courseId: String(currentItem.courseId),
+          courseName: currentItem.courseName,
+          activityUrl: currentItem.activityUrl,
+          activityName: currentItem.activityName,
+          error: String(err.message || err)
+        });
         const lowerMsg = (err.message || '').toLowerCase();
         const isSessionExpired = lowerMsg.includes('expiró') || lowerMsg.includes('expirada') || lowerMsg.includes('expirado') || lowerMsg.includes('inválida') || lowerMsg.includes('invalida') || lowerMsg.includes('sesión') || lowerMsg.includes('sesion');
         if (isSessionExpired) {
