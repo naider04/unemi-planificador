@@ -226,8 +226,24 @@ const translations: Record<Language, Record<string, string>> = {
     'stats.viewUpcoming': 'Ver próximas actividades',
     'stats.noCourseGrades': 'No hay notas registradas para esta materia.',
     'stats.overdueUnsubmitted': 'No entregado (Vencido)',
-    'stats.moodleGrade': 'Nota de Moodle',
     'stats.closedDate': 'Cerró: {date}',
+
+    // Weekly Grades Chart
+    'weekly.title': 'Evolución Semanal de Calificaciones',
+    'weekly.subtitle': 'Promedio semanal de actividades evaluadas. Tareas no entregadas vencidas cuentan como 0.',
+    'weekly.modeGeneral': 'General',
+    'weekly.modeSubject': 'Materias',
+    'weekly.modeCareer': 'Carreras',
+    'weekly.passingMin': '70% / 7.0 Mínimo Aprobatorio',
+    'weekly.evaluatedWeeks': '{count} semanas evaluadas',
+    'weekly.evaluatedWeek': '{count} semana evaluada',
+    'weekly.best': 'Mejor:',
+    'weekly.lowest': 'Más baja:',
+    'weekly.emptyTitle': 'Aún no hay semanas con actividades evaluadas o vencidas',
+    'weekly.emptyDesc': 'Los puntos se graficarán automáticamente conforme se registren calificaciones en Moodle o venzan plazos de entrega.',
+    'weekly.evaluatedActivitiesThisWeek': 'Actividades evaluadas esta semana:',
+    'weekly.unsubmitted': 'No entregado',
+    'weekly.resetFilter': 'Mostrar todas',
 
     // LoginPanel
     'login.connected': 'Moodle Conectado',
@@ -579,6 +595,23 @@ const translations: Record<Language, Record<string, string>> = {
     'stats.overdueUnsubmitted': 'Unsubmitted (Overdue)',
     'stats.moodleGrade': 'Moodle Grade',
     'stats.closedDate': 'Closed: {date}',
+
+    // Weekly Grades Chart
+    'weekly.title': 'Weekly Grade Evolution',
+    'weekly.subtitle': 'Weekly average of evaluated tasks. Overdue unsubmitted tasks count as 0.',
+    'weekly.modeGeneral': 'General',
+    'weekly.modeSubject': 'Subjects',
+    'weekly.modeCareer': 'Careers',
+    'weekly.passingMin': '70% / 7.0 Passing Min.',
+    'weekly.evaluatedWeeks': '{count} evaluated weeks',
+    'weekly.evaluatedWeek': '{count} evaluated week',
+    'weekly.best': 'Best:',
+    'weekly.lowest': 'Lowest:',
+    'weekly.emptyTitle': 'No weeks with evaluated or overdue activities yet',
+    'weekly.emptyDesc': 'Points will automatically appear as grades are recorded in Moodle or deadlines pass.',
+    'weekly.evaluatedActivitiesThisWeek': 'Evaluated activities this week:',
+    'weekly.unsubmitted': 'Unsubmitted',
+    'weekly.resetFilter': 'Show all',
 
     // LoginPanel
     'login.connected': 'Moodle Connected',
