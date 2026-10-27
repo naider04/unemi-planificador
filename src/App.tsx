@@ -605,8 +605,8 @@ export default function App() {
             moodleUsername: incomingTask.moodleUsername || '',
             moodleServer: incomingTask.moodleServer || 'a',
             timestamp: now,
-            title: t('notif.newActivityTitle'),
-            message: t('notif.newActivityBody', { course: incomingTask.courseName || 'Moodle', date: formattedClosureDate }),
+            title: incomingTask.title || t('notif.newActivityTitle'),
+            message: t('notif.newActivityBody', { date: formattedClosureDate }),
             type: 'new',
             read: false,
             activityUrl: incomingTask.activityUrl,
@@ -662,12 +662,12 @@ export default function App() {
               moodleUsername: incomingTask.moodleUsername || '',
               moodleServer: incomingTask.moodleServer || 'a',
               timestamp: now,
-              title: t(deadlineKeyByKind.title),
-              message: t(deadlineKeyByKind.body, { title: existingTask.title, oldDate: formatShortDate(prevClosure), newDate: formatShortDate(nextClosure) }),
+              title: incomingTask.title || existingTask.title || t(deadlineKeyByKind.title),
+              message: t(deadlineKeyByKind.body, { title: incomingTask.title || existingTask.title, oldDate: formatShortDate(prevClosure), newDate: formatShortDate(nextClosure) }),
               type: 'deadline',
               read: false,
               activityUrl: incomingTask.activityUrl,
-              courseName: existingTask.courseName
+              courseName: existingTask.courseName || incomingTask.courseName
             });
           }
 
@@ -680,19 +680,20 @@ export default function App() {
           const gradeChanged = incomingTask.grade !== null && incomingTask.grade !== undefined && incomingTask.grade !== '' && incomingTask.grade !== existingTask.grade;
 
           if (newlyGraded || gradeChanged) {
+            const notifTitle = incomingTask.title || existingTask.title;
             newNotifications.push({
               id: `grade_${incomingTask.id || now}_${Math.random().toString(36).substr(2, 5)}`,
               moodleUsername: incomingTask.moodleUsername || '',
               moodleServer: incomingTask.moodleServer || 'a',
               timestamp: now,
-              title: t('notif.newGradeTitle'),
+              title: notifTitle,
               message: incomingTask.grade !== null && incomingTask.grade !== undefined && incomingTask.grade !== ''
-                ? t('notif.newGradeBody', { title: existingTask.title, grade: incomingTask.grade, gradeOver: incomingTask.gradeOver || '10' })
-                : t('notif.statusUpdatedBody', { title: existingTask.title, oldStatus: existingTask.status || t('sync.legend.ungraded'), newStatus: incomingTask.status || t('csv.graded') }),
+                ? t('notif.newGradeBody', { title: notifTitle, grade: incomingTask.grade, gradeOver: incomingTask.gradeOver || '10' })
+                : t('notif.statusUpdatedBody', { title: notifTitle, oldStatus: existingTask.status || t('sync.legend.ungraded'), newStatus: incomingTask.status || t('csv.graded') }),
               type: 'grade',
               read: false,
               activityUrl: incomingTask.activityUrl,
-              courseName: existingTask.courseName
+              courseName: existingTask.courseName || incomingTask.courseName
             });
           }
 
@@ -706,19 +707,20 @@ export default function App() {
           const becameSubmitted = (wasUnsubmitted || (!existingTask.completed && !existingTask.status)) && isNowSubmitted;
 
           if (!newlyGraded && (becameSubmitted || (incomingTask.status && existingTask.status && incomingTask.status !== existingTask.status))) {
+            const statusNotifTitle = incomingTask.title || existingTask.title;
             newNotifications.push({
               id: `status_${incomingTask.id || now}_${Math.random().toString(36).substr(2, 5)}`,
               moodleUsername: incomingTask.moodleUsername || '',
               moodleServer: incomingTask.moodleServer || 'a',
               timestamp: now,
-              title: t('notif.statusUpdatedTitle'),
+              title: statusNotifTitle,
               message: becameSubmitted
-                ? t('notif.activitySubmittedBody', { title: existingTask.title })
-                : t('notif.statusUpdatedBody', { title: existingTask.title, oldStatus: existingTask.status || t('sync.legend.ungraded'), newStatus: incomingTask.status || t('csv.submitted') }),
+                ? t('notif.activitySubmittedBody', { title: statusNotifTitle })
+                : t('notif.statusUpdatedBody', { title: statusNotifTitle, oldStatus: existingTask.status || t('sync.legend.ungraded'), newStatus: incomingTask.status || t('csv.submitted') }),
               type: 'status',
               read: false,
               activityUrl: incomingTask.activityUrl,
-              courseName: existingTask.courseName
+              courseName: existingTask.courseName || incomingTask.courseName
             });
           }
 
@@ -743,7 +745,7 @@ export default function App() {
               moodleUsername: incomingTask.moodleUsername || '',
               moodleServer: incomingTask.moodleServer || 'a',
               timestamp: now,
-              title: t(reviewOpened ? 'notif.quizReviewOpenedTitle' : 'notif.quizReviewClosedTitle'),
+              title: incomingTask.title || t(reviewOpened ? 'notif.quizReviewOpenedTitle' : 'notif.quizReviewClosedTitle'),
               message: t(reviewOpened ? 'notif.quizReviewOpenedBody' : 'notif.quizReviewClosedBody', {
                 title: incomingTask.title,
                 attempt: attempt.numero || attemptKey || '?'
@@ -2303,8 +2305,8 @@ export default function App() {
                                 {notif.message}
                               </p>
                               <div className="flex items-center space-x-1.5 text-[9px] font-bold text-gray-400 mt-1">
-                                <span className="uppercase text-[8px] bg-gray-100 text-gray-600 px-1 py-0.2 rounded-sm font-semibold">
-                                  {getServerLabel(notif.moodleServer, notif.moodleBaseUrl)}
+                                <span className="uppercase text-[8px] bg-gray-100 text-gray-600 px-1 py-0.2 rounded-sm font-semibold max-w-[140px] truncate" title={notif.courseName || getServerLabel(notif.moodleServer, notif.moodleBaseUrl)}>
+                                  {notif.courseName || getServerLabel(notif.moodleServer, notif.moodleBaseUrl)}
                                 </span>
                               </div>
                             </div>
