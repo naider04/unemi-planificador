@@ -54,6 +54,7 @@ export default function ActivityTimeline({
   const filterDropdownRef = useRef<HTMLDivElement>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [copiedTaskId, setCopiedTaskId] = useState<string | null>(null);
+  const [selectedCalendarDay, setSelectedCalendarDay] = useState<string | null>(null);
 
   const copyToClipboard = async (text: string): Promise<boolean> => {
     try {
@@ -650,6 +651,157 @@ export default function ActivityTimeline({
   const pendingCount = tasks.filter(t => !t.completed).length;
   const completedCount = tasks.filter(t => t.completed).length;
   const percentComplete = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
+
+  // Calendar Sidebar Helpers:
+  const todayKey = useMemo(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  }, []);
+
+  // Compute number of activities per day based on filteredTasks
+  const tasksCountByDay = useMemo(() => {
+    const map: Record<string, number> = {};
+    filteredTasks.forEach(task => {
+      if (task.closureDate) {
+        const d = new Date(task.closureDate);
+        if (!isNaN(d.getTime())) {
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          map[key] = (map[key] || 0) + 1;
+        }
+      }
+    });
+    return map;
+  }, [filteredTasks]);
+
+  // Months to display one beneath the other
+  const monthList = useMemo(() => {
+    const today = new Date();
+    let minYear = today.getFullYear();
+    let minMonth = today.getMonth();
+    let maxYear = today.getFullYear();
+    let maxMonth = today.getMonth() + 2;
+
+    if (firstWeekDate) {
+      const [fy, fm] = firstWeekDate.split('-').map(Number);
+      if (fy && fm) {
+        const fDate = new Date(fy, fm - 1, 1);
+        if (fDate.getFullYear() < minYear || (fDate.getFullYear() === minYear && fDate.getMonth() < minMonth)) {
+          minYear = fDate.getFullYear();
+          minMonth = fDate.getMonth();
+        }
+      }
+    }
+
+    filteredTasks.forEach(task => {
+      if (task.closureDate) {
+        const d = new Date(task.closureDate);
+        if (!isNaN(d.getTime())) {
+          const y = d.getFullYear();
+          const m = d.getMonth();
+          if (y < minYear || (y === minYear && m < minMonth)) {
+            minYear = y;
+            minMonth = m;
+          }
+          if (y > maxYear || (y === maxYear && m > maxMonth)) {
+            maxYear = y;
+            maxMonth = m;
+          }
+        }
+      }
+    });
+
+    const list: { year: number; month: number }[] = [];
+    const cursor = new Date(minYear, minMonth, 1);
+    const end = new Date(maxYear, maxMonth, 1);
+
+    let safeguard = 0;
+    while (cursor <= end && safeguard < 14) {
+      list.push({ year: cursor.getFullYear(), month: cursor.getMonth() });
+      cursor.setMonth(cursor.getMonth() + 1);
+      safeguard++;
+    }
+    return list;
+  }, [filteredTasks, firstWeekDate]);
+
+  // Color classes depending on activity count
+  const getDayColorClass = (count: number) => {
+    if (count === 0) return 'text-slate-600 hover:bg-slate-100 bg-transparent border border-transparent';
+    if (count === 1) return 'bg-sky-100 text-sky-900 font-bold border border-sky-300 hover:bg-sky-200';
+    if (count === 2) return 'bg-blue-300 text-blue-950 font-bold border border-blue-400 hover:bg-blue-400';
+    if (count === 3) return 'bg-indigo-500 text-white font-black shadow-2xs hover:bg-indigo-600';
+    return 'bg-purple-600 text-white font-black shadow-2xs hover:bg-purple-700';
+  };
+
+  // Click handler to expand week and scroll to clicked day or closest day
+  const handleDayClick = (year: number, month: number, dayNumber: number) => {
+    const dayKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNumber).padStart(2, '0')}`;
+    setSelectedCalendarDay(dayKey);
+
+    const targetDate = new Date(year, month, dayNumber, 12, 0, 0);
+    const weekInfo = getWeekInfo(targetDate.toISOString());
+    const weekLabel = weekInfo.label;
+
+    // 1. Expand the week so its day elements are rendered in DOM
+    setCollapsedWeeks(prev => ({
+      ...prev,
+      [weekLabel]: false
+    }));
+
+    // 2. Smoothly scroll to the target day or closest day in that week
+    setTimeout(() => {
+      const exactEl = document.getElementById(`timeline-day-${dayKey}`);
+      if (exactEl) {
+        exactEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        exactEl.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2', 'rounded-xl', 'transition-all', 'duration-300');
+        setTimeout(() => {
+          exactEl.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2');
+        }, 2500);
+        return;
+      }
+
+      // If exact day doesn't have activities, look for the week container
+      const weekEl = document.getElementById(`timeline-week-${encodeURIComponent(weekLabel)}`);
+      if (weekEl) {
+        const dayNodes = weekEl.querySelectorAll<HTMLElement>('[id^="timeline-day-"]');
+        if (dayNodes.length > 0) {
+          let closestNode = dayNodes[0];
+          let minDiff = Infinity;
+          const targetTime = targetDate.getTime();
+
+          dayNodes.forEach(node => {
+            const nodeKey = node.id.replace('timeline-day-', '');
+            const [ny, nm, nd] = nodeKey.split('-').map(Number);
+            if (ny && nm && nd) {
+              const nodeTime = new Date(ny, nm - 1, nd, 12, 0, 0).getTime();
+              const diff = Math.abs(nodeTime - targetTime);
+              if (diff < minDiff) {
+                minDiff = diff;
+                closestNode = node;
+              }
+            }
+          });
+
+          closestNode.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          closestNode.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2', 'rounded-xl', 'transition-all', 'duration-300');
+          setTimeout(() => {
+            closestNode.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2');
+          }, 2500);
+          return;
+        }
+
+        weekEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        weekEl.classList.add('ring-2', 'ring-blue-400', 'ring-offset-2', 'transition-all', 'duration-300');
+        setTimeout(() => {
+          weekEl.classList.remove('ring-2', 'ring-blue-400', 'ring-offset-2');
+        }, 2500);
+      }
+    }, 120);
+  };
+
+  const handleJumpToToday = () => {
+    const today = new Date();
+    handleDayClick(today.getFullYear(), today.getMonth(), today.getDate());
+  };
 
   const renderTaskCard = (task: TodoTask) => {
     const remaining = getRemainingTime(task.closureDate, task.completed);
@@ -1270,154 +1422,304 @@ export default function ActivityTimeline({
         </div>
       </div>
 
-      {/* 2. Tasks Timeline View */}
-      {filteredTasks.length === 0 ? (
-        <div id="timeline-empty-state" className="bg-white border border-slate-200/80 rounded-2xl p-10 text-center shadow-2xs">
-          <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-          <p className="text-sm font-bold text-slate-700">{t('timeline.noFilteredActivities')}</p>
-          <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-            {language === 'es' ? 'No hay actividades que coincidan con los filtros seleccionados.' : 'No activities match the selected filters.'}
-          </p>
-        </div>
-      ) : (() => {
-        // Group activity items under corresponding weeks
-        const groupsRecord: Record<string, { label: string; mondaySort: number; tasks: TodoTask[] }> = {};
+      {/* 2. Main Timeline Content with Always-Visible Calendar Sidebar on the right */}
+      <div className="flex flex-col lg:flex-row gap-5 items-start">
+        
+        {/* Left Column: Tasks Timeline View */}
+        <div className="flex-1 min-w-0 w-full space-y-4">
+          {filteredTasks.length === 0 ? (
+            <div id="timeline-empty-state" className="bg-white border border-slate-200/80 rounded-2xl p-10 text-center shadow-2xs">
+              <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+              <p className="text-sm font-bold text-slate-700">{t('timeline.noFilteredActivities')}</p>
+              <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                {language === 'es' ? 'No hay actividades que coincidan con los filtros seleccionados.' : 'No activities match the selected filters.'}
+              </p>
+            </div>
+          ) : (() => {
+            // Group activity items under corresponding weeks
+            const groupsRecord: Record<string, { label: string; mondaySort: number; tasks: TodoTask[] }> = {};
 
-        filteredTasks.forEach(task => {
-          const info = getWeekInfo(task.closureDate);
-          const key = info.label;
-          if (!groupsRecord[key]) {
-            groupsRecord[key] = {
-              label: key,
-              mondaySort: info.mondaySort,
-              tasks: []
-            };
-          }
-          groupsRecord[key].tasks.push(task);
-        });
+            filteredTasks.forEach(task => {
+              const info = getWeekInfo(task.closureDate);
+              const key = info.label;
+              if (!groupsRecord[key]) {
+                groupsRecord[key] = {
+                  label: key,
+                  mondaySort: info.mondaySort,
+                  tasks: []
+                };
+              }
+              groupsRecord[key].tasks.push(task);
+            });
 
-        // Order weeks chronologically
-        const sortedGroups = Object.values(groupsRecord).sort((a, b) => a.mondaySort - b.mondaySort);
+            // Order weeks chronologically
+            const sortedGroups = Object.values(groupsRecord).sort((a, b) => a.mondaySort - b.mondaySort);
 
-        return (
-          <div id="timeline-rendered-body" className="space-y-4">
-            {sortedGroups.map(group => {
-              const isCurrent = isCurrentWeek(group.mondaySort);
-              const isCollapsed = collapsedWeeks[group.label] !== undefined 
-                ? collapsedWeeks[group.label] 
-                : !isCurrent;
-              const pendingInGroup = group.tasks.filter(t => !t.completed).length;
-                const completedInGroup = group.tasks.length - pendingInGroup;
+            return (
+              <div id="timeline-rendered-body" className="space-y-4">
+                {sortedGroups.map(group => {
+                  const isCurrent = isCurrentWeek(group.mondaySort);
+                  const isCollapsed = collapsedWeeks[group.label] !== undefined 
+                    ? collapsedWeeks[group.label] 
+                    : !isCurrent;
+                  const pendingInGroup = group.tasks.filter(t => !t.completed).length;
+                  const completedInGroup = group.tasks.length - pendingInGroup;
 
-              return (
-                <div key={group.label} className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-2xs">
-                  {/* Academic Week Header Banner */}
-                  <div
-                    onClick={() => {
-                      setCollapsedWeeks(prev => ({
-                        ...prev,
-                        [group.label]: !isCollapsed
-                      }));
-                    }}
-                    className="p-3.5 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
-                  >
-                    <div className="flex items-center space-x-2.5">
-                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isCollapsed ? "-rotate-90" : ""}`} />
-                      <div className="flex items-center space-x-2">
-                        <span className="font-bold text-xs text-slate-800">
-                          {group.label}
-                        </span>
-                        {isCurrent && (
-                          <span className="text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.2 rounded-full">
-                            {t('timeline.currentWeekBadge')}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-2 text-xs text-slate-400 font-medium">
-                      <span>
-                        {t('timeline.done')}: {completedInGroup}/{group.tasks.length}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Week Activities Content */}
-                  {!isCollapsed && (
-                    <div className="p-3 sm:p-4">
-                      {group.mondaySort === 9999999999999 ? (
-                        <div className="divide-y divide-slate-100 border border-slate-200/70 rounded-xl overflow-hidden">
-                          {group.tasks.map(task => renderTaskCard(task))}
+                  return (
+                    <div 
+                      key={group.label} 
+                      id={`timeline-week-${encodeURIComponent(group.label)}`}
+                      className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-2xs scroll-mt-36"
+                    >
+                      {/* Academic Week Header Banner */}
+                      <div
+                        onClick={() => {
+                          setCollapsedWeeks(prev => ({
+                            ...prev,
+                            [group.label]: !isCollapsed
+                          }));
+                        }}
+                        className="p-3.5 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between cursor-pointer select-none hover:bg-slate-100/70 transition-colors"
+                      >
+                        <div className="flex items-center space-x-2.5">
+                          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isCollapsed ? "-rotate-90" : ""}`} />
+                          <div className="flex items-center space-x-2">
+                            <span className="font-bold text-xs text-slate-800">
+                              {group.label}
+                            </span>
+                            {isCurrent && (
+                              <span className="text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.2 rounded-full">
+                                {t('timeline.currentWeekBadge')}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      ) : (() => {
-                        const weekdays = language === 'es' 
-                          ? ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-                          : ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-                        const mondayDate = new Date(group.mondaySort);
 
-                        const daysArray = weekdays.map((name, index) => {
-                          const dayDate = new Date(mondayDate);
-                          dayDate.setDate(mondayDate.getDate() + index);
-                          return {
-                            name,
-                            dayDate,
-                            tasks: [] as TodoTask[]
-                          };
-                        });
+                        <div className="flex items-center space-x-2 text-xs text-slate-400 font-medium">
+                          <span>
+                            {t('timeline.done')}: {completedInGroup}/{group.tasks.length}
+                          </span>
+                        </div>
+                      </div>
 
-                        group.tasks.forEach(task => {
-                          if (task.closureDate) {
-                            const taskD = new Date(task.closureDate);
-                            const day = taskD.getDay();
-                            const idx = day === 0 ? 6 : day - 1;
-                            if (idx >= 0 && idx < 7) {
-                              daysArray[idx].tasks.push(task);
-                            } else {
-                              daysArray[0].tasks.push(task);
-                            }
-                          } else {
-                            daysArray[0].tasks.push(task);
-                          }
-                        });
-
-                        const daysWithTasks = daysArray.filter(day => day.tasks.length > 0);
-
-                        if (daysWithTasks.length === 0) {
-                          return (
-                            <div className="p-4 text-center text-xs text-slate-400 bg-slate-50/50 rounded-xl border border-slate-100">
-                              {language === 'es' ? 'Todas las actividades de esta semana están completadas' : 'All activities for this week are completed'}
+                      {/* Week Activities Content */}
+                      {!isCollapsed && (
+                        <div className="p-3 sm:p-4">
+                          {group.mondaySort === 9999999999999 ? (
+                            <div className="divide-y divide-slate-100 border border-slate-200/70 rounded-xl overflow-hidden">
+                              {group.tasks.map(task => renderTaskCard(task))}
                             </div>
-                          );
-                        }
+                          ) : (() => {
+                            const weekdays = language === 'es' 
+                              ? ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+                              : ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+                            const mondayDate = new Date(group.mondaySort);
 
-                        return (
-                          <div className="space-y-4">
-                            {daysWithTasks.map((day, dayIdx) => {
-                              const dayStr = day.dayDate.toLocaleDateString(language === 'es' ? "es-EC" : "en-US", { day: "numeric", month: "short" });
+                            const daysArray = weekdays.map((name, index) => {
+                              const dayDate = new Date(mondayDate);
+                              dayDate.setDate(mondayDate.getDate() + index);
+                              return {
+                                name,
+                                dayDate,
+                                tasks: [] as TodoTask[]
+                              };
+                            });
+
+                            group.tasks.forEach(task => {
+                              if (task.closureDate) {
+                                const taskD = new Date(task.closureDate);
+                                const day = taskD.getDay();
+                                const idx = day === 0 ? 6 : day - 1;
+                                if (idx >= 0 && idx < 7) {
+                                  daysArray[idx].tasks.push(task);
+                                } else {
+                                  daysArray[0].tasks.push(task);
+                                }
+                              } else {
+                                daysArray[0].tasks.push(task);
+                              }
+                            });
+
+                            const daysWithTasks = daysArray.filter(day => day.tasks.length > 0);
+
+                            if (daysWithTasks.length === 0) {
                               return (
-                                <div key={dayIdx} className="space-y-1.5">
-                                  <div className="flex items-center space-x-2 text-xs text-slate-500 font-semibold px-1">
-                                    <span className="text-slate-800 capitalize font-bold">{day.name}, {dayStr}</span>
-                                    <span className="text-[10px] text-slate-400">({day.tasks.length})</span>
-                                    <div className="flex-1 h-px bg-slate-100 ml-2" />
-                                  </div>
-                                  <div className="divide-y divide-slate-100 border border-slate-200/70 rounded-xl overflow-hidden bg-white shadow-2xs">
-                                    {day.tasks.map(task => renderTaskCard(task))}
-                                  </div>
+                                <div className="p-4 text-center text-xs text-slate-400 bg-slate-50/50 rounded-xl border border-slate-100">
+                                  {language === 'es' ? 'Todas las actividades de esta semana están completadas' : 'All activities for this week are completed'}
                                 </div>
                               );
-                            })}
-                          </div>
-                        );
-                      })()}
+                            }
+
+                            return (
+                              <div className="space-y-4">
+                                {daysWithTasks.map((day, dayIdx) => {
+                                  const dayStr = day.dayDate.toLocaleDateString(language === 'es' ? "es-EC" : "en-US", { day: "numeric", month: "short" });
+                                  const dayDateKey = `${day.dayDate.getFullYear()}-${String(day.dayDate.getMonth() + 1).padStart(2, '0')}-${String(day.dayDate.getDate()).padStart(2, '0')}`;
+                                  return (
+                                    <div 
+                                      key={dayIdx} 
+                                      id={`timeline-day-${dayDateKey}`}
+                                      className="space-y-1.5 scroll-mt-36"
+                                    >
+                                      <div className="flex items-center space-x-2 text-xs text-slate-500 font-semibold px-1">
+                                        <span className="text-slate-800 capitalize font-bold">{day.name}, {dayStr}</span>
+                                        <span className="text-[10px] text-slate-400">({day.tasks.length})</span>
+                                        <div className="flex-1 h-px bg-slate-100 ml-2" />
+                                      </div>
+                                      <div className="divide-y divide-slate-100 border border-slate-200/70 rounded-xl overflow-hidden bg-white shadow-2xs">
+                                        {day.tasks.map(task => renderTaskCard(task))}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
                     </div>
-                  )}
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Right Column: Always Visible Calendar Sidebar (Month beneath Month) */}
+        <aside 
+          id="timeline-calendar-sidebar"
+          className="w-full lg:w-72 xl:w-80 shrink-0 lg:sticky lg:top-[125px] max-h-[calc(100vh-145px)] overflow-y-auto pr-0.5 space-y-3"
+        >
+          <div className="bg-white border border-slate-200/90 rounded-2xl shadow-xs p-3.5 space-y-4">
+            
+            {/* Calendar Sidebar Header */}
+            <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+              <div className="flex items-center space-x-2">
+                <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg">
+                  <Calendar className="w-4 h-4" />
                 </div>
-              );
-            })}
+                <div>
+                  <h3 className="text-xs font-bold text-slate-800">
+                    {t('calendar.title', 'Calendario')}
+                  </h3>
+                  <p className="text-[10px] text-slate-400">
+                    {t('calendar.subtitle', 'Haz clic en un día para saltar')}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleJumpToToday}
+                className="px-2 py-1 text-[10px] font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
+                title={language === 'es' ? 'Ir al día de hoy' : 'Jump to today'}
+              >
+                {t('calendar.today', 'Hoy')}
+              </button>
+            </div>
+
+            {/* Heatmap Activity Count Legend */}
+            <div className="flex items-center justify-between text-[10px] text-slate-500 font-medium px-2 py-1.5 bg-slate-50 rounded-xl border border-slate-100">
+              <span className="font-semibold text-slate-600">{t('calendar.legend', 'Actividades:')}</span>
+              <div className="flex items-center space-x-1 font-mono font-bold">
+                <span className="w-4 h-4 rounded text-center leading-4 bg-white text-slate-400 border border-slate-200 text-[9px]" title="0 actividades">0</span>
+                <span className="w-4 h-4 rounded text-center leading-4 bg-sky-100 text-sky-900 border border-sky-300 text-[9px]" title="1 actividad">1</span>
+                <span className="w-4 h-4 rounded text-center leading-4 bg-blue-300 text-blue-950 border border-blue-400 text-[9px]" title="2 actividades">2</span>
+                <span className="w-4 h-4 rounded text-center leading-4 bg-indigo-500 text-white text-[9px]" title="3 actividades">3</span>
+                <span className="w-4 h-4 rounded text-center leading-4 bg-purple-600 text-white text-[9px]" title="4+ actividades">4+</span>
+              </div>
+            </div>
+
+            {/* Months List Stacked Vertically */}
+            <div className="space-y-5">
+              {monthList.map(({ year, month }) => {
+                const monthNamesEs = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+                const monthNamesEn = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+                const mNames = language === 'es' ? monthNamesEs : monthNamesEn;
+                const monthTitle = `${mNames[month]} ${year}`;
+                const weekdayInitials = language === 'es' ? ['L', 'M', 'M', 'J', 'V', 'S', 'D'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+                const firstDay = new Date(year, month, 1);
+                const dayOfWeek = firstDay.getDay(); // 0 is Sun, 1 is Mon...
+                const offset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+                const totalDays = new Date(year, month + 1, 0).getDate();
+
+                // Total activities in this month
+                let monthTotalTasks = 0;
+                for (let d = 1; d <= totalDays; d++) {
+                  const k = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                  monthTotalTasks += tasksCountByDay[k] || 0;
+                }
+
+                return (
+                  <div key={`${year}-${month}`} className="space-y-2">
+                    {/* Month Header Banner */}
+                    <div className="flex items-center justify-between px-1">
+                      <span className="text-xs font-bold text-slate-800 capitalize">
+                        {monthTitle}
+                      </span>
+                      {monthTotalTasks > 0 && (
+                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 bg-blue-50 text-blue-700 rounded-md border border-blue-100">
+                          {monthTotalTasks} {monthTotalTasks === 1 ? 'act.' : 'acts.'}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Weekday Initials */}
+                    <div className="grid grid-cols-7 gap-1 text-center">
+                      {weekdayInitials.map((initial, idx) => (
+                        <span
+                          key={idx}
+                          className={`text-[10px] font-bold ${idx >= 5 ? 'text-slate-300' : 'text-slate-400'}`}
+                        >
+                          {initial}
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* Days Grid: colored purely by task count, no activity details inside cells */}
+                    <div className="grid grid-cols-7 gap-1">
+                      {Array.from({ length: offset }).map((_, i) => (
+                        <div key={`blank-${i}`} className="w-7 h-7 sm:w-8 sm:h-8" />
+                      ))}
+
+                      {Array.from({ length: totalDays }).map((_, i) => {
+                        const dayNumber = i + 1;
+                        const dayKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNumber).padStart(2, '0')}`;
+                        const count = tasksCountByDay[dayKey] || 0;
+                        const isToday = dayKey === todayKey;
+                        const isSelected = dayKey === selectedCalendarDay;
+
+                        return (
+                          <button
+                            key={dayKey}
+                            type="button"
+                            onClick={() => handleDayClick(year, month, dayNumber)}
+                            className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-[11px] font-medium flex items-center justify-center transition-all cursor-pointer relative select-none ${getDayColorClass(count)} ${
+                              isToday ? 'ring-2 ring-blue-500 font-bold' : ''
+                            } ${
+                              isSelected ? 'ring-2 ring-slate-900 ring-offset-1 font-bold' : ''
+                            }`}
+                            title={
+                              count === 0
+                                ? `${dayNumber} ${mNames[month]}`
+                                : `${dayNumber} ${mNames[month]}: ${count} ${count === 1 ? (language === 'es' ? 'actividad' : 'activity') : (language === 'es' ? 'actividades' : 'activities')}`
+                            }
+                          >
+                            {dayNumber}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
           </div>
-        );
-      })()}
+        </aside>
+
+      </div>
 
     </div>
   );

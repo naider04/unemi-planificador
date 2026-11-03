@@ -200,6 +200,12 @@ const translations: Record<Language, Record<string, string>> = {
     'timeline.reopenedWarning': '⚠️ Esta tarea venció, pero está abierta para entrega extemporánea o segundo intento.',
     'timeline.overdueWarning': '⚠️ Esta tarea ya cerró su plazo oficial de entrega.',
     'timeline.viewRawHtml': 'Ver HTML',
+    'calendar.title': 'Calendario',
+    'calendar.subtitle': 'Haz clic en un día para saltar a la agenda',
+    'calendar.today': 'Hoy',
+    'calendar.activitiesCount': '{count} actividades',
+    'calendar.oneActivity': '1 actividad',
+    'calendar.noActivities': 'Sin actividades',
 
     // StatsPanel
     'stats.title': 'Rendimiento Académico por Materia',
@@ -567,6 +573,12 @@ const translations: Record<Language, Record<string, string>> = {
     'timeline.reopenedWarning': '⚠️ This assignment was overdue, but is currently open for late submission or second attempt.',
     'timeline.overdueWarning': '⚠️ This task has passed its official submission deadline.',
     'timeline.viewRawHtml': 'View HTML',
+    'calendar.title': 'Calendar',
+    'calendar.subtitle': 'Click any day to jump to agenda',
+    'calendar.today': 'Today',
+    'calendar.activitiesCount': '{count} activities',
+    'calendar.oneActivity': '1 activity',
+    'calendar.noActivities': 'No activities',
 
     // StatsPanel
     'stats.title': 'Academic Performance by Course',
