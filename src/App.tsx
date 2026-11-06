@@ -3,7 +3,7 @@ import {
   Calendar, Lock, Award, CheckCircle2, 
   Sparkles, Clock, AlertCircle, Bookmark, CheckSquare, Eye, RefreshCw, Download, BarChart3,
   Bell, BellOff, Trash2, ArrowLeft, ArrowRight, ExternalLink,
-  SlidersHorizontal, ChevronDown, UserPlus, LogOut, X, Users, Settings2, Key
+  SlidersHorizontal, ChevronDown, UserPlus, LogOut, X, Users, Settings2, Key, FileCheck
 } from 'lucide-react';
 
 import { MoodleSession, TodoTask, Course, MoodleNotification } from './types';
@@ -11,6 +11,7 @@ import LoginPanel from './components/LoginPanel';
 import ActivityTimeline from './components/ActivityTimeline';
 import NewTaskModal from './components/NewTaskModal';
 import StatsPanel from './components/StatsPanel';
+import QuizzesPanel from './components/QuizzesPanel';
 import SyncStatusBar from './components/SyncStatusBar';
 import { appendSyncHistory, fetchUserCacheFromFirestore, saveUserCacheToFirestore } from './firebase';
 import { useLanguage } from './context/LanguageContext';
@@ -108,7 +109,7 @@ export default function App() {
   // Live "current period" subjects fetched per connected Moodle account:
   // key = `${server}|${username.toLowerCase()}`, value = Set of course IDs.
   const [liveCoursesByAccount, setLiveCoursesByAccount] = useState<Record<string, Set<string>>>({});
-  const [activeTab, setActiveTab] = useState<'agenda' | 'login' | 'stats'>('agenda');
+  const [activeTab, setActiveTab] = useState<'agenda' | 'quizzes' | 'stats' | 'login'>('agenda');
 
   // Alert and Loading states for Activity detail fetching/opening
   const [showConnectionsAlert, setShowConnectionsAlert] = useState<boolean>(false);
@@ -1346,15 +1347,15 @@ export default function App() {
     if (!lastSyncedTime) return '';
     try {
       const diffMs = Date.now() - lastSyncedTime;
-      if (diffMs < 0) return 'hace un momento';
+      if (diffMs < 0) return language === 'es' ? 'hace un momento' : 'just now';
       const seconds = Math.floor(diffMs / 1000);
-      if (seconds < 60) return 'hace un momento';
+      if (seconds < 60) return language === 'es' ? 'hace un momento' : 'just now';
       const minutes = Math.floor(seconds / 60);
-      if (minutes < 60) return `hace ${minutes}m`;
+      if (minutes < 60) return language === 'es' ? `hace ${minutes}m` : `${minutes}m ago`;
       const hours = Math.floor(minutes / 60);
-      if (hours < 24) return `hace ${hours}h`;
+      if (hours < 24) return language === 'es' ? `hace ${hours}h` : `${hours}h ago`;
       const days = Math.floor(hours / 24);
-      return `hace ${days}d`;
+      return language === 'es' ? `hace ${days}d` : `${days}d ago`;
     } catch {
       return '';
     }
@@ -2069,6 +2070,25 @@ export default function App() {
   const pendingTasks = totalTasks - completedTasks;
   const percentComplete = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
+  const nowMs = Date.now();
+  const openQuizzesCount = tasks.filter(t => {
+    const isQuiz = t.type === 'CUESTIONARIO' || /quiz|cuestionario|examen|evalua|lecci|test\b/i.test(t.title || '');
+    if (!isQuiz) return false;
+    if (t.quiz_info?.abierto !== undefined && t.quiz_info?.abierto !== null) {
+      return t.quiz_info.abierto;
+    }
+    const apMs = t.apertureDateISO ? new Date(t.apertureDateISO).getTime() : null;
+    const clMs = t.closureDate ? new Date(t.closureDate).getTime() : null;
+    if (apMs && clMs) return nowMs >= apMs && nowMs <= clMs;
+    if (clMs) return nowMs <= clMs;
+    if (apMs) return nowMs >= apMs;
+    return false;
+  }).length;
+
+  const totalQuizzesCount = tasks.filter(t => 
+    t.type === 'CUESTIONARIO' || /quiz|cuestionario|examen|evalua|lecci|test\b/i.test(t.title || '')
+  ).length;
+
   return (
     <div id="app-root-container" className="min-h-screen bg-slate-50/50 text-slate-800 pb-16 font-sans">
       
@@ -2090,12 +2110,12 @@ export default function App() {
             </div>
           </div>
 
-          {/* Frozen Tab Navigation Menu - Simplified to 2 core views */}
+          {/* Frozen Tab Navigation Menu - 3 Core Views: Agenda, Quizzes, Statistics */}
           <div id="tab-controls-root" className="flex items-center space-x-1 sm:space-x-1.5 bg-slate-100/90 p-1.5 rounded-2xl border border-slate-200/70">
             <button
               id="tab-agenda-btn"
               onClick={() => setActiveTab("agenda")}
-              className={`px-3.5 sm:px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
+              className={`px-3 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 sm:space-x-2 cursor-pointer whitespace-nowrap ${
                 activeTab === "agenda"
                   ? "bg-white text-blue-600 shadow-2xs"
                   : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
@@ -2111,9 +2131,33 @@ export default function App() {
             </button>
 
             <button
+              id="tab-quizzes-btn"
+              onClick={() => setActiveTab("quizzes")}
+              className={`px-3 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 sm:space-x-2 cursor-pointer whitespace-nowrap ${
+                activeTab === "quizzes"
+                  ? "bg-white text-purple-600 shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
+              }`}
+            >
+              <FileCheck className="w-4 h-4 shrink-0 text-purple-600" />
+              <span>{t('tab.quizzes')}</span>
+              {openQuizzesCount > 0 ? (
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 animate-pulse">
+                  {openQuizzesCount} {language === 'es' ? 'abiertos' : 'open'}
+                </span>
+              ) : (
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                  activeTab === "quizzes" ? "bg-purple-50 text-purple-700" : "bg-slate-200/60 text-slate-600"
+                }`}>
+                  {totalQuizzesCount}
+                </span>
+              )}
+            </button>
+
+            <button
               id="tab-stats-btn"
               onClick={() => setActiveTab("stats")}
-              className={`px-3.5 sm:px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
+              className={`px-3 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 sm:space-x-2 cursor-pointer whitespace-nowrap ${
                 activeTab === "stats"
                   ? "bg-white text-blue-600 shadow-2xs"
                   : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
@@ -2124,8 +2168,11 @@ export default function App() {
             </button>
           </div>
 
-          {/* Connection badge status, Notifications bell, and More Options */}
+          {/* Connection badge status, Notifications bell, Language Toggle, and More Options */}
           <div className="flex items-center space-x-2 sm:space-x-2.5 shrink-0">
+
+            {/* Language toggle directly in header for instant switching */}
+            <LanguageToggle className="hidden sm:inline-flex" />
 
             {/* Always-Visible Sync Button in Frozen Header */}
             <button
@@ -2627,6 +2674,21 @@ export default function App() {
                 const base = match.baseUrl || task.moodleBaseUrl || '';
                 return `/api/moodle/proxy?url=${encodeURIComponent(fileUrl)}&server=${match.server}&baseUrl=${encodeURIComponent(base)}&username=${match.username}&session=${encodeURIComponent(match.cookies)}`;
               }}
+            />
+          )}
+
+          {/* TAB 2: QUIZZES PANEL */}
+          {activeTab === 'quizzes' && (
+            <QuizzesPanel
+              tasks={tasks}
+              sessions={sessions}
+              liveCoursesByAccount={liveCoursesByAccount}
+              onNavigateToAgenda={(activityUrl) => {
+                if (activityUrl) setAgendaNavigation(activityUrl);
+                setActiveTab('agenda');
+              }}
+              onViewHtml={handleViewHtml}
+              viewingTaskId={viewingTaskId}
             />
           )}
 

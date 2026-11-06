@@ -105,7 +105,7 @@ export default function SyncStatusBar({
             </span>
             <span className="text-slate-300">/</span>
             <span className="font-semibold text-slate-600 text-[11px]">
-              {completedTasks} de {totalTasks} ({percentComplete}%)
+              {completedTasks} {language === 'es' ? 'de' : 'of'} {totalTasks} ({percentComplete}%)
             </span>
             <div className="w-12 h-1.5 bg-slate-200 rounded-full overflow-hidden hidden md:block">
               <div 

@@ -855,7 +855,12 @@ export default function ActivityTimeline({
                     ? 'bg-purple-50 text-purple-700 border border-purple-100' 
                     : 'bg-sky-50 text-sky-700 border border-sky-100'
               }`}>
-                {task.type}
+                {(() => {
+                  if (task.type === 'TAREA') return language === 'es' ? 'TAREA' : 'ASSIGNMENT';
+                  if (task.type === 'CUESTIONARIO') return language === 'es' ? 'CUESTIONARIO' : 'QUIZ';
+                  if (task.type === 'MANUAL') return language === 'es' ? 'MANUAL' : 'MANUAL';
+                  return language === 'es' ? 'ACTIVIDAD' : 'ACTIVITY';
+                })()}
               </span>
             </div>
 
@@ -890,21 +895,35 @@ export default function ActivityTimeline({
             {/* Badges row: Status, Grade, Warnings */}
             <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
               {(() => {
-                const statusStr = task.status || (task.completed ? (language === 'es' ? 'Entregado' : 'Submitted') : (language === 'es' ? 'No entregado' : 'Not submitted'));
-                const isCalificado = statusStr.toLowerCase().includes('calificad');
-                const isEntregado = statusStr.toLowerCase().includes('entregad') || statusStr.toLowerCase().includes('enviad') || statusStr.toLowerCase().includes('finalizad');
-                const isBorrador = statusStr.toLowerCase().includes('borrador');
+                const rawStatus = task.status || (task.completed ? 'Entregado' : 'No entregado');
+                let displayStatus = rawStatus;
+                if (language === 'en') {
+                  const sLow = rawStatus.toLowerCase();
+                  if (sLow.includes('sin calificar') || sLow.includes('no calificado')) displayStatus = 'Ungraded';
+                  else if (sLow.includes('calificado')) displayStatus = 'Graded';
+                  else if (sLow.includes('no se ha enviado nada') || sLow.includes('no entregado') || sLow.includes('sin entregar')) displayStatus = 'Not submitted';
+                  else if (sLow.includes('enviado para calificar')) displayStatus = 'Submitted for grading';
+                  else if (sLow.includes('borrador')) displayStatus = 'Draft';
+                  else if (sLow.includes('enviado') || sLow.includes('entregado')) displayStatus = 'Submitted';
+                  else if (sLow.includes('terminado') || sLow.includes('finalizado')) displayStatus = 'Finished';
+                  else if (sLow.includes('en curso') || sLow.includes('en progreso')) displayStatus = 'In progress';
+                }
+
+                const statusLower = rawStatus.toLowerCase();
+                const isCalificado = statusLower.includes('calificad');
+                const isEntregado = statusLower.includes('entregad') || statusLower.includes('enviad') || statusLower.includes('finalizad') || statusLower.includes('terminad');
+                const isBorrador = statusLower.includes('borrador');
                 
                 let bgClass = 'bg-slate-50 text-slate-600 border-slate-200';
                 if (isCalificado) bgClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
                 else if (isEntregado) bgClass = 'bg-blue-50 text-blue-700 border-blue-200';
                 else if (isBorrador) bgClass = 'bg-amber-50 text-amber-700 border-amber-200';
-                else if (statusStr.toLowerCase().includes('no entregad') || statusStr.toLowerCase().includes('sin entregar')) bgClass = 'bg-rose-50 text-rose-700 border-rose-200';
+                else if (statusLower.includes('no entregad') || statusLower.includes('sin entregar') || statusLower.includes('no se ha enviado')) bgClass = 'bg-rose-50 text-rose-700 border-rose-200';
 
                 return (
                   <span className={`text-[10px] font-medium px-2 py-0.5 rounded-md border flex items-center gap-1 ${bgClass}`}>
                     <span className="w-1.5 h-1.5 rounded-full bg-current shrink-0"></span>
-                    {statusStr}
+                    {displayStatus}
                   </span>
                 );
               })()}
