@@ -90,6 +90,8 @@ export interface TodoTask {
   apertureDateISO?: string | null;
   completed: boolean;
   createdAt: string;
+  /** First time this activity was captured/detected by the app (ISO string). */
+  capturedAt?: string;
   status?: string | null;
   grade?: string | null;
   gradeOver?: string | null;

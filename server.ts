@@ -3159,6 +3159,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
                          false
                        ),
             createdAt: new Date().toISOString(),
+            capturedAt: new Date().toISOString(),
             status: computedStats.status,
             grade: computedStats.grade,
             gradeOver: computedStats.gradeOver || gradeMax || "10.0",
@@ -3467,6 +3468,7 @@ async function runBackgroundSync(key: string, sessions: any[]) {
                        false
                      ),
           createdAt: new Date().toISOString(),
+          capturedAt: new Date().toISOString(),
           status: computedStats.status,
           grade: computedStats.grade,
           gradeOver: computedStats.gradeOver || currentItem.wsGradeMax || "10.0",

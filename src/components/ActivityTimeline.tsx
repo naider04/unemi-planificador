@@ -227,7 +227,7 @@ export default function ActivityTimeline({
         task.closureDate || '',
         task.closureDate ? formatCalendarDate(task.closureDate) : '',
         task.completed ? t('csv.yes') : t('csv.no'),
-        task.createdAt || '',
+        task.capturedAt || task.createdAt || '',
         displayEntrega,
         displayGrade,
         task.gradeOver || '',
@@ -540,6 +540,18 @@ export default function ActivityTimeline({
     } catch {
       return null;
     }
+  };
+
+  const formatCapturedAt = (isoString?: string | null) => {
+    if (!isoString) return null;
+    const date = new Date(isoString);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleDateString(language === 'es' ? 'es-EC' : 'en-US', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'America/Guayaquil'
+    });
   };
 
   const getTaskEmoji = (task: TodoTask): { emoji: string; atypicalDeadline: boolean } => {
@@ -935,6 +947,16 @@ export default function ActivityTimeline({
                 >
                   <Users className="w-3 h-3 shrink-0" />
                   <span>{language === 'es' ? 'Grupo:' : 'Group:'} {task.grupo}</span>
+                </span>
+              )}
+
+              {formatCapturedAt(task.capturedAt || task.createdAt) && (
+                <span
+                  className="text-[10px] font-medium px-2 py-0.5 rounded-md border bg-slate-50 text-slate-600 border-slate-200 flex items-center gap-1"
+                  title={t('task.capturedTooltip')}
+                >
+                  <Calendar className="w-3 h-3 shrink-0" />
+                  <span>{t('task.capturedOn')} {formatCapturedAt(task.capturedAt || task.createdAt)}</span>
                 </span>
               )}
 

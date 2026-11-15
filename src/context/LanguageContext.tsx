@@ -140,6 +140,8 @@ const translations: Record<Language, Record<string, string>> = {
     'time.daysLeft': 'Faltan {days} días',
     'time.minutesLeft': '¡Faltan {mins} minutos!',
     'time.hoursLeft': '¡Faltan {hrs} horas!',
+    'task.capturedOn': 'Capturada:',
+    'task.capturedTooltip': 'Fecha en la que la actividad fue capturada por primera vez',
 
     // Connections List in App.tsx
     'conn.connectedAccounts': 'Cuentas Conectadas ({count})',
@@ -553,6 +555,8 @@ const translations: Record<Language, Record<string, string>> = {
     'time.daysLeft': '{days} days left',
     'time.minutesLeft': '{mins} minutes left!',
     'time.hoursLeft': '{hrs} hours left!',
+    'task.capturedOn': 'Captured:',
+    'task.capturedTooltip': 'Date the activity was first captured',
 
     // Connections List in App.tsx
     'conn.connectedAccounts': 'Connected Accounts ({count})',

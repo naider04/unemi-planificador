@@ -51,7 +51,8 @@ export default function NewTaskModal({ courses, isOpen, onClose, onSaveTask }: N
       description: description.trim() || undefined,
       closureDate: dueDate ? new Date(dueDate).toISOString() : null,
       completed: false,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      capturedAt: new Date().toISOString()
     };
 
     onSaveTask(newTask);

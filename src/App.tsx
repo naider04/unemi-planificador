@@ -18,6 +18,22 @@ import { useLanguage } from './context/LanguageContext';
 import LanguageToggle from './components/LanguageToggle';
 import { getServerLabel } from './shared/platforms';
 
+/** Return the earliest valid ISO timestamp among the given candidates. */
+function earliestCapturedAt(...values: (string | null | undefined)[]): string | undefined {
+  let best: number | undefined;
+  let result: string | undefined;
+  for (const value of values) {
+    if (!value) continue;
+    const time = new Date(value).getTime();
+    if (Number.isNaN(time)) continue;
+    if (best === undefined || time < best) {
+      best = time;
+      result = value;
+    }
+  }
+  return result;
+}
+
 export function mergeTasksLists(currentTasks: TodoTask[], newTasks: TodoTask[]): TodoTask[] {
   const merged = [...currentTasks];
   newTasks.forEach(nt => {
@@ -34,6 +50,7 @@ export function mergeTasksLists(currentTasks: TodoTask[], newTasks: TodoTask[]):
         ...nt,
         completed: merged[idx].completed || nt.completed,
         section: nt.section ?? merged[idx].section ?? null,
+        capturedAt: earliestCapturedAt(merged[idx].capturedAt, nt.capturedAt, merged[idx].createdAt, nt.createdAt),
       };
     } else {
       merged.push(nt);
@@ -1431,7 +1448,8 @@ export default function App() {
                 merged[matchIdx] = {
                   ...merged[matchIdx],
                   ...srvTask,
-                  id: merged[matchIdx].id // preserve local ID
+                  id: merged[matchIdx].id, // preserve local ID
+                  capturedAt: earliestCapturedAt(merged[matchIdx].capturedAt, srvTask.capturedAt, merged[matchIdx].createdAt, srvTask.createdAt)
                 };
               } else {
                 merged.push(srvTask);
@@ -1654,7 +1672,8 @@ export default function App() {
                 merged[matchIdx] = {
                   ...merged[matchIdx],
                   ...srvTask,
-                  id: merged[matchIdx].id
+                  id: merged[matchIdx].id,
+                  capturedAt: earliestCapturedAt(merged[matchIdx].capturedAt, srvTask.capturedAt, merged[matchIdx].createdAt, srvTask.createdAt)
                 };
               } else {
                 merged.push(srvTask);
