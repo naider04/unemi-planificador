@@ -511,6 +511,18 @@ export default function App() {
     return t('time.daysAgo', { days: diffDays });
   };
 
+  const formatNotificationDate = (timestamp: number) => {
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString(language === 'en' ? 'en-US' : 'es-EC', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   const markNotificationRead = (notifId: string) => {
     setNotifications(prev => {
       const updated = prev.map(n => n.id === notifId ? { ...n, read: true } : n);
@@ -618,17 +630,35 @@ export default function App() {
 
           const formattedClosureDate = formatClosureDate(incomingTask.closureDate);
 
+          const capturedIso = incomingTask.capturedAt || incomingTask.createdAt;
+          let formattedCapturedDate: string | null = null;
+          if (capturedIso) {
+            const captured = new Date(capturedIso);
+            if (!Number.isNaN(captured.getTime())) {
+              formattedCapturedDate = captured.toLocaleString(language === 'en' ? 'en-US' : 'es-EC', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              });
+            }
+          }
+
           newNotifications.push({
             id: `new_task_${incomingTask.id || now}_${Math.random().toString(36).substr(2, 5)}`,
             moodleUsername: incomingTask.moodleUsername || '',
             moodleServer: incomingTask.moodleServer || 'a',
             timestamp: now,
             title: incomingTask.title || t('notif.newActivityTitle'),
-            message: t('notif.newActivityBody', { date: formattedClosureDate }),
+            message: formattedCapturedDate
+              ? t('notif.newActivityBodyWithCapture', { date: formattedClosureDate, captured: formattedCapturedDate })
+              : t('notif.newActivityBody', { date: formattedClosureDate }),
             type: 'new',
             read: false,
             activityUrl: incomingTask.activityUrl,
-            courseName: incomingTask.courseName
+            courseName: incomingTask.courseName,
+            capturedAt: capturedIso
           });
         } else {
           const prevClosure = existingTask.closureDate || null;
@@ -2370,10 +2400,15 @@ export default function App() {
                               <p className="text-[10px] text-gray-500 leading-snug break-words font-medium whitespace-pre-line">
                                 {notif.message}
                               </p>
-                              <div className="flex items-center space-x-1.5 text-[9px] font-bold text-gray-400 mt-1">
+                              <div className="flex flex-wrap items-center gap-1.5 text-[9px] font-bold text-gray-400 mt-1">
                                 <span className="uppercase text-[8px] bg-gray-100 text-gray-600 px-1 py-0.2 rounded-sm font-semibold max-w-[140px] truncate" title={notif.courseName || getServerLabel(notif.moodleServer, notif.moodleBaseUrl)}>
                                   {notif.courseName || getServerLabel(notif.moodleServer, notif.moodleBaseUrl)}
                                 </span>
+                                {formatNotificationDate(notif.timestamp) && (
+                                  <span className="whitespace-nowrap normal-case">
+                                    {formatNotificationDate(notif.timestamp)}
+                                  </span>
+                                )}
                               </div>
                             </div>
                             {!notif.read && (

@@ -132,4 +132,6 @@ export interface MoodleNotification {
   read: boolean;
   activityUrl?: string;
   courseName?: string;
+  /** First time the related activity was captured/detected by the app. */
+  capturedAt?: string;
 }
